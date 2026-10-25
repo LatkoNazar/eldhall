@@ -36,7 +36,7 @@ git rev-parse HEAD
 
 ```powershell
 $repoPath = (git rev-parse --show-toplevel).Trim()
-$startBranch = ([string](git branch --show-current)).Trim()
+$startBranch = ((git branch --show-current) -join '').Trim()
 $baseSha = (git rev-parse HEAD).Trim()
 if (-not $startBranch) { throw 'Спочатку обери робочу гілку замість detached HEAD.' }
 $protectedBranches = @('main', 'master') # Доповни іншими захищеними гілками репозиторію.
@@ -45,7 +45,7 @@ if ($startBranch -in $protectedBranches) {
     git switch -c $batchBranch $baseSha
     if ($LASTEXITCODE -ne 0) { throw 'Інтеграційну гілку не створено.' }
 }
-$integrationBranch = ([string](git branch --show-current)).Trim()
+$integrationBranch = ((git branch --show-current) -join '').Trim()
 $featureId = "jobs-export-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $featureBranch = "feat/$featureId"
 $repoName = Split-Path -Leaf $repoPath
