@@ -56,7 +56,7 @@ if [[ -n "$previous" && -f "$previous/compose.yaml" ]]; then
 fi
 "${compose[@]}" run --rm --no-deps migrate
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180 api worker
-"${compose[@]}" exec -T api python - < "$release/scripts/smoke.py"
+"${compose[@]}" exec -T api python - < "$release/apps/backend/scripts/smoke.py"
 if [[ -f "$root/.use-caddy" ]]; then
   "${compose[@]}" up -d --no-build --wait --wait-timeout 120 caddy
 fi

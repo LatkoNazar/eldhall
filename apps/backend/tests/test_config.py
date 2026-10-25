@@ -54,3 +54,21 @@ def test_celery_operational_queues_are_compatible_with_rabbitmq_43():
     queues = [events.queue, control.get_queue("worker@test"), control.get_reply_queue()]
     for queue in queues:
         assert queue.durable or queue.exclusive, queue.name
+
+
+def test_shared_environment_file_discovery_from_backend_and_container(tmp_path, monkeypatch):
+    from app.core.config import environment_files
+
+    repository = tmp_path / "repository"
+    backend = repository / "apps" / "backend"
+    backend.mkdir(parents=True)
+    (repository / "compose.yaml").touch()
+    (repository / ".env").write_text("POSTGRES_DB=shared_database\n", encoding="utf-8")
+    monkeypatch.chdir(backend)
+    assert Settings(_env_file=environment_files()).postgres_db == "shared_database"
+    monkeypatch.chdir(repository)
+    assert Settings(_env_file=environment_files()).postgres_db == "shared_database"
+    standalone = tmp_path / "container_app"
+    standalone.mkdir()
+    monkeypatch.chdir(standalone)
+    assert environment_files() == (standalone / ".env", standalone / ".env")

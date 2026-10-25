@@ -14,13 +14,13 @@ docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
 docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker
 ```
 
-API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. API автоматично перечитує зміни `src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй образ.
+API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. API автоматично перечитує зміни `apps/backend/src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй образ.
 
 ```powershell
 $headers = @{ Authorization = "Bearer development-token-not-for-production" }
 $job = Invoke-RestMethod http://localhost:8000/api/v1/jobs -Method Post -Headers $headers -ContentType application/json -Body '{"text":"hello","operation":"uppercase"}'
 Invoke-RestMethod "http://localhost:8000/api/v1/jobs/$($job.id)" -Headers $headers
-Get-Content -Raw scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
+Get-Content -Raw apps/backend/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
 ```
 
 `GET /health/live` перевіряє процес, `/health/ready` — PostgreSQL, Redis та RabbitMQ. Окремий Docker healthcheck worker перевіряє відповідь Celery; smoke також чекає виконання задачі. У production Swagger вимкнений, API задач захищено Bearer `API_TOKEN`. Не вбудовуй спільний API_TOKEN у публічний frontend: перед відкриттям застосунку для користувачів додай його власну автентифікацію.
@@ -28,28 +28,43 @@ Get-Content -Raw scripts/smoke.py | docker compose -f compose.yaml -f compose.de
 ## Структура та нові модулі
 
 ```text
-src/app/
-  main.py             # збирає застосунок і роутери
-  core/               # конфіг, БД, Celery, спільна інфраструктура
-  modules/
-    system/           # health endpoints
-    jobs/             # робочий приклад: model, schema, service, router, tasks
-migrations/           # спільний ланцюжок Alembic
+apps/
+  backend/
+    src/app/
+      main.py         # збирає застосунок і роутери
+      core/           # конфіг, БД, Celery, спільна інфраструктура
+      modules/
+        system/       # health endpoints
+        jobs/         # model, schemas, services, router, tasks
+    migrations/       # спільний ланцюжок Alembic
+    tests/
+    scripts/smoke.py  # перевірка API та фонової задачі
+    pyproject.toml
+    uv.lock
+    alembic.ini
+    Dockerfile
 infra/                # необов'язковий Caddy
-scripts/              # deploy, rollback, backup, smoke
+scripts/              # deploy, rollback, backup, генерація env
 .github/workflows/    # CI та деплой з main
+compose*.yaml         # спільна інфраструктура всіх застосунків
+.env.example          # спільна конфігурація середовища
 ```
 
-Для фічі створюй `modules/<feature>/` і підключай її router у `main.py`. Логіку тримай в service, HTTP у router, ORM у models, Celery-обгортки у tasks. Інші модулі викликають публічні сервіси, не їхні router. Зареєструй ORM-моделі у `migrations/env.py`, а task-модулі — у `core/celery_app.py`. Перевірки архітектурних меж не автоматизовані; дотримуйся цих правил у коді.
+Кожен застосунок має власні залежності, тести й Dockerfile. Майбутній JS frontend можна додати в `apps/frontend/` зі своїм `package.json` та lockfile; зараз створений тільки backend. Docker Compose, CI/CD і скрипти сервера залишаються спільними в корені репозиторію.
+
+Для фічі створюй `apps/backend/src/app/modules/<feature>/` і підключай її router у `main.py`. Логіку тримай в services, HTTP у router, ORM у models, Celery-обгортки у tasks. Інші модулі викликають публічні сервіси, не їхні router. Зареєструй ORM-моделі у `apps/backend/migrations/env.py`, а task-модулі — у `core/celery_app.py`. Перевірки архітектурних меж не автоматизовані; дотримуйся цих правил у коді.
+
+Команди Python запускай з директорії backend:
 
 ```powershell
+cd apps/backend
 uv sync --frozen
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 ```
 
-Для локального Python підстав у змінні середовища `POSTGRES_HOST`, `REDIS_HOST`, `RABBITMQ_HOST` значення `localhost`; credentials беруться з `.env`. Усі контейнери використовують внутрішні DNS-імена сервісів. `uv run alembic revision --autogenerate -m "feature"` створює міграцію, `uv run alembic upgrade head` застосовує її. Після створення міграції локально включи її у наступний Docker build. У production не запускай autogenerate: лише перевірені міграції з Git.
+Для локального Python підстав у змінні середовища `POSTGRES_HOST`, `REDIS_HOST`, `RABBITMQ_HOST` значення `localhost`; credentials беруться зі спільного `.env` у корені репозиторію. Усі контейнери використовують внутрішні DNS-імена сервісів. З `apps/backend/` команда `uv run alembic revision --autogenerate -m "feature"` створює міграцію, `uv run alembic upgrade head` застосовує її. Після створення міграції локально включи її у наступний Docker build. У production не запускай autogenerate: лише перевірені міграції з Git. Команди Docker Compose та серверні скрипти запускай з кореня репозиторію.
 
 ## Перший серверний запуск
 

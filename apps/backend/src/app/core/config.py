@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
@@ -7,8 +8,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
 
+def environment_files() -> tuple[Path, Path]:
+    """Share the monorepo env from either working directory; support standalone containers."""
+    working_directory = Path.cwd()
+    repository = next(
+        (
+            directory
+            for directory in (working_directory, *working_directory.parents)
+            if (directory / "compose.yaml").is_file()
+        ),
+        working_directory,
+    )
+    return repository / ".env", working_directory / ".env"
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=environment_files(), extra="ignore")
 
     environment: Literal["development", "production"] = "development"
     postgres_host: str = "postgres"

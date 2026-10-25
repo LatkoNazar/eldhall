@@ -16,7 +16,7 @@ APP_IMAGE=$(cat "$target/image.ref")
 compose=(docker compose --project-name comp-prep --env-file "$root/.env" -f "$target/compose.yaml" -f "$target/compose.prod.yaml")
 if [[ -f "$root/.use-caddy" ]]; then compose+=(-f "$target/infra/compose.caddy.yaml"); fi
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180 api worker
-"${compose[@]}" exec -T api python - < "$target/scripts/smoke.py"
+"${compose[@]}" exec -T api python - < "$target/apps/backend/scripts/smoke.py"
 if [[ -f "$root/.use-caddy" ]]; then
   "${compose[@]}" up -d --no-build --wait --wait-timeout 120 caddy
 fi

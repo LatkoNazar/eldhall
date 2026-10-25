@@ -27,17 +27,20 @@ jobs:
         with:
           version: "0.11.0"
           python-version: "3.12"
+          cache-dependency-glob: apps/backend/uv.lock
       - name: Install locked dependencies
+        working-directory: apps/backend
         run: uv sync --frozen
       - name: Lint, format and unit tests
+        working-directory: apps/backend
         run: |
-          uv run ruff check .
-          uv run ruff format --check .
+          uv run ruff check --config pyproject.toml . ../../scripts/init-env.py
+          uv run ruff format --check --config pyproject.toml . ../../scripts/init-env.py
           uv run pytest -m 'not integration'
       - name: Validate production composition
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
       - name: Build image
-        run: docker build --tag "$APP_IMAGE" .
+        run: docker build --tag "$APP_IMAGE" apps/backend
       - name: Start dependencies and migrate
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq
@@ -45,7 +48,7 @@ jobs:
       - name: Start application and exercise real background job
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T api python - < scripts/smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T api python - < apps/backend/scripts/smoke.py
       - name: Diagnostics
         if: failure()
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
@@ -85,10 +88,10 @@ jobs:
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
       - name: Build immutable release image and bundle
         run: |
-          docker build --tag "comp-prep:$GITHUB_SHA" .
+          docker build --tag "comp-prep:$GITHUB_SHA" apps/backend
           mkdir -p .deploy
           docker save "comp-prep:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
-          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/backend/scripts/smoke.py
       - name: Upload release and deploy
         run: |
           set -euo pipefail

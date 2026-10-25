@@ -36,7 +36,7 @@ x-dependencies: &dependencies
 x-app: &app
   image: ${APP_IMAGE:-comp-prep:local}
   build:
-    context: .
+    context: ./apps/backend
     dockerfile: Dockerfile
   pull_policy: never
   environment: *app-environment
