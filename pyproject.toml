@@ -1,0 +1,37 @@
+[project]
+name = "competition-starter"
+version = "0.1.0"
+description = "A deployable modular Python monolith for competition day"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic>=1.16,<2",
+  "celery[redis]>=5.6,<6",
+  "fastapi>=0.115,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic-settings>=2.8,<3",
+  "redis>=5.2,<7",
+  "sqlalchemy>=2.0,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[dependency-groups]
+dev = ["httpx>=0.28,<1", "pytest>=8.3,<10", "ruff>=0.11,<1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/app"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires a running PostgreSQL, Redis, RabbitMQ and Celery worker"]
+addopts = "-m 'not integration'"

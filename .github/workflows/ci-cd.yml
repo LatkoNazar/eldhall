@@ -1,0 +1,107 @@
+name: CI and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_IMAGE: comp-prep:ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.11.0"
+          python-version: "3.12"
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Lint, format and unit tests
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -m 'not integration'
+      - name: Validate production composition
+        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
+      - name: Build image
+        run: docker build --tag "$APP_IMAGE" .
+      - name: Start dependencies and migrate
+        run: |
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
+      - name: Start application and exercise real background job
+        run: |
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T api python - < scripts/smoke.py
+      - name: Diagnostics
+        if: failure()
+        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
+      - name: Clean CI environment
+        if: always()
+        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml down --volumes
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/comp-prep' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Configure verified SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9/_-]+$ && "$DEPLOY_PATH" != / ]]
+          test -n "$SSH_KEY"
+          test -n "$KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+      - name: Build immutable release image and bundle
+        run: |
+          docker build --tag "comp-prep:$GITHUB_SHA" .
+          mkdir -p .deploy
+          docker save "comp-prep:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts
+      - name: Upload release and deploy
+        run: |
+          set -euo pipefail
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote="$DEPLOY_PATH/releases/$GITHUB_SHA"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$target" "mkdir -p '$remote'"
+          scp -i ~/.ssh/deploy_key -P "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes .deploy/release.tar.gz .deploy/image.tar.gz "$target:$remote/"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$target" "tar -xzf '$remote/release.tar.gz' -C '$remote' && bash '$remote/scripts/deploy.sh' '$DEPLOY_PATH' '$GITHUB_SHA'"
+      - name: Check public HTTPS endpoint
+        if: vars.PUBLIC_URL != ''
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: curl --fail --show-error --silent --retry 6 --retry-all-errors --retry-delay 10 --max-time 15 "$PUBLIC_URL/health/ready"
+      - name: Remove runner deployment key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

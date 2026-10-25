@@ -1,0 +1,18 @@
+services:
+  api:
+    environment:
+      ENVIRONMENT: production
+      API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}
+    ports:
+      - "127.0.0.1:${APP_PORT:-18000}:8000"
+  worker:
+    environment:
+      ENVIRONMENT: production
+      API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}
+  migrate:
+    environment:
+      ENVIRONMENT: production
+      API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}

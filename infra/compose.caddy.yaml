@@ -1,0 +1,31 @@
+# Add after compose.yaml and compose.prod.yaml only if this application owns ports 80/443.
+# Paths are relative to the FIRST Compose file (the repository/deployment root).
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to the public hostname}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL for TLS certificate notifications}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [edge]
+
+volumes:
+  caddy_data:
+  caddy_config:
