@@ -4,6 +4,7 @@ set -Eeuo pipefail
 umask 077
 root=${1:?Usage: rollback.sh /absolute/deploy/root}
 source "$(dirname "${BASH_SOURCE[0]}")/project.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/release.sh"
 validate_deploy_root "$root"
 exec 9>"$root/.deploy.lock"
 flock -w 600 9
@@ -19,11 +20,37 @@ compose=(docker compose --env-file "$root/.env" -f "$target/compose.yaml" -f "$t
 if [[ -f "$root/.use-caddy" ]]; then compose+=(-f "$target/infra/compose.caddy.yaml"); fi
 assert_compose_project "$project_name" "${compose[@]}"
 assert_current_project "$root" "$project_name"
-"${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180 api worker
-"${compose[@]}" exec -T api python - < "$target/apps/backend/scripts/smoke.py"
-if [[ -f "$root/.use-caddy" ]]; then
-  "${compose[@]}" up -d --no-build --wait --wait-timeout 120 caddy
+services=$("${compose[@]}" config --services)
+export FRONTEND_IMAGE
+FRONTEND_IMAGE=$(frontend_image_for_release "$target" "$APP_IMAGE" "$services")
+current_compose=(docker compose --env-file "$root/.env" -f "$current/compose.yaml" -f "$current/compose.prod.yaml")
+if [[ -f "$root/.use-caddy" ]]; then current_compose+=(-f "$current/infra/compose.caddy.yaml"); fi
+assert_compose_project "$project_name" "${current_compose[@]}"
+current_services=$("${current_compose[@]}" config --services)
+current_image=$(cat "$current/image.ref")
+current_frontend_image=$(frontend_image_for_release "$current" "$current_image" "$current_services")
+docker image inspect "$APP_IMAGE" >/dev/null
+if has_service "$services" frontend; then docker image inspect "$FRONTEND_IMAGE" >/dev/null; fi
+recover_current() {
+  result=$?
+  trap - ERR
+  echo 'Rollback failed; restoring the current release images and proxy.' >&2
+  export APP_IMAGE="$current_image" FRONTEND_IMAGE="$current_frontend_image"
+  if start_application "$current" "$current_services" "${current_compose[@]}"; then
+    if ! has_service "$current_services" frontend; then remove_frontend "$services" "${compose[@]}" || true; fi
+    ln -sfn "$current" "$root/current"
+    ln -sfn "$target" "$root/previous"
+  else
+    echo 'Current release could not be restored; inspect the release manually.' >&2
+  fi
+  exit "$result"
+}
+trap recover_current ERR
+start_application "$target" "$services" "${compose[@]}"
+if ! has_service "$services" frontend; then
+  remove_frontend "$current_services" "${current_compose[@]}"
 fi
 ln -sfn "$target" "$root/current"
 ln -sfn "$current" "$root/previous"
+trap - ERR
 echo "Rolled application back to $APP_IMAGE. Database unchanged."

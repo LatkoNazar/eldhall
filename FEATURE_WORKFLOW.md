@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Worktree не створено; агента �
 ## 3. Завдання виконавцю
 
 Передай агенту: мету, критерії приймання, дозволену область, залежності, базовий SHA, гілку, абсолютний workdir і потрібні перевірки.
-Backend розташований у `apps/backend`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені.
+Backend розташований у `apps/backend`, React/TypeScript frontend — у `apps/frontend`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені. Frontend використовує npm та власний `package-lock.json`; признач одного автора для змін залежностей.
 Нові модулі додавай у `apps/backend/src/app/modules/`, дотримуючись меж модульного моноліту з README.
 
 Git не переносить ігноровані `.env`, `.venv` та локальні артефакти у worktree.
@@ -78,9 +78,11 @@ uv --directory apps/backend run ruff format --check .
 uv --directory apps/backend run pytest
 ```
 
+Для frontend з директорії `apps/frontend` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` і `npm run build`.
+
 У кожному worktree `PROJECT_NAME` задає локальну ідентичність застосунку; за замовчуванням шаблон використовує `starter`.
-За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE` і host-порти:
-`API_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`.
+За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE`, `FRONTEND_IMAGE` і host-порти:
+`API_LOCAL_PORT`, `FRONTEND_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`; для production-подібного запуску — `APP_PORT` і `FRONTEND_PORT`.
 Самого окремого project name недостатньо: порти та тег образу також можуть конфліктувати.
 `COMPOSE_PROJECT_NAME` використовуй для локальної ізоляції; production-ім'я визначає `PROJECT_NAME` і має збігатися з однойменною GitHub Variable.
 Використовуй ці значення послідовно для build/up/run/exec/down; дані мають бути локальними для цього проєкту.
@@ -106,7 +108,7 @@ git merge --no-ff $featureBranch
 Виконавці зупиняють редагування перед передачею гілки на merge.
 Подальші виправлення роби в інтеграційній гілці одним призначеним автором або в новій repair-гілці від її актуального SHA.
 
-Після злиття пакета запусти Ruff, форматування й повний unit-набір наведеними вище командами.
+Після злиття пакета запусти Ruff, форматування й повний Python unit-набір наведеними вище командами, а також lint, typecheck, тести й production build frontend.
 Перевір `uv --directory apps/backend run alembic heads`: має залишитися один узгоджений head; за розгалуження створи й перевір merge-міграцію.
 На ізольованому dev-стеку перебудуй образ, застосуй міграції до чистої БД і перевір оновлення попередньої схеми, якщо змінювалася схема.
 Запусти API й worker за README та виконай наявний smoke:
@@ -115,7 +117,7 @@ git merge --no-ff $featureBranch
 Get-Content -Raw apps/backend/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
 ```
 
-Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей.
+Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle або `VITE_*`.
 Окремо перевір нові API/фонові сценарії, їхні помилки й права доступу; додай відповідні перевірки за потреби.
 Не позначай блоковані або невиконані перевірки як успішні.
 

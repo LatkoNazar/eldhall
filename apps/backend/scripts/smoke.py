@@ -13,6 +13,8 @@ from urllib.request import Request, urlopen
 def request(path: str, body: dict | None = None) -> dict:
     token = os.environ.get("API_TOKEN", "")
     headers = {"Content-Type": "application/json"}
+    if host := os.environ.get("SMOKE_HOST"):
+        headers["Host"] = host
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = Request(

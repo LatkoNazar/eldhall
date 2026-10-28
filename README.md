@@ -1,6 +1,6 @@
 # Основа для змагання
 
-FastAPI, PostgreSQL, Redis, Celery та RabbitMQ в одному репозиторії. Модульний моноліт має спільний образ і базу; API та Celery запускаються окремими процесами з того самого коду. Docker Compose призначений для одного Linux VPS. CI перевіряє реальну фонову задачу до деплою.
+React, TypeScript, Vite, FastAPI, PostgreSQL, Redis, Celery та RabbitMQ в одному репозиторії. Backend — модульний моноліт зі спільним образом і базою; API та Celery запускаються окремими процесами з того самого коду. Frontend має власний образ зі статичною production-збіркою. Docker Compose призначений для одного Linux VPS. CI перевіряє frontend і реальну фонову задачу через його proxy до деплою.
 
 Робота з фічами через головного агента та окремі worktrees: [інструкція](FEATURE_WORKFLOW.md).
 
@@ -27,9 +27,9 @@ python scripts/init-env.py --project-name booking --domain api.booking.example.c
 
 Генератор не перезаписує наявні файли. Не генеруй `.env` повторно для вже запущеної БД: збережи її credentials та API token, змінюючи потрібні параметри в наявному файлі.
 
-`PROJECT_NAME` визначає Compose-проєкт і типовий тег локального образу `booking:local`. `APP_IMAGE` може явно перевизначити образ; стандартний `COMPOSE_PROJECT_NAME` використовуй лише для ізоляції локальних worktrees. У production задай однаковий `PROJECT_NAME` у серверному `.env` і GitHub Variable та не передавай інші імена через shell або `COMPOSE_PROJECT_NAME`. Деплой перевіряє ефективне ім'я Compose з урахуванням стандартного пріоритету змінних і зупиняється до оновлення застосунку, якщо воно не відповідає очікуваному.
+`PROJECT_NAME` визначає Compose-проєкт і типові теги локальних образів `booking:local` та `booking-frontend:local`. `APP_IMAGE` і `FRONTEND_IMAGE` можуть явно перевизначити відповідні образи; стандартний `COMPOSE_PROJECT_NAME` використовуй лише для ізоляції локальних worktrees. У production задай однаковий `PROJECT_NAME` у серверному `.env` і GitHub Variable та не передавай інші імена через shell або `COMPOSE_PROJECT_NAME`. Деплой перевіряє ефективне ім'я Compose з урахуванням стандартного пріоритету змінних і зупиняється до оновлення застосунку, якщо воно не відповідає очікуваному.
 
-Обери ім'я до першого запуску: його зміна створює інші Docker-ресурси й volumes та не переносить наявні дані. Для кількох проєктів на одному сервері також признач окремі `APP_PORT`, домени й каталоги; одного різного імені недостатньо для уникнення конфліктів портів.
+Обери ім'я до першого запуску: його зміна створює інші Docker-ресурси й volumes та не переносить наявні дані. Для кількох проєктів на одному сервері також признач окремі `APP_PORT`, `FRONTEND_PORT`, домени й каталоги та використовуй спільний зовнішній proxy; одного різного імені недостатньо для уникнення конфліктів портів. Вбудований TLS Caddy призначений для одного активного проєкту на сервері й займає 80/443.
 
 ## Локальний запуск
 
@@ -41,10 +41,20 @@ Copy-Item .env.example .env
 docker compose -f compose.yaml -f compose.dev.yaml build
 docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis rabbitmq
 docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
-docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker
+docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker frontend
 ```
 
-API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. API автоматично перечитує зміни `apps/backend/src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй образ.
+Frontend: http://localhost:5173, API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. Vite автоматично оновлює React після змін `apps/frontend/`, API перечитує зміни `apps/backend/src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй відповідний образ і перезапусти сервіс.
+
+Для frontend поза Docker потрібен Node.js 24.15+ у межах гілки 24.x. Запусти backend за командами вище, але не запускай контейнер `frontend`, і в іншому терміналі виконай:
+
+```powershell
+cd apps/frontend
+npm ci
+npm run dev
+```
+
+Frontend використовує відносні `/api/*` та `/health/*`. У dev Vite передає ці запити на `http://127.0.0.1:8000`, у Compose — на `api:8000`. Для іншого локального backend задай `API_PROXY_TARGET` перед `npm run dev`. Порт Vite типовий `5173`; для контейнера його можна змінити через `FRONTEND_LOCAL_PORT` у кореневому `.env`. `VITE_*` є публічними build-time значеннями: ніколи не передавай через них `API_TOKEN` чи інші секрети.
 
 ```powershell
 $headers = @{ Authorization = "Bearer development-token-not-for-production" }
@@ -73,6 +83,13 @@ apps/
     uv.lock
     alembic.ini
     Dockerfile
+  frontend/
+    src/              # React, TypeScript та UI-тести
+    package.json
+    package-lock.json
+    vite.config.ts    # dev proxy до backend
+    Caddyfile         # static files, SPA fallback та API proxy
+    Dockerfile        # Node для build/dev, Caddy для production
 infra/                # необов'язковий Caddy
 scripts/              # deploy, rollback, backup, генерація env
 .github/workflows/    # CI та деплой з main
@@ -80,7 +97,7 @@ compose*.yaml         # спільна інфраструктура всіх з�
 .env.example          # спільна конфігурація середовища
 ```
 
-Кожен застосунок має власні залежності, тести й Dockerfile. Майбутній JS frontend можна додати в `apps/frontend/` зі своїм `package.json` та lockfile; зараз створений тільки backend. Docker Compose, CI/CD і скрипти сервера залишаються спільними в корені репозиторію.
+Кожен застосунок має власні залежності, тести й Dockerfile. Python використовує `uv.lock`, frontend — `package-lock.json` і `npm ci`. Docker Compose, CI/CD і скрипти сервера спільні в корені репозиторію.
 
 Для фічі створюй `apps/backend/src/app/modules/<feature>/` і підключай її router у `main.py`. Логіку тримай в services, HTTP у router, ORM у models, Celery-обгортки у tasks. Інші модулі викликають публічні сервіси, не їхні router. Зареєструй ORM-моделі у `apps/backend/migrations/env.py`, а task-модулі — у `core/celery_app.py`. Перевірки архітектурних меж не автоматизовані; дотримуйся цих правил у коді.
 
@@ -94,11 +111,23 @@ uv run ruff format --check .
 uv run pytest
 ```
 
+Перевірки frontend запускай з `apps/frontend`:
+
+```powershell
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Production не запускає Vite dev/preview server: образ містить лише результат збірки й Caddy. `/` та адреси сторінок відкривають SPA, `/assets/*` віддає статичні файли, `/api/*` і `/health/*` передаються до FastAPI зі збереженням шляху. Відсутній API endpoint або asset повертає справжню помилку, а не HTML сторінки. `/frontend-health` перевіряє HTTP-сервер frontend; `/health/ready` — залежності backend.
+
 Для локального Python підстав у змінні середовища `POSTGRES_HOST`, `REDIS_HOST`, `RABBITMQ_HOST` значення `localhost`; credentials беруться зі спільного `.env` у корені репозиторію. Усі контейнери використовують внутрішні DNS-імена сервісів. З `apps/backend/` команда `uv run alembic revision --autogenerate -m "feature"` створює міграцію, `uv run alembic upgrade head` застосовує її. Після створення міграції локально включи її у наступний Docker build. У production не запускай autogenerate: лише перевірені міграції з Git. Команди Docker Compose та серверні скрипти запускай з кореня репозиторію.
 
 ## Перший серверний запуск без домену
 
-Для першого релізу достатньо сервера й SSH-доступу. API слухає лише `127.0.0.1:18000` на сервері; доступ до нього отримуємо через SSH-тунель. Домен, DNS і TLS не блокують налаштування CI/CD.
+Для першого релізу достатньо сервера й SSH-доступу. Frontend слухає лише `127.0.0.1:18001`, API — `127.0.0.1:18000` на сервері; доступ отримуємо через SSH-тунель. Домен, DNS і TLS не блокують налаштування CI/CD.
 
 1. На Ubuntu без Docker: скопіюй `scripts/bootstrap-ubuntu.sh` і `scripts/project.sh` в одну директорію на сервері та запусти `sudo bash bootstrap-ubuntu.sh <deploy-user> booking` з неї. Користувач уже має існувати. Необов'язковий третій аргумент задає абсолютний каталог замість `/opt/apps/booking`; таке саме значення встанови в `DEPLOY_PATH`. Скрипт використовує офіційний Docker apt repository, не змінює DNS і firewall. Перепідключи SSH після додавання користувача до групи docker. На інших Linux встанови Docker Engine та Compose за офіційною інструкцією.
 2. Створи приватний production env командою `python scripts/init-env.py --project-name booking --output .env.production`. Файл створюється з випадковими секретами та не перезаписує наявний. Перенеси його на сервер як `/opt/apps/booking/.env` з правами `600`; у GitHub паролі БД передавати не потрібно. На Windows NTFS додатково обмеж доступ до локального файлу своїм користувачем.
@@ -119,17 +148,17 @@ uv run pytest
 | Secret | `DEPLOY_SSH_KEY` | окремий приватний ключ для Actions |
 | Secret | `DEPLOY_KNOWN_HOSTS` | перевірений SSH host key сервера |
 
-CI запускає lint, форматування, unit tests, збирає образ, мігрує чисту БД і виконує задачу через справжню чергу. Обидва jobs, перевірка й деплой, використовують `RUNNER_LABEL` та збирають образ нативної архітектури runner: `linux/amd64` або `linux/arm64`. Обери ту саму архітектуру, що на VPS.
+CI запускає Python lint, форматування та unit tests, frontend lint, перевірку TypeScript, UI-тести та production build. Він збирає обидва образи, мігрує чисту БД, перевіряє маршрути frontend і виконує задачу через його proxy та справжню чергу. Обидва jobs, перевірка й деплой, використовують `RUNNER_LABEL` та збирають образи нативної архітектури runner: `linux/amd64` або `linux/arm64`. Обери ту саму архітектуру, що на VPS.
 
-Деплой запускається лише після успішного CI для `main` та за ввімкненого `DEPLOY_ENABLED`. Перед збиранням релізного образу preflight перевіряє Docker/Compose на сервері, каталог і серверний `.env`, а також збіг архітектур сервера й runner. Образ з тегом Git SHA передається через SSH як архів: серверу не потрібні GitHub registry credentials.
+Деплой запускається лише після успішного CI для `main` та за ввімкненого `DEPLOY_ENABLED`. Перед збиранням релізних образів preflight перевіряє Docker/Compose на сервері, каталог і серверний `.env`, а також збіг архітектур сервера й runner. Backend і frontend з тегом одного Git SHA передаються через SSH в одному архіві: серверу не потрібні GitHub registry credentials.
 
 Після успішного релізу відкрий тунель із локального комп'ютера й залиш команду працювати:
 
 ```bash
-ssh -N -L 18080:127.0.0.1:18000 user@server
+ssh -N -L 18081:127.0.0.1:18001 user@server
 ```
 
-Підстав свого SSH-користувача й сервер; ключ і порт можна задати через SSH config або відповідні параметри `ssh`. Якщо змінив `APP_PORT`, заміни кінцевий `18000` у тунелі. Перевір [readiness](http://localhost:18080/health/ready). Порт застосунку залишається закритим для зовнішніх підключень.
+Підстав свого SSH-користувача й сервер; ключ і порт можна задати через SSH config або відповідні параметри `ssh`. Якщо змінив `FRONTEND_PORT`, заміни кінцевий `18001` у тунелі. Відкрий [frontend](http://localhost:18081/) та [readiness через його proxy](http://localhost:18081/health/ready). Для прямого доступу до API використовуй окремий тунель на `APP_PORT`. Порти застосунків залишаються закритими для зовнішніх підключень.
 
 ## Додати домен пізніше
 
@@ -142,32 +171,35 @@ ALLOWED_HOSTS='["api.booking.example.com","localhost","127.0.0.1"]'
 CORS_ORIGINS='["https://api.booking.example.com"]'
 ```
 
-Для окремого frontend вкажи його origin у `CORS_ORIGINS`. Не запускай генератор `.env` повторно: нові паролі у файлі не змінять credentials у вже створених volumes.
+Frontend і API працюють на одному origin, тому окремий CORS-дозвіл для них не потрібен. Якщо винесеш frontend на інший домен, вкажи його origin у `CORS_ORIGINS`. Не запускай генератор `.env` повторно: нові паролі у файлі не змінять credentials у вже створених volumes.
 
-Якщо є host Nginx/Caddy, направ піддомен на `http://127.0.0.1:18000` (або обраний `APP_PORT`) і налаштуй TLS на ньому. Для proxy в контейнері підключи його до відповідної Docker-мережі та налаштуй upstream окремо: його localhost відрізняється від host.
+Якщо є host Nginx/Caddy, налаштуй TLS і такі самі маршрути, як у `infra/Caddyfile`: `/api`, `/api/*`, `/health`, `/health/*` — напряму на `http://127.0.0.1:18000` (`APP_PORT`) зі збереженням зовнішнього Host та HTTPS-схеми, решту — на `http://127.0.0.1:18001` (`FRONTEND_PORT`). Це дозволяє API правильно формувати абсолютні адреси й перенаправлення. Для proxy в контейнері підключи його до Docker-мережі `edge` та використовуй `api:8000` і `frontend:8080`: його localhost відрізняється від host.
 Якщо 80/443 вільні, можна створити `/opt/apps/booking/.use-caddy`: наступний deploy підніме вбудований Caddy. Не запускай другий proxy на зайнятих портах.
 
 DNS A має вказувати на сервер; AAAA додавай лише за робочого IPv6. Дозволь вхідні 80/443 у мережевих правилах сервера. Повтори деплой після зміни конфігурації; коли HTTPS готовий, встанови `PUBLIC_URL=https://api.booking.example.com`, щоб наступні релізи також перевіряли публічний endpoint.
 
 ## Релізи, відкат і дані
 
-Сервер зберігає `.env` окремо від `releases/<sha>/`. Workflow викликає `deploy.sh <project-root> <git-sha> <project-name>`; скрипт перевіряє збіг переданого імені з ефективним ім'ям Compose і збереженим образом поточного релізу, якщо він існує. Деплой серіалізовано через `flock`; спочатку перевіряються залежності, потім перед оновленням наявного релізу робиться `pg_dump`, застосовуються міграції, оновлюються API/worker і виконується smoke. Після успіху `current` вказує на реліз, `previous` — на попередній. Під час рестарту API можлива коротка перерва. Це один VPS, без гарантії високої доступності.
+Сервер зберігає `.env` окремо від `releases/<sha>/`. Workflow викликає `deploy.sh <project-root> <git-sha> <project-name>`; скрипт перевіряє збіг переданого імені з ефективним ім'ям Compose і збереженими образами поточного релізу, якщо він існує. Деплой серіалізовано через `flock`; спочатку перевіряються залежності, потім перед оновленням наявного релізу робиться `pg_dump`, застосовуються міграції, оновлюються API/worker/frontend і виконується smoke. Вбудований TLS Caddy направляє `/api/*` та `/health/*` прямо до API зі збереженням зовнішнього Host і HTTPS, решту — до frontend. Внутрішній proxy frontend дозволяє користуватися застосунком також через loopback-порт або SSH-тунель. Після успіху `current` вказує на реліз, `previous` — на попередній. Під час рестарту можлива коротка перерва. Це один VPS, без гарантії високої доступності.
 
 ```bash
 project_root=/opt/apps/booking
 bash "$project_root/current/scripts/backup.sh" "$project_root"
-bash "$project_root/current/scripts/rollback.sh" "$project_root"
+# Keep the resolved script path when rolling back to a legacy backend-only release.
+rollback_script="$(readlink -f "$project_root/current/scripts/rollback.sh")"
+bash "$rollback_script" "$project_root"
 
 # Команди керування поточним релізом
 cd "$project_root/current"
 export APP_IMAGE="$(cat image.ref)"
+if [ -f frontend-image.ref ]; then export FRONTEND_IMAGE="$(cat frontend-image.ref)"; fi
 docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml ps
-docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml logs --tail 100 -f api worker
+docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml logs --tail 100 -f api worker frontend
 ```
 
-Backup і rollback беруть ідентичність Compose із серверного `.env`; rollback використовує збережений `image.ref` відповідного релізу.
+Backup і rollback беруть ідентичність Compose із серверного `.env`; rollback використовує збережені `image.ref` та `frontend-image.ref` відповідного релізу. Для старого релізу до додавання frontend другий файл відсутній: відкат відновлює попередню схему з API без frontend. Його історичний `rollback.sh` не знає про новий frontend: для повернення на новий реліз повторно використай збережений абсолютний `$rollback_script` з прикладу, а не скрипт через змінений `current`. Додавання frontend до наявного сервера не потребує повторної генерації `.env`: `FRONTEND_PORT` типово `18001`.
 
-Відкат повертає образ застосунку, але не схему БД. Деплой автоматично пробує відновити попередні API/worker при помилці. Міграції повинні бути сумісні з попереднім кодом: додавання поля/таблиці окремо від видалення старого. Відновлення БД роби лише усвідомлено зі збереженої копії: воно замінює дані. Для перевірки архіву: `pg_restore --list <backup.dump>` у контейнері PostgreSQL.
+Відкат повертає узгоджені образи backend/frontend, але не схему БД. Деплой автоматично пробує відновити попередні сервіси при помилці. Міграції повинні бути сумісні з попереднім кодом: додавання поля/таблиці окремо від видалення старого. Відновлення БД роби лише усвідомлено зі збереженої копії: воно замінює дані. Для перевірки архіву: `pg_restore --list <backup.dump>` у контейнері PostgreSQL.
 
 PostgreSQL, RabbitMQ, Redis і Caddy мають постійні Docker volumes. Не виконуй `down --volumes` на сервері. Дані в `.env` застосовуються до користувачів PostgreSQL/RabbitMQ при першій ініціалізації: зміна пароля у файлі не змінить його у вже створеній БД. Redis використовує пароль і AOF; RabbitMQ — durable messages; Celery result backend — Redis DB1, cache — DB0. Результат демо також зберігається в PostgreSQL.
 
@@ -175,4 +207,4 @@ PostgreSQL, RabbitMQ, Redis і Caddy мають постійні Docker volumes.
 
 Backup перед релізом зберігається на тому самому VPS; автоматичного offsite backup і ротації немає. Для важливих даних налаштуй щоденний backup і копію в окреме сховище. Старі образи, релізи і backup навмисно зберігаються для відкату; контролюй місце на диску. Secrets не повинні потрапляти в логи або git; `.env.example` призначений лише для локальної розробки/CI.
 
-Офіційні довідки: [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/), [Docker Engine на Ubuntu](https://docs.docker.com/engine/install/ubuntu/), [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https/), [GitHub Actions secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).
+Офіційні довідки: [Vite](https://vite.dev/guide/), [Caddy SPA та API proxy](https://caddyserver.com/docs/caddyfile/patterns#single-page-apps-spas), [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/), [Docker Engine на Ubuntu](https://docs.docker.com/engine/install/ubuntu/), [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https/), [GitHub Actions secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).

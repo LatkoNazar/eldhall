@@ -1,4 +1,7 @@
 services:
+  frontend:
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-18001}:8080"
   api:
     environment:
       ENVIRONMENT: production

@@ -82,6 +82,7 @@ class EnvironmentGenerationTests(unittest.TestCase):
             self.assertEqual(json.loads(values["ALLOWED_HOSTS"]), ["localhost", "127.0.0.1"])
             self.assertEqual(json.loads(values["CORS_ORIGINS"]), [])
             self.assertEqual(values["APP_PORT"], "18000")
+            self.assertEqual(values["FRONTEND_PORT"], "18001")
             self.assertNotIn("DOMAIN", values)
             self.assertNotIn("ACME_EMAIL", values)
             for key in ("POSTGRES_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_PASSWORD", "API_TOKEN"):
