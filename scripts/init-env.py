@@ -31,6 +31,7 @@ def main() -> None:
         "PROJECT_NAME": args.project_name,
         "ENVIRONMENT": "production",
         "APP_PORT": "18000",
+        "FRONTEND_PORT": "18001",
         "POSTGRES_DB": "app",
         "POSTGRES_USER": "app",
         "POSTGRES_PASSWORD": secrets.token_hex(32),
