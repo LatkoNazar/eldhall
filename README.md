@@ -46,7 +46,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker front
 
 Frontend: http://localhost:5173, API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. Vite автоматично оновлює React після змін `apps/frontend/`, API перечитує зміни `apps/backend/src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй відповідний образ і перезапусти сервіс.
 
-Для frontend поза Docker потрібен Node.js 24. Запусти backend за командами вище, але не запускай контейнер `frontend`, і в іншому терміналі виконай:
+Для frontend поза Docker потрібен Node.js 24.15+ у межах гілки 24.x. Запусти backend за командами вище, але не запускай контейнер `frontend`, і в іншому терміналі виконай:
 
 ```powershell
 cd apps/frontend
