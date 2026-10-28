@@ -24,6 +24,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Choose isolated CI project and image
+        id: ci_project
         run: |
           source scripts/project.sh
           validate_project_name "$PROJECT_NAME"
@@ -63,10 +64,10 @@ jobs:
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T api python - < apps/backend/scripts/smoke.py
       - name: Diagnostics
-        if: failure()
+        if: failure() && steps.ci_project.outcome == 'success'
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
       - name: Clean CI environment
-        if: always()
+        if: always() && steps.ci_project.outcome == 'success'
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml down --volumes
 
   deploy:
