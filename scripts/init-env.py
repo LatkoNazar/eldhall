@@ -10,16 +10,21 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--project-name", required=True)
     parser.add_argument("--domain", required=True)
     parser.add_argument("--email", required=True)
     parser.add_argument("--output", type=Path, default=Path(".env"))
     args = parser.parse_args()
+    if len(args.project_name) > 63 or not re.fullmatch(
+        r"[a-z0-9]+(?:-[a-z0-9]+)*", args.project_name
+    ):
+        parser.error("--project-name must be a lowercase slug of 1 to 63 characters")
     if not re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?", args.domain):
         parser.error("--domain must be a hostname without protocol or path")
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", args.email):
         parser.error("--email must be an email address")
     values = {
-        "COMPOSE_PROJECT_NAME": "comp-prep",
+        "PROJECT_NAME": args.project_name,
         "ENVIRONMENT": "production",
         "DOMAIN": args.domain.lower(),
         "ACME_EMAIL": args.email,

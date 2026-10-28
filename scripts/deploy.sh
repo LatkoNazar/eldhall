@@ -2,22 +2,27 @@
 # The caller uploads a release bundle and optional image.tar.gz beforehand.
 set -Eeuo pipefail
 umask 077
-root=${1:?Usage: deploy.sh /absolute/deploy/root release-sha}
+root=${1:?Usage: deploy.sh /absolute/deploy/root release-sha project-name}
 sha=${2:?Missing release SHA}
-[[ "$root" =~ ^/[a-zA-Z0-9/_-]+$ && "$root" != / ]] || { echo 'Invalid deploy root'; exit 2; }
+project_name=${3:?Missing project name}
+source "$(dirname "${BASH_SOURCE[0]}")/project.sh"
+validate_project_name "$project_name"
+validate_deploy_root "$root"
 [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'Expected full Git commit SHA'; exit 2; }
 release="$root/releases/$sha"
 test -f "$root/.env"
 test -f "$release/compose.yaml"
-mkdir -p "$root/backups"
-exec 9>"$root/.deploy.lock"
-flock -w 600 9
-export APP_IMAGE="comp-prep:$sha"
-compose=(docker compose --project-name comp-prep --env-file "$root/.env" -f "$release/compose.yaml" -f "$release/compose.prod.yaml")
+export APP_IMAGE="$project_name:$sha"
+compose=(docker compose --env-file "$root/.env" -f "$release/compose.yaml" -f "$release/compose.prod.yaml")
 if [[ -f "$root/.use-caddy" ]]; then
   compose+=(-f "$release/infra/compose.caddy.yaml")
 fi
-"${compose[@]}" config --quiet
+assert_compose_project "$project_name" "${compose[@]}"
+assert_current_project "$root" "$project_name"
+exec 9>"$root/.deploy.lock"
+flock -w 600 9
+assert_current_project "$root" "$project_name"
+mkdir -p "$root/backups"
 previous=''
 if [[ -f "$root/current/compose.yaml" ]]; then
   previous=$(readlink -f "$root/current")
@@ -38,11 +43,13 @@ rollback_on_error() {
     echo 'Restoring previous application image (requires backward-compatible migrations).' >&2
     APP_IMAGE=$(cat "$previous/image.ref")
     export APP_IMAGE
-    old=(docker compose --project-name comp-prep --env-file "$root/.env" -f "$previous/compose.yaml" -f "$previous/compose.prod.yaml")
+    old=(docker compose --env-file "$root/.env" -f "$previous/compose.yaml" -f "$previous/compose.prod.yaml")
     if [[ -f "$root/.use-caddy" ]]; then old+=(-f "$previous/infra/compose.caddy.yaml"); fi
-    "${old[@]}" up -d --no-build --pull never --wait --wait-timeout 180 api worker || true
-    if [[ -f "$root/.use-caddy" ]]; then
-      "${old[@]}" up -d --no-build --wait --wait-timeout 120 caddy || true
+    if assert_compose_project "$project_name" "${old[@]}"; then
+      "${old[@]}" up -d --no-build --pull never --wait --wait-timeout 180 api worker || true
+      if [[ -f "$root/.use-caddy" ]]; then
+        "${old[@]}" up -d --no-build --wait --wait-timeout 120 caddy || true
+      fi
     fi
   fi
   exit "$result"
