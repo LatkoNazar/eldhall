@@ -32,6 +32,20 @@ jobs:
           run_key=$(printf '%s' "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" | sha256sum)
           echo "COMPOSE_PROJECT_NAME=${prefix%-}-ci-${run_key:0:12}" >> "$GITHUB_ENV"
           echo "APP_IMAGE=$PROJECT_NAME:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=$PROJECT_NAME-frontend:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - name: Check and build frontend
+        working-directory: apps/frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.0"
@@ -53,16 +67,19 @@ jobs:
           bash scripts/tests/test-release.sh
       - name: Validate production composition
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
-      - name: Build image
-        run: docker build --tag "$APP_IMAGE" apps/backend
+      - name: Build application images
+        run: |
+          docker build --tag "$APP_IMAGE" apps/backend
+          docker build --target production --tag "$FRONTEND_IMAGE" apps/frontend
       - name: Start dependencies and migrate
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
       - name: Start application and exercise real background job
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T api python - < apps/backend/scripts/smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < scripts/frontend-smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < apps/backend/scripts/smoke.py
       - name: Diagnostics
         if: failure() && steps.ci_project.outcome == 'success'
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
@@ -144,8 +161,9 @@ jobs:
       - name: Build immutable release image and bundle
         run: |
           docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/backend
+          docker build --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" apps/frontend
           mkdir -p .deploy
-          docker save "$PROJECT_NAME:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
+          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
           tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/backend/scripts/smoke.py
       - name: Upload release and deploy
         run: |
