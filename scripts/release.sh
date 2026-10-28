@@ -32,8 +32,8 @@ start_application() {
   if has_service "$services" frontend; then application+=(frontend); fi
   "$@" up -d --no-build --pull never --wait --wait-timeout 180 "${application[@]}" || return
   if has_service "$services" frontend; then
-    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 api python - < "$release/scripts/frontend-smoke.py" || return
-    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 api python - < "$release/apps/backend/scripts/smoke.py" || return
+    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < "$release/scripts/frontend-smoke.py" || return
+    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < "$release/apps/backend/scripts/smoke.py" || return
   else
     "$@" exec -T api python - < "$release/apps/backend/scripts/smoke.py" || return
   fi

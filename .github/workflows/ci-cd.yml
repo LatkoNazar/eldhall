@@ -78,8 +78,8 @@ jobs:
       - name: Start application and exercise real background job
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 api python - < scripts/frontend-smoke.py
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 api python - < apps/backend/scripts/smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < scripts/frontend-smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < apps/backend/scripts/smoke.py
       - name: Diagnostics
         if: failure() && steps.ci_project.outcome == 'success'
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100

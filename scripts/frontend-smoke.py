@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 BASE_URL = os.environ.get("SMOKE_BASE_URL", "http://frontend:8080")
+SMOKE_HOST = os.environ.get("SMOKE_HOST", "localhost")
 
 
 class Assets(HTMLParser):
@@ -21,7 +22,7 @@ class Assets(HTMLParser):
 
 
 def get(path):
-    with urlopen(BASE_URL + path, timeout=10) as response:
+    with urlopen(Request(BASE_URL + path, headers={"Host": SMOKE_HOST}), timeout=10) as response:
         return response.headers, response.read()
 
 
@@ -65,7 +66,7 @@ def main():
     unauthenticated = Request(
         BASE_URL + "/api/v1/jobs",
         data=json.dumps({"text": "smoke", "operation": "uppercase"}).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Host": SMOKE_HOST},
     )
     try:
         urlopen(unauthenticated, timeout=10)
