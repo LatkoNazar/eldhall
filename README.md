@@ -4,12 +4,32 @@ FastAPI, PostgreSQL, Redis, Celery та RabbitMQ в одному репозит�
 
 Робота з фічами через головного агента та окремі worktrees: [інструкція](FEATURE_WORKFLOW.md).
 
+## Новий проєкт із шаблону
+
+Скопіюй шаблон у новий репозиторій. Для інфраструктури достатньо одного імені `PROJECT_NAME`, наприклад `booking`; глобальна заміна назв у коді не потрібна.
+Ім'я має відповідати `^[a-z0-9]+(-[a-z0-9]+)*$` і містити не більше 63 символів: малі латинські літери, цифри, дефіси між частинами.
+
+1. Скопіюй `.env.example` у кореневий `.env` і встанови `PROJECT_NAME=booking`. У шаблоні локальне ім'я за замовчуванням — `starter`.
+2. У новому GitHub-репозиторії створи Actions Variable `PROJECT_NAME=booking`. Змінні та secrets не копіюються разом із вихідним кодом; налаштуй їх окремо за таблицею нижче.
+3. Згенеруй окремий production-файл з тим самим ім'ям, щоб зберегти локальний `.env`:
+
+   ```powershell
+   python scripts/init-env.py --project-name booking --domain api.booking.example.com --email you@example.com --output .env.production
+   ```
+
+4. Підготуй сервер: `sudo bash bootstrap-ubuntu.sh <deploy-user> booking`. Типовий каталог — `/opt/apps/booking`; перенеси туди `.env.production` під ім'ям `.env` і налаштуй домен та деплой за наступними розділами.
+
+`PROJECT_NAME` визначає Compose-проєкт і типовий тег локального образу `booking:local`. `APP_IMAGE` може явно перевизначити образ; стандартний `COMPOSE_PROJECT_NAME` використовуй лише для ізоляції локальних worktrees. У production залиш єдину ідентичність через `PROJECT_NAME`; ім'я в серверному `.env` має збігатися з GitHub Variable, інакше деплой завершиться до оновлення застосунку.
+
+Обери ім'я до першого запуску: його зміна створює інші Docker-ресурси й volumes та не переносить наявні дані. Для кількох проєктів на одному сервері також признач окремі `APP_PORT`, домени й каталоги; одного різного імені недостатньо для уникнення конфліктів портів.
+
 ## Локальний запуск
 
 Потрібні Docker з Compose v2.24+ та Git. Python окремо потрібен лише для роботи поза контейнерами.
 
 ```powershell
 Copy-Item .env.example .env
+# Встанови PROJECT_NAME=booking у .env перед першим запуском.
 docker compose -f compose.yaml -f compose.dev.yaml build
 docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis rabbitmq
 docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
@@ -72,20 +92,21 @@ uv run pytest
 
 Спочатку визнач сервер, SSH-користувача, домен і наявний reverse proxy. Не запускай додатковий proxy на зайнятих 80/443.
 
-1. На Ubuntu без Docker: скопіюй `scripts/bootstrap-ubuntu.sh` і запусти `sudo bash bootstrap-ubuntu.sh <deploy-user> /opt/comp-prep`. Скрипт використовує офіційний Docker apt repository, не змінює DNS і firewall. Перепідключи SSH після додавання користувача до групи docker. На інших Linux встанови Docker Engine та Compose за офіційною інструкцією.
-2. Створи приватний production env: `python scripts/init-env.py --domain api.your-domain.com --email you@your-domain.com`. Файл `.env` створюється з випадковими секретами та не перезаписує наявний. Перенеси його на сервер як `/opt/comp-prep/.env` з правами `600`; у GitHub паролі БД передавати не потрібно. На Windows NTFS додатково обмеж доступ до локального файлу своїм користувачем.
-3. Якщо є host Nginx/Caddy, направ піддомен на `http://127.0.0.1:18000` і налаштуй TLS на ньому. Якщо proxy теж у контейнері, його localhost відрізняється від host: підключи його до спільної Docker-мережі та налаштуй upstream окремо. Якщо 80/443 вільні, створи `/opt/comp-prep/.use-caddy`: deploy підніме наш Caddy. DNS A має вказувати на сервер; AAAA додавай лише за робочого IPv6. Дозволь вхідні 80/443 у мережевих правилах сервера.
+1. На Ubuntu без Docker: скопіюй `scripts/bootstrap-ubuntu.sh` і запусти `sudo bash bootstrap-ubuntu.sh <deploy-user> booking`. Користувач уже має існувати. Необов'язковий третій аргумент задає абсолютний каталог замість `/opt/apps/booking`; таке саме значення встанови в `DEPLOY_PATH`. Скрипт використовує офіційний Docker apt repository, не змінює DNS і firewall. Перепідключи SSH після додавання користувача до групи docker. На інших Linux встанови Docker Engine та Compose за офіційною інструкцією.
+2. Створи приватний production env наведеною вище командою з обов'язковим `--project-name booking`. Файл створюється з випадковими секретами та не перезаписує наявний. Перенеси його на сервер як `/opt/apps/booking/.env` з правами `600`; у GitHub паролі БД передавати не потрібно. На Windows NTFS додатково обмеж доступ до локального файлу своїм користувачем.
+3. Якщо є host Nginx/Caddy, направ піддомен на `http://127.0.0.1:18000` (або обраний `APP_PORT`) і налаштуй TLS на ньому. Якщо proxy теж у контейнері, його localhost відрізняється від host: підключи його до спільної Docker-мережі та налаштуй upstream окремо. Якщо 80/443 вільні, створи `/opt/apps/booking/.use-caddy`: deploy підніме наш Caddy. DNS A має вказувати на сервер; AAAA додавай лише за робочого IPv6. Дозволь вхідні 80/443 у мережевих правилах сервера.
 4. Створи окремий SSH-ключ для GitHub Actions і додай його public key у `~/.ssh/authorized_keys` deploy-користувача. Приватний ключ зберігай тільки у GitHub Secret. Звір fingerprint сервера через довірений доступ; `DEPLOY_KNOWN_HOSTS` має містити відповідний запис `known_hosts`, а для нестандартного порту — `[host]:port`.
 5. У Settings → Secrets and variables → Actions налаштуй значення нижче; увімкни `DEPLOY_ENABLED=true` після підготовки сервера. Push у `main` або ручний запуск workflow зробить перший реліз.
 
 | Тип | Назва | Значення |
 | --- | --- | --- |
+| Variable | `PROJECT_NAME` | `booking`; те саме ім'я, що в серверному `.env` |
 | Variable | `DEPLOY_ENABLED` | `true`, щоб автоматично деплоїти main |
 | Variable | `DEPLOY_HOST` | IP або DNS сервера |
 | Variable | `DEPLOY_USER` | SSH-користувач з Docker-доступом |
 | Variable | `DEPLOY_PORT` | за замовчуванням `22` |
-| Variable | `DEPLOY_PATH` | за замовчуванням `/opt/comp-prep`; без пробілів |
-| Variable | `PUBLIC_URL` | `https://api.your-domain.com`; перевірка HTTPS після деплою |
+| Variable | `DEPLOY_PATH` | необов'язкова; за замовчуванням `/opt/apps/<PROJECT_NAME>`, для прикладу `/opt/apps/booking`; абсолютний шлях без пробілів |
+| Variable | `PUBLIC_URL` | `https://api.booking.example.com`; перевірка HTTPS після деплою |
 | Secret | `DEPLOY_SSH_KEY` | окремий приватний ключ для Actions |
 | Secret | `DEPLOY_KNOWN_HOSTS` | перевірений SSH host key сервера |
 
@@ -93,18 +114,21 @@ CI запускає lint, форматування, unit tests, збирає о�
 
 ## Релізи, відкат і дані
 
-Сервер зберігає `.env` окремо від `releases/<sha>/`. Деплой серіалізовано через `flock`; спочатку перевіряються залежності, потім перед оновленням наявного релізу робиться `pg_dump`, застосовуються міграції, оновлюються API/worker і виконується smoke. Після успіху `current` вказує на реліз, `previous` — на попередній. Під час рестарту API можлива коротка перерва. Це один VPS, без гарантії високої доступності.
+Сервер зберігає `.env` окремо від `releases/<sha>/`. Workflow викликає `deploy.sh <project-root> <git-sha> <project-name>`; скрипт перевіряє збіг переданого імені з серверним `.env`. Деплой серіалізовано через `flock`; спочатку перевіряються залежності, потім перед оновленням наявного релізу робиться `pg_dump`, застосовуються міграції, оновлюються API/worker і виконується smoke. Після успіху `current` вказує на реліз, `previous` — на попередній. Під час рестарту API можлива коротка перерва. Це один VPS, без гарантії високої доступності.
 
 ```bash
-bash /opt/comp-prep/current/scripts/backup.sh /opt/comp-prep
-bash /opt/comp-prep/current/scripts/rollback.sh /opt/comp-prep
+project_root=/opt/apps/booking
+bash "$project_root/current/scripts/backup.sh" "$project_root"
+bash "$project_root/current/scripts/rollback.sh" "$project_root"
 
 # Команди керування поточним релізом
-cd /opt/comp-prep/current
+cd "$project_root/current"
 export APP_IMAGE="$(cat image.ref)"
-docker compose --project-name comp-prep --env-file /opt/comp-prep/.env -f compose.yaml -f compose.prod.yaml ps
-docker compose --project-name comp-prep --env-file /opt/comp-prep/.env -f compose.yaml -f compose.prod.yaml logs --tail 100 -f api worker
+docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml ps
+docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml logs --tail 100 -f api worker
 ```
+
+Backup і rollback беруть ідентичність Compose із серверного `.env`; rollback використовує збережений `image.ref` відповідного релізу.
 
 Відкат повертає образ застосунку, але не схему БД. Деплой автоматично пробує відновити попередні API/worker при помилці. Міграції повинні бути сумісні з попереднім кодом: додавання поля/таблиці окремо від видалення старого. Відновлення БД роби лише усвідомлено зі збереженої копії: воно замінює дані. Для перевірки архіву: `pg_restore --list <backup.dump>` у контейнері PostgreSQL.
 
