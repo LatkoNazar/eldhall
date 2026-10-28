@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
       PROJECT_NAME: ${{ vars.PROJECT_NAME || 'starter' }}
@@ -73,7 +73,7 @@ jobs:
   deploy:
     needs: check
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 25
     env:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
@@ -105,6 +105,42 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+      - name: Verify server access and matching architecture before build
+        run: |
+          set -euo pipefail
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          runner_arch=$(uname -m)
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$target" bash -s -- "$DEPLOY_PATH" "$runner_arch" <<'REMOTE'
+          set -euo pipefail
+          root=$1
+          runner_arch=$2
+          server_arch=$(uname -m)
+          [[ "$server_arch" == "$runner_arch" ]] || {
+            echo "Architecture mismatch: runner=$runner_arch, server=$server_arch. Select a matching RUNNER_LABEL." >&2
+            exit 1
+          }
+          docker info >/dev/null 2>&1 || {
+            echo 'Deployment user cannot access Docker without sudo.' >&2
+            exit 1
+          }
+          docker compose version >/dev/null 2>&1 || {
+            echo 'Docker Compose is unavailable for the deployment user.' >&2
+            exit 1
+          }
+          [[ -d "$root" && -w "$root" ]] || {
+            echo 'Deployment root must exist and be writable by the deployment user.' >&2
+            exit 1
+          }
+          [[ -r "$root/.env" ]] || {
+            echo 'Production .env is missing or unreadable by the deployment user.' >&2
+            exit 1
+          }
+          [[ ! -e "$root/releases" || -w "$root/releases" ]] || {
+            echo 'Release directory is not writable by the deployment user.' >&2
+            exit 1
+          }
+          echo "Deployment preflight OK: $server_arch"
+          REMOTE
       - name: Build immutable release image and bundle
         run: |
           docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/backend
