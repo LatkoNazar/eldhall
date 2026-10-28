@@ -14,8 +14,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '^/api(?:/|$)': backend,
-      '^/health(?:/|$)': backend,
+      '^/api(?:[/?]|$)': backend,
+      '^/health(?:[/?]|$)': backend,
     },
   },
   test: {
