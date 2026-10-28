@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-comp-prep}
+name: ${PROJECT_NAME:-starter}
 
 x-logging: &logging
   driver: json-file
@@ -34,7 +34,7 @@ x-dependencies: &dependencies
     condition: service_healthy
 
 x-app: &app
-  image: ${APP_IMAGE:-comp-prep:local}
+  image: ${APP_IMAGE:-${PROJECT_NAME:-starter}:local}
   build:
     context: ./apps/backend
     dockerfile: Dockerfile

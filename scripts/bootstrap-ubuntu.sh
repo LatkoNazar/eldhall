@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Run once as root on Ubuntu: bash bootstrap-ubuntu.sh existing-deploy-user /opt/comp-prep
+# Run once as root on Ubuntu: bash bootstrap-ubuntu.sh existing-deploy-user project-name [/absolute/root]
 # Does not reconfigure existing websites, DNS, SSH or firewall rules.
 set -Eeuo pipefail
 deploy_user=${1:?Specify an existing deployment user}
-root=${2:-/opt/comp-prep}
+project_name=${2:?Specify the project name}
+source "$(dirname "${BASH_SOURCE[0]}")/project.sh"
+validate_project_name "$project_name"
+root=${3:-/opt/apps/$project_name}
+validate_deploy_root "$root"
 [[ "$EUID" == 0 ]] || { echo 'Run with sudo'; exit 2; }
-[[ "$root" =~ ^/[a-zA-Z0-9/_-]+$ && "$root" != / ]] || exit 2
 id "$deploy_user" >/dev/null
 source /etc/os-release
 [[ "$ID" == ubuntu ]] || { echo 'This bootstrap supports Ubuntu only'; exit 2; }
+if ! command -v python3 >/dev/null; then
+  apt-get update
+  apt-get install -y python3
+fi
 if ! command -v docker >/dev/null; then
   apt-get update
   apt-get install -y ca-certificates curl

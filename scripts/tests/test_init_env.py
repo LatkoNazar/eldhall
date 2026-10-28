@@ -1,0 +1,67 @@
+import json
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "init-env.py"
+
+
+class EnvironmentGenerationTests(unittest.TestCase):
+    def invoke(self, output: Path, name: str | None) -> subprocess.CompletedProcess[str]:
+        command = [sys.executable, str(SCRIPT), "--domain", "api.example.com"]
+        command += ["--email", "ops@example.com", "--output", str(output)]
+        if name is not None:
+            command += ["--project-name", name]
+        return subprocess.run(command, capture_output=True, text=True, check=False)
+
+    def test_two_projects_have_distinct_identity_and_random_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = []
+            for name in ("alpha-app", "beta-app"):
+                output = Path(directory) / f"{name}.env"
+                result = self.invoke(output, name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(values["PROJECT_NAME"], name)
+                self.assertNotIn("COMPOSE_PROJECT_NAME", values)
+                self.assertEqual(values["ENVIRONMENT"], "production")
+                self.assertEqual(json.loads(values["ALLOWED_HOSTS"])[0], "api.example.com")
+                for key in (
+                    "POSTGRES_PASSWORD",
+                    "REDIS_PASSWORD",
+                    "RABBITMQ_PASSWORD",
+                    "API_TOKEN",
+                ):
+                    self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
+                    self.assertNotIn(values[key], result.stdout + result.stderr)
+                generated.append(values)
+            self.assertNotEqual(generated[0]["API_TOKEN"], generated[1]["API_TOKEN"])
+
+    def test_invalid_or_missing_names_never_create_an_env_file(self):
+        invalid = (None, "", "UPPER", "with_space", "-leading", "trailing-", "two--parts", "a" * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            for name in invalid:
+                with self.subTest(name=name):
+                    output = Path(directory) / "private.env"
+                    self.assertNotEqual(self.invoke(output, name).returncode, 0)
+                    self.assertFalse(output.exists())
+
+    def test_existing_environment_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "private.env"
+            self.assertEqual(self.invoke(output, "alpha").returncode, 0)
+            original = output.read_bytes()
+            self.assertNotEqual(self.invoke(output, "beta").returncode, 0)
+            self.assertEqual(output.read_bytes(), original)
+
+    def test_name_at_length_limit_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.invoke(Path(directory) / "private.env", "a" * 63)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
