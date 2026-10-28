@@ -78,9 +78,11 @@ uv --directory apps/backend run ruff format --check .
 uv --directory apps/backend run pytest
 ```
 
-За паралельного запуску Compose виділи кожному worktree власні `COMPOSE_PROJECT_NAME`, `APP_IMAGE` і host-порти:
+У кожному worktree `PROJECT_NAME` задає локальну ідентичність застосунку; за замовчуванням шаблон використовує `starter`.
+За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE` і host-порти:
 `API_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`.
 Самого окремого project name недостатньо: порти та тег образу також можуть конфліктувати.
+`COMPOSE_PROJECT_NAME` використовуй для локальної ізоляції; production-ім'я визначає `PROJECT_NAME` і має збігатися з однойменною GitHub Variable.
 Використовуй ці значення послідовно для build/up/run/exec/down; дані мають бути локальними для цього проєкту.
 Для Python поза контейнерами врахуй localhost і призначені порти; у контейнерах залиш внутрішні адреси сервісів.
 
