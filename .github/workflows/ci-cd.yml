@@ -177,7 +177,12 @@ jobs:
         if: vars.PUBLIC_URL != ''
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
-        run: curl --fail --show-error --silent --retry 6 --retry-all-errors --retry-delay 10 --max-time 15 "$PUBLIC_URL/health/ready"
+        run: |
+          export SMOKE_BASE_URL="${PUBLIC_URL%/}"
+          curl --fail --show-error --silent --retry 6 --retry-all-errors --retry-delay 10 --max-time 15 "$SMOKE_BASE_URL/health/ready"
+          SMOKE_HOST=$(python3 -c 'import os; from urllib.parse import urlsplit; print(urlsplit(os.environ["PUBLIC_URL"]).netloc)')
+          export SMOKE_HOST
+          python3 scripts/frontend-smoke.py
       - name: Remove runner deployment key
         if: always()
         run: rm -f ~/.ssh/deploy_key
