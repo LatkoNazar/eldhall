@@ -10,9 +10,19 @@ SCRIPT = Path(__file__).resolve().parents[1] / "init-env.py"
 
 
 class EnvironmentGenerationTests(unittest.TestCase):
-    def invoke(self, output: Path, name: str | None) -> subprocess.CompletedProcess[str]:
-        command = [sys.executable, str(SCRIPT), "--domain", "api.example.com"]
-        command += ["--email", "ops@example.com", "--output", str(output)]
+    def invoke(
+        self,
+        output: Path,
+        name: str | None,
+        *,
+        domain: str | None = "api.example.com",
+        email: str | None = "ops@example.com",
+    ) -> subprocess.CompletedProcess[str]:
+        command = [sys.executable, str(SCRIPT), "--output", str(output)]
+        if domain is not None:
+            command += ["--domain", domain]
+        if email is not None:
+            command += ["--email", email]
         if name is not None:
             command += ["--project-name", name]
         return subprocess.run(command, capture_output=True, text=True, check=False)
@@ -61,6 +71,32 @@ class EnvironmentGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result = self.invoke(Path(directory) / "private.env", "a" * 63)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_without_domain_generates_private_production_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "private.env"
+            result = self.invoke(output, "starter", domain=None, email=None)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["ENVIRONMENT"], "production")
+            self.assertEqual(json.loads(values["ALLOWED_HOSTS"]), ["localhost", "127.0.0.1"])
+            self.assertEqual(json.loads(values["CORS_ORIGINS"]), [])
+            self.assertEqual(values["APP_PORT"], "18000")
+            self.assertNotIn("DOMAIN", values)
+            self.assertNotIn("ACME_EMAIL", values)
+            for key in ("POSTGRES_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_PASSWORD", "API_TOKEN"):
+                self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
+                self.assertNotIn(values[key], result.stdout + result.stderr)
+
+    def test_domain_and_email_must_be_paired_before_creating_any_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for domain, email in (("api.example.com", None), (None, "ops@example.com")):
+                with self.subTest(domain=domain, email=email):
+                    output = Path(directory) / "private.env"
+                    result = self.invoke(output, "starter", domain=domain, email=email)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("must be supplied together", result.stderr)
+                    self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
