@@ -3,8 +3,6 @@ import { defineConfig } from 'vitest/config'
 
 const backend = {
   target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
-  // The container hostname is not a public backend ALLOWED_HOSTS entry.
-  headers: { Host: 'localhost' },
 }
 
 export default defineConfig({
@@ -14,8 +12,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '^/api(?:/|$)': backend,
-      '^/health(?:/|$)': backend,
+      '^/api(?:[/?]|$)': backend,
+      '^/health(?:[/?]|$)': backend,
     },
   },
   test: {
