@@ -10,6 +10,7 @@ FROM development AS build
 RUN npm run build
 
 FROM caddy:2.11.7-alpine AS production
+RUN setcap -r /usr/bin/caddy
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
 # TLS is terminated by the outer proxy. Keep all runtime writes in /tmp so
