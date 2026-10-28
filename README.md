@@ -185,7 +185,9 @@ DNS A має вказувати на сервер; AAAA додавай лише 
 ```bash
 project_root=/opt/apps/booking
 bash "$project_root/current/scripts/backup.sh" "$project_root"
-bash "$project_root/current/scripts/rollback.sh" "$project_root"
+# Keep the resolved script path when rolling back to a legacy backend-only release.
+rollback_script="$(readlink -f "$project_root/current/scripts/rollback.sh")"
+bash "$rollback_script" "$project_root"
 
 # Команди керування поточним релізом
 cd "$project_root/current"
@@ -195,7 +197,7 @@ docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.y
 docker compose --env-file "$project_root/.env" -f compose.yaml -f compose.prod.yaml logs --tail 100 -f api worker frontend
 ```
 
-Backup і rollback беруть ідентичність Compose із серверного `.env`; rollback використовує збережені `image.ref` та `frontend-image.ref` відповідного релізу. Для старого релізу до додавання frontend другий файл відсутній: відкат відновлює попередню схему з API без frontend. Додавання frontend до наявного сервера не потребує повторної генерації `.env`: `FRONTEND_PORT` типово `18001`.
+Backup і rollback беруть ідентичність Compose із серверного `.env`; rollback використовує збережені `image.ref` та `frontend-image.ref` відповідного релізу. Для старого релізу до додавання frontend другий файл відсутній: відкат відновлює попередню схему з API без frontend. Його історичний `rollback.sh` не знає про новий frontend: для повернення на новий реліз повторно використай збережений абсолютний `$rollback_script` з прикладу, а не скрипт через змінений `current`. Додавання frontend до наявного сервера не потребує повторної генерації `.env`: `FRONTEND_PORT` типово `18001`.
 
 Відкат повертає узгоджені образи backend/frontend, але не схему БД. Деплой автоматично пробує відновити попередні сервіси при помилці. Міграції повинні бути сумісні з попереднім кодом: додавання поля/таблиці окремо від видалення старого. Відновлення БД роби лише усвідомлено зі збереженої копії: воно замінює дані. Для перевірки архіву: `pg_restore --list <backup.dump>` у контейнері PostgreSQL.
 

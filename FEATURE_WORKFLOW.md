@@ -117,7 +117,7 @@ git merge --no-ff $featureBranch
 Get-Content -Raw apps/backend/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
 ```
 
-Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle або `VITE_*`.
+Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle або `VITE_*`.
 Окремо перевір нові API/фонові сценарії, їхні помилки й права доступу; додай відповідні перевірки за потреби.
 Не позначай блоковані або невиконані перевірки як успішні.
 
