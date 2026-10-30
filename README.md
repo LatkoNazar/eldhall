@@ -132,9 +132,10 @@ uv run ruff format --check .
 uv run pytest
 ```
 
-Перевірки frontend запускай з `apps/frontend`:
+Перевірки frontend запускай з `apps/frontend`. Аналітичні тести імпортують код лендингу, тому спочатку встанови також його залежності:
 
 ```powershell
+npm ci --prefix ../landing
 npm ci
 npm run lint
 npm run typecheck

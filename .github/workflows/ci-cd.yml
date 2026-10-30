@@ -45,10 +45,13 @@ jobs:
           cache-dependency-path: |
             apps/frontend/package-lock.json
             apps/landing/package-lock.json
+      - name: Install locked web dependencies
+        run: |
+          npm ci --prefix apps/frontend
+          npm ci --prefix apps/landing
       - name: Check and build frontend
         working-directory: apps/frontend
         run: |
-          npm ci
           npm run lint
           npm run typecheck
           npm run test
@@ -56,7 +59,6 @@ jobs:
       - name: Check and build landing
         working-directory: apps/landing
         run: |
-          npm ci
           npm run lint
           npm run typecheck
           npm run build
