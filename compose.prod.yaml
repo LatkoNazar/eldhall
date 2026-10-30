@@ -2,6 +2,12 @@ services:
   frontend:
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-18001}:8080"
+  landing:
+    ports:
+      - "127.0.0.1:${LANDING_PORT:-18002}:8080"
+  umami:
+    ports:
+      - "127.0.0.1:${UMAMI_PORT:-18003}:3000"
   api:
     environment:
       ENVIRONMENT: production

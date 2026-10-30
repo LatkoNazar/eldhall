@@ -2,7 +2,7 @@
 
 ## Standalone project
 
-Create an isolated project under `eldhall-demo/<run-name>/`. Inspect current official
+Create a shareable project under `demos/mvp/<run-name>/` or another `demos/` slug. Inspect current official
 Hyperframes documentation, installed skills and `npx hyperframes init --help`; pin the
 package version actually used and retain its lockfile. Version0.8.221 was the successful
 baseline, not a claim about whatever future release is current.
@@ -18,8 +18,9 @@ source video, narration, fonts and GSAP into local assets; no remote runtime fon
 Record original paths, SHA-256 hashes, dimensions, frame rates, clip offsets, duration,
 narration placement and any justified processing in an asset ledger/timing manifest.
 
-The optional `eldhall-demo/youtube-hyperframes` project illustrates this split. It is not
-required, and its YouTube copy, scene durations, clips and narration are not MVP defaults.
+The versioned `demos/reference/youtube/` project illustrates this split. Its YouTube copy,
+scene durations, clips and narration are not MVP defaults. It uses system-font fallbacks
+instead of distributing Windows font binaries; any changed-font render needs its own review.
 
 ## Seekable renderer invariants
 
@@ -100,6 +101,9 @@ Bind the review to the MP4 SHA-256. Distinguish genuine product/network loading 
 lag. If a real defect is found, fix the responsible phase and recheck the changed result;
 do not alter an approved MP4 afterward without proportionate verification.
 
-Deliver MP4 + optional SRT, source project, concise rerun/provenance instructions, scene
-timing/asset ledger and independent report. Keep the final response focused on playable media
-and material limitations. Publishing or deploying is a separate scope from local rendering.
+Deliver MP4 + optional SRT in `exports/`, source project, concise rerun/provenance instructions,
+scene timing/asset ledger and independent report. Prepare final code/media for Git sharing;
+use existing LFS patterns for binary assets and verify actual files after `git lfs pull`.
+Keep dependencies, caches, frames, profiles and intermediate `renders/` ignored. Never include
+auth state or secrets. Stage/commit/push only when requested. Keep the final response focused
+on playable media and material limitations. Publishing/deploying is separate from local rendering.

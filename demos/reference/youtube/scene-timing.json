@@ -1,0 +1,93 @@
+{
+  "id": "youtube-tutorial",
+  "fps": 60,
+  "width": 1920,
+  "height": 1200,
+  "locale": "uk",
+  "scenes": [
+    {
+      "id": "intro",
+      "type": "title",
+      "duration": 4.9,
+      "audio": "assets/audio/intro.mp3",
+      "audioStart": 0.25,
+      "start": 0,
+      "audioDuration": 4.296
+    },
+    {
+      "id": "search",
+      "type": "capture",
+      "source": "assets/video/search.mp4",
+      "audio": "assets/audio/search.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35,
+      "start": 4.9,
+      "mediaStart": 0,
+      "duration": 8.416666666666666,
+      "audioDuration": 6.384
+    },
+    {
+      "id": "results",
+      "type": "capture",
+      "source": "assets/video/results.mp4",
+      "audio": "assets/audio/results.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35,
+      "start": 13.316666666666666,
+      "mediaStart": 0,
+      "duration": 8.483333333333333,
+      "audioDuration": 6.624
+    },
+    {
+      "id": "controls",
+      "type": "capture",
+      "source": "assets/video/controls.mp4",
+      "audio": "assets/audio/controls.mp3",
+      "audioStart": 0.5,
+      "labelStart": 0.15,
+      "labelDuration": 2.35,
+      "start": 21.799999999999997,
+      "mediaStart": 0,
+      "duration": 8.6,
+      "audioDuration": 6.84
+    },
+    {
+      "id": "settings",
+      "type": "capture",
+      "source": "assets/video/settings.mp4",
+      "audio": "assets/audio/settings.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35,
+      "start": 30.4,
+      "mediaStart": 0,
+      "duration": 8.266666666666667,
+      "audioDuration": 6.48
+    },
+    {
+      "id": "fullscreen",
+      "type": "capture",
+      "source": "assets/video/fullscreen.mp4",
+      "audio": "assets/audio/fullscreen.mp3",
+      "audioStart": 0.6,
+      "labelStart": 0.05,
+      "labelDuration": 1.6,
+      "start": 38.666666666666664,
+      "mediaStart": 0,
+      "duration": 7.916666666666667,
+      "audioDuration": 6.264
+    },
+    {
+      "id": "outro",
+      "type": "title",
+      "duration": 5.6,
+      "audio": "assets/audio/outro.mp3",
+      "audioStart": 0.25,
+      "start": 46.58333333333333,
+      "audioDuration": 4.992
+    }
+  ],
+  "duration": 52.18333333333333
+}

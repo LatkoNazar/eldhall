@@ -8,14 +8,15 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b tsconfig.app.json tsconfig.node.json && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint . --max-warnings 0 && node scripts/lint-analytics.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@eldhall/analytics": "file:../../packages/analytics",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

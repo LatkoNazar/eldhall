@@ -1,0 +1,68 @@
+{
+  "id": "youtube-tutorial",
+  "fps": 60,
+  "width": 1920,
+  "height": 1200,
+  "locale": "uk",
+  "scenes": [
+    {
+      "id": "intro",
+      "type": "title",
+      "duration": 4.9,
+      "audio": "assets/audio/intro.mp3",
+      "audioStart": 0.25
+    },
+    {
+      "id": "search",
+      "type": "capture",
+      "source": "assets/video/search.mp4",
+      "audio": "assets/audio/search.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35
+    },
+    {
+      "id": "results",
+      "type": "capture",
+      "source": "assets/video/results.mp4",
+      "audio": "assets/audio/results.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35
+    },
+    {
+      "id": "controls",
+      "type": "capture",
+      "source": "assets/video/controls.mp4",
+      "audio": "assets/audio/controls.mp3",
+      "audioStart": 0.5,
+      "labelStart": 0.15,
+      "labelDuration": 2.35
+    },
+    {
+      "id": "settings",
+      "type": "capture",
+      "source": "assets/video/settings.mp4",
+      "audio": "assets/audio/settings.mp3",
+      "audioStart": 0.4,
+      "labelStart": 0.15,
+      "labelDuration": 2.35
+    },
+    {
+      "id": "fullscreen",
+      "type": "capture",
+      "source": "assets/video/fullscreen.mp4",
+      "audio": "assets/audio/fullscreen.mp3",
+      "audioStart": 0.6,
+      "labelStart": 0.05,
+      "labelDuration": 1.6
+    },
+    {
+      "id": "outro",
+      "type": "title",
+      "duration": 5.6,
+      "audio": "assets/audio/outro.mp3",
+      "audioStart": 0.25
+    }
+  ]
+}

@@ -8,8 +8,11 @@ the real MVP may have grown beyond this starter screen.
 - `README.md`: startup, proxy, environment and deployment distinctions.
 - `apps/frontend/package.json`, `vite.config.ts`, `src/App.tsx`, `src/App.test.tsx`.
 - `apps/frontend/src/lib/health.ts`: same-origin readiness request and accepted response.
-- `apps/backend/src/app/modules/system/router.py`: public health routes.
-- `apps/backend/src/app/modules/jobs/router.py`: token-protected backend-only jobs.
+- `apps/api/`: API application by role; inspect its current README, package/pyproject,
+  handlers and tests rather than assuming a language. During the role rename, an older
+  checkout may still have `apps/backend/`; resolve the actual directory before commands.
+- In the Python implementation, `src/app/modules/system/router.py` defines public health
+  routes and `src/app/modules/jobs/router.py` defines token-protected backend-only jobs.
 - Current feature routes, auth components and fixtures, if new features have been added.
 
 ## Current browser surface
@@ -39,7 +42,9 @@ frontend code, a URL, visible DevTools, a recorded terminal or public demo asset
 Do not run startup merely to create or revise this skill. Reuse a healthy existing local
 stack when available; verify its origin and current branch first.
 
-Docker Compose requires v2.24+ according to the README. From the repository root, for a
+The commands below describe the verified Python starter; recheck the current README and
+Compose services if the API implementation has changed. The demo workflow is language-agnostic.
+Docker Compose requires v2.24+ according to that README. From the repository root, for a
 fresh local setup only, copy `.env.example` if `.env` does not already exist. Preserve the
 existing project name and credentials; do not regenerate an established environment.
 

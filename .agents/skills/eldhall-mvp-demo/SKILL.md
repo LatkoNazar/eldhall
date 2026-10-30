@@ -27,10 +27,18 @@ Reinspect the current README, frontend entry/routes, UI tests and relevant auth/
 
 ## Isolate the recording work
 
-Keep the skill in `.agents/skills/eldhall-mvp-demo`. Put generated capture/render projects,
-profiles, voice files and reports in a new `eldhall-demo/<run-name>/` experiment folder.
-Keep those outputs untracked unless requested; do not stage files or change ignore rules.
-Do not modify tracked app code merely to instrument a recording.
+Keep the skill in `.agents/skills/eldhall-mvp-demo`. Put reusable demo projects in
+`demos/mvp/<run-name>/` or another clear slug under `demos/`. Final source, selected local
+media, approved MP4/SRT and QA reports are prepared for versioning together. Use the scoped
+Git LFS rules for binary media; keep SVG, code, JSON and SRT in ordinary Git. Verify LFS
+downloads and attributes rather than committing large payloads to normal Git history.
+Do not stage/commit/push unless requested. Do not modify app code merely to instrument video.
+
+Keep dependencies, intermediate renders, extracted frames, framework caches and browser
+profiles ignored. Prefer private profiles/auth state outside the versioned tree. Raw capture
+is opt-in; retain only useful non-sensitive raw evidence if requested. Use `exports/` for
+reviewed final movies and `renders/` for ignored work in progress. The existing `eldhall-demo/`
+is historical local experimentation, not a required input to a shareable demo.
 
 Use a dedicated browser profile and window. Do not attach to a personal profile, change
 system cursors/power settings or collect an entire desktop when one browser window suffices.
@@ -102,8 +110,9 @@ its bounds and settle before the action. Never zoom artificially around native f
 
 Keep scene timings, Ukrainian strings, styles and renderer logic separate. All source clips
 play at **1×**; video and baked pointer always undergo the same framing transform.
-Keep runtime fonts, GSAP and media local. A previous `eldhall-demo` prototype is an optional
-bootstrap only; a fresh clone without it must remain usable from this skill and official tools.
+Keep runtime fonts, GSAP and media local; do not redistribute proprietary OS font files.
+The versioned `demos/reference/youtube/` bundle is an optional editable example, explicitly
+not an MVP movie. A fresh clone without local experiments must work from versioned assets.
 
 Run the official full composition check, inspect actual snapshots, and keep a persistent
 preview available for review. Honor a requested preview-before-export order. An already

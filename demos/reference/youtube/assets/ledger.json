@@ -1,0 +1,82 @@
+[
+  {
+    "id": "search",
+    "source": "assets/video/search.mp4",
+    "local": "assets/video/search.mp4",
+    "sha256": "be7e94737a857735d432ee93957242e8b6a372ab0214ab1e6b93959ea5e2cc94",
+    "mediaStart": 0,
+    "playbackRate": 1,
+    "cursor": "live co-recorded pointer baked into the same source frames; no renderer cursor",
+    "sourceStreams": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "r_frame_rate": "60/1"
+      }
+    ]
+  },
+  {
+    "id": "results",
+    "source": "assets/video/results.mp4",
+    "local": "assets/video/results.mp4",
+    "sha256": "a9062ca874cd42beb3d67af7d8fa5b9245ed84e01be8cd8721067b1ffa4af9fc",
+    "mediaStart": 0,
+    "playbackRate": 1,
+    "cursor": "live co-recorded pointer baked into the same source frames; no renderer cursor",
+    "sourceStreams": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "r_frame_rate": "60/1"
+      }
+    ]
+  },
+  {
+    "id": "controls",
+    "source": "assets/video/controls.mp4",
+    "local": "assets/video/controls.mp4",
+    "sha256": "3ad1520e6b2706c0029ac615629d149088a57567ccf02cf9615adff435f383b8",
+    "mediaStart": 0,
+    "playbackRate": 1,
+    "cursor": "live co-recorded pointer baked into the same source frames; no renderer cursor",
+    "sourceStreams": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "r_frame_rate": "60/1"
+      }
+    ]
+  },
+  {
+    "id": "settings",
+    "source": "assets/video/settings.mp4",
+    "local": "assets/video/settings.mp4",
+    "sha256": "100cfb6380a540ebe204a3a6951beb9c788621d0bc51c006a3077ab2526328ce",
+    "mediaStart": 0,
+    "playbackRate": 1,
+    "cursor": "live co-recorded pointer baked into the same source frames; no renderer cursor",
+    "sourceStreams": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "r_frame_rate": "60/1"
+      }
+    ]
+  },
+  {
+    "id": "fullscreen",
+    "source": "assets/video/fullscreen.mp4",
+    "local": "assets/video/fullscreen.mp4",
+    "sha256": "cfe2a5ecd18ac074adcf08050a835a1e2e228b036a90064d9e0a54a48ec8afca",
+    "mediaStart": 0,
+    "playbackRate": 1,
+    "cursor": "live co-recorded pointer baked into the same source frames; no renderer cursor",
+    "sourceStreams": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "r_frame_rate": "60/1"
+      }
+    ]
+  }
+]

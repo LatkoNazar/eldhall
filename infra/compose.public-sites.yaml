@@ -1,0 +1,12 @@
+# Optional three-host routing. Apply after infra/compose.caddy.yaml.
+# Umami's official image serves from its root; this does not use a subpath rewrite.
+services:
+  caddy:
+    environment:
+      LANDING_DOMAIN: ${LANDING_DOMAIN:?Set the public landing hostname}
+      UMAMI_DOMAIN: ${UMAMI_DOMAIN:?Set the public analytics hostname after changing its admin password}
+    volumes:
+      - ./infra/Caddyfile.sites:/etc/caddy/Caddyfile:ro
+    depends_on:
+      landing:
+        condition: service_healthy

@@ -36,7 +36,7 @@ x-dependencies: &dependencies
 x-app: &app
   image: ${APP_IMAGE:-${PROJECT_NAME:-starter}:local}
   build:
-    context: ./apps/backend
+    context: ./apps/api
     dockerfile: Dockerfile
   pull_policy: never
   environment: *app-environment
@@ -138,8 +138,14 @@ services:
   frontend:
     image: ${FRONTEND_IMAGE:-${PROJECT_NAME:-starter}-frontend:local}
     build:
-      context: ./apps/frontend
+      context: .
+      dockerfile: apps/frontend/Dockerfile
       target: production
+      args:
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:18001}
+        PUBLIC_UMAMI_SCRIPT_URL: ${PUBLIC_UMAMI_SCRIPT_URL:-}
+        PUBLIC_UMAMI_WEBSITE_ID: ${PUBLIC_UMAMI_WEBSITE_ID:-}
+        PUBLIC_UMAMI_DOMAINS: ${PUBLIC_UMAMI_DOMAINS:-}
     pull_policy: never
     init: true
     restart: unless-stopped
@@ -161,6 +167,77 @@ services:
     stop_grace_period: 30s
     logging: *logging
 
+  landing:
+    image: ${LANDING_IMAGE:-${PROJECT_NAME:-starter}-landing:local}
+    build:
+      context: .
+      dockerfile: apps/landing/Dockerfile
+      target: production
+      args:
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:18001}
+        PUBLIC_UMAMI_SCRIPT_URL: ${PUBLIC_UMAMI_SCRIPT_URL:-}
+        PUBLIC_UMAMI_WEBSITE_ID: ${PUBLIC_UMAMI_WEBSITE_ID:-}
+        PUBLIC_UMAMI_DOMAINS: ${PUBLIC_UMAMI_DOMAINS:-}
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [edge]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/landing-health']
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    stop_grace_period: 30s
+    logging: *logging
+
+  umami-db:
+    image: postgres:17.11-bookworm
+    environment:
+      POSTGRES_DB: ${UMAMI_POSTGRES_DB:-umami}
+      POSTGRES_USER: ${UMAMI_POSTGRES_USER:-umami}
+      POSTGRES_PASSWORD: ${UMAMI_POSTGRES_PASSWORD:?Set a separate URL-safe UMAMI_POSTGRES_PASSWORD}
+    volumes:
+      - umami_postgres_data:/var/lib/postgresql/data
+    networks: [analytics]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *logging
+
+  umami:
+    image: ghcr.io/umami-software/umami:3.4.1
+    environment:
+      DATABASE_URL: postgresql://${UMAMI_POSTGRES_USER:-umami}:${UMAMI_POSTGRES_PASSWORD:?Set UMAMI_POSTGRES_PASSWORD}@umami-db:5432/${UMAMI_POSTGRES_DB:-umami}
+      APP_SECRET: ${UMAMI_APP_SECRET:?Set a separate random UMAMI_APP_SECRET}
+      HOSTNAME: 0.0.0.0
+    init: true
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [analytics, edge]
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/heartbeat').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    stop_grace_period: 30s
+    logging: *logging
+
   migrate:
     <<: *app
     profiles: [tools]
@@ -171,7 +248,9 @@ volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
+  umami_postgres_data:
 
 networks:
   backend:
   edge:
+  analytics:

@@ -1,0 +1,17 @@
+{
+  "name": "eldhall-youtube-reference",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node scripts/verify.mjs",
+    "build": "npm run verify && node scripts/build.mjs",
+    "dev": "hyperframes preview",
+    "check": "hyperframes check",
+    "snapshot": "hyperframes snapshot --at 2.45,9.109,34.55,43.5 --no-end --output .hyperframes/portable-preview",
+    "render": "hyperframes render --fps 60 --quality delivery --workers 2 --video-frame-format png --frames-cache-dir .cache/frames --output renders/youtube-reference-uk-60fps.mp4"
+  },
+  "dependencies": {
+    "gsap": "3.14.2",
+    "hyperframes": "0.8.221"
+  }
+}

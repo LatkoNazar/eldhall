@@ -1,0 +1,127 @@
+{
+  "search": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1920,
+          "height": 1200,
+          "pix_fmt": "yuv420p",
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "r_frame_rate": "60/1",
+          "avg_frame_rate": "60/1",
+          "duration": "8.416667",
+          "nb_frames": "505"
+        }
+      ]
+    },
+    "decodeCode": 0,
+    "decodeMessage": "",
+    "sha256": "be7e94737a857735d432ee93957242e8b6a372ab0214ab1e6b93959ea5e2cc94",
+    "blankRGB": [
+      253,
+      253,
+      253
+    ]
+  },
+  "results": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1920,
+          "height": 1200,
+          "pix_fmt": "yuv420p",
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "r_frame_rate": "60/1",
+          "avg_frame_rate": "60/1",
+          "duration": "8.483333",
+          "nb_frames": "509"
+        }
+      ]
+    },
+    "decodeCode": 0,
+    "decodeMessage": "",
+    "sha256": "a9062ca874cd42beb3d67af7d8fa5b9245ed84e01be8cd8721067b1ffa4af9fc"
+  },
+  "controls": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1920,
+          "height": 1200,
+          "pix_fmt": "yuv420p",
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "r_frame_rate": "60/1",
+          "avg_frame_rate": "60/1",
+          "duration": "8.600000",
+          "nb_frames": "516"
+        }
+      ]
+    },
+    "decodeCode": 0,
+    "decodeMessage": "",
+    "sha256": "3ad1520e6b2706c0029ac615629d149088a57567ccf02cf9615adff435f383b8"
+  },
+  "settings": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1920,
+          "height": 1200,
+          "pix_fmt": "yuv420p",
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "r_frame_rate": "60/1",
+          "avg_frame_rate": "60/1",
+          "duration": "8.266667",
+          "nb_frames": "496"
+        }
+      ]
+    },
+    "decodeCode": 0,
+    "decodeMessage": "",
+    "sha256": "100cfb6380a540ebe204a3a6951beb9c788621d0bc51c006a3077ab2526328ce"
+  },
+  "fullscreen": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "width": 1920,
+          "height": 1200,
+          "pix_fmt": "yuv420p",
+          "color_range": "tv",
+          "color_space": "bt709",
+          "color_transfer": "bt709",
+          "color_primaries": "bt709",
+          "r_frame_rate": "60/1",
+          "avg_frame_rate": "60/1",
+          "duration": "7.916667",
+          "nb_frames": "475"
+        }
+      ]
+    },
+    "decodeCode": 0,
+    "decodeMessage": "",
+    "sha256": "cfe2a5ecd18ac074adcf08050a835a1e2e228b036a90064d9e0a54a48ec8afca"
+  }
+}

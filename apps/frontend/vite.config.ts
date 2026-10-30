@@ -6,11 +6,14 @@ const backend = {
 }
 
 export default defineConfig({
+  envDir: '../..',
+  envPrefix: ['VITE_', 'PUBLIC_'],
   plugins: [react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    fs: { allow: ['.', '../../packages/analytics'] },
     proxy: {
       '^/api(?:[/?]|$)': backend,
       '^/health(?:[/?]|$)': backend,

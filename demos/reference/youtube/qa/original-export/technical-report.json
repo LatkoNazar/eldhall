@@ -1,0 +1,64 @@
+{
+  "status": "PASS",
+  "file": "D:\\comp-prep\\eldhall-demo\\youtube-hyperframes\\renders\\youtube-tutorial-uk-60fps.mp4",
+  "sha256": "3bc7350e73358229daea3f3feef4691ed3b83cd762aad2ee5d382daf8c713c07",
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "index": 0,
+        "codec_name": "h264",
+        "width": 1920,
+        "height": 1200,
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "r_frame_rate": "60/1",
+        "avg_frame_rate": "60/1",
+        "duration": "52.183333",
+        "nb_frames": "3131"
+      },
+      {
+        "index": 1,
+        "codec_name": "aac",
+        "sample_rate": "48000",
+        "channels": 2,
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "duration": "52.183333",
+        "nb_frames": "2448"
+      }
+    ],
+    "format": {
+      "duration": "52.183333",
+      "size": "40786560",
+      "bit_rate": "6252810"
+    }
+  },
+  "completeDecode": "exit0, no video/audio decode messages",
+  "audio": {
+    "integratedLUFS": -14.8,
+    "loudnessRangeLU": 7.5,
+    "truePeakDBFS": -1.2,
+    "listened": false
+  },
+  "blankWhiteRGB": [
+    252,
+    252,
+    252
+  ],
+  "fullscreenNormalThrough": 42.8166666667,
+  "fullscreenExpandedFirst": 42.8333333333,
+  "visualReview": [
+    "beat-sheet.jpg",
+    "seam-sheet.jpg",
+    "fullscreen-dense.jpg",
+    "controls-final.jpg",
+    "settings-final.jpg"
+  ],
+  "motionEvidence": "cursor-motion.json",
+  "openBlockingFindings": []
+}

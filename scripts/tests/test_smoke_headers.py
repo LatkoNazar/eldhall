@@ -16,7 +16,7 @@ def load_script(relative_path):
 
 class SmokeHostTests(unittest.TestCase):
     def test_backend_proxy_smoke_sends_explicit_host_and_runtime_authentication(self):
-        module = load_script("apps/backend/scripts/smoke.py")
+        module = load_script("apps/api/scripts/smoke.py")
         environment = {
             "SMOKE_BASE_URL": "http://frontend:8080",
             "SMOKE_HOST": "localhost",
@@ -34,7 +34,7 @@ class SmokeHostTests(unittest.TestCase):
             self.assertEqual(request.get_header("Authorization"), "Bearer test-runtime-token")
 
     def test_backend_direct_smoke_preserves_default_url_host(self):
-        module = load_script("apps/backend/scripts/smoke.py")
+        module = load_script("apps/api/scripts/smoke.py")
         with patch.dict(os.environ, {}, clear=True), patch.object(module, "urlopen") as open_:
             open_.return_value.__enter__.return_value.read.return_value = b'{"status":"ok"}'
             module.request("/health/ready")

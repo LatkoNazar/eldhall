@@ -31,6 +31,9 @@ if args and args[0] == "compose":
     services = ["postgres", "redis", "rabbitmq", "api", "worker", "migrate"]
     if re.search(r"^  frontend:", composition.read_text(), re.MULTILINE):
         services.append("frontend")
+    for service in ("landing", "umami-db", "umami"):
+        if re.search(rf"^  {service}:", composition.read_text(), re.MULTILINE):
+            services.append(service)
     if any(value.endswith("compose.caddy.yaml") for value in args):
         services.append("caddy")
 with Path(os.environ["FAKE_DOCKER_LOG"]).open("a") as handle:
@@ -41,6 +44,7 @@ with Path(os.environ["FAKE_DOCKER_LOG"]).open("a") as handle:
                 "project": project,
                 "image": os.environ.get("APP_IMAGE"),
                 "frontend_image": os.environ.get("FRONTEND_IMAGE"),
+                "landing_image": os.environ.get("LANDING_IMAGE"),
                 "composition": str(composition),
             }
         )
@@ -57,8 +61,30 @@ if command == "config":
     if "--services" in args:
         print("\n".join(services))
     else:
-        print(json.dumps({"name": project, "services": {"secret": "never-print-resolved-secrets"}}))
+        umami_image = "ghcr.io/umami-software/umami:3.4.1"
+        match = re.search(
+            r"^    image: (ghcr.io/umami-software/umami:[^\s]+)",
+            composition.read_text(),
+            re.MULTILINE,
+        )
+        if match:
+            umami_image = match.group(1)
+        configured_services = {"secret": "never-print-resolved-secrets"}
+        if "umami" in services:
+            configured_services["umami"] = {"image": umami_image}
+        if "umami-db" in services:
+            database_match = re.search(
+                r"^  umami-db:\n    image: ([^\s]+)",
+                composition.read_text(),
+                re.MULTILINE,
+            )
+            configured_services["umami-db"] = {
+                "image": database_match.group(1) if database_match else "postgres:17.11-bookworm"
+            }
+        print(json.dumps({"name": project, "services": configured_services}))
 elif command == "up" and "frontend" in args and fail == "frontend":
+    sys.exit(1)
+elif command == "up" and "landing" in args and fail == "landing":
     sys.exit(1)
 elif command == "run" and fail == "migrate":
     sys.exit(1)
@@ -68,3 +94,5 @@ elif command == "exec" and "api" in args:
         sys.exit(1)
 elif command == "exec" and "postgres" in args:
     print("database-dump")
+elif command == "exec" and "umami-db" in args:
+    print("analytics-dump")

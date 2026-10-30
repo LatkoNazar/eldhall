@@ -1,0 +1,22 @@
+# Rebuildable dependencies, framework state and intermediate frames.
+node_modules/
+.cache/
+.hyperframes/
+.thumbnails/
+.waveform-cache/
+.tmp/
+frames/
+renders/
+raw/
+
+# Browser identity and credentials never belong in shared demo projects.
+profiles/
+.profiles/
+browser-profile*/
+storage-state*.json
+auth-state*.json
+.auth/
+.env
+.env.*
+!.env.example
+*.log

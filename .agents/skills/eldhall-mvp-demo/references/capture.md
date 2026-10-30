@@ -111,9 +111,11 @@ Then emit standard limited-range BT.709 CFR sources and remeasure reference patc
 successful corrected sources decoded white around253, consistent with compression. Do not
 apply a guessed contrast/gamma/range stretch or relabel genuinely full-range footage.
 
-## Optional historical bootstrap
+## Versioned reference
 
-If present, `eldhall-demo/youtube-capture/native/WGC-README.md`, `native-wgc-final.mjs`
-and `native-wgc-reencode.mjs` document the tested implementation. They are untracked examples,
-not skill dependencies. Do not reuse their YouTube selectors, page-specific state, fixed
-dimensions, timing tables, old cursor reconstructions or obsolete failed source paths.
+`demos/reference/youtube/` contains the approved example, bundled source clips, editable
+Hyperframes code, cursor SVGs and `capture/README.md`. It is a reference, not the MVP film.
+Do not reuse its YouTube-specific scenario, dimensions or narration as a product requirement.
+Keep new source projects and approved exports versioned under `demos/`, with binary media
+in Git LFS. Temporary captures/caches/profiles stay ignored; diagnostic raw is opt-in.
+No file under the historical untracked `eldhall-demo/` is required after cloning.

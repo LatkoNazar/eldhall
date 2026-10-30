@@ -32,6 +32,8 @@ def main() -> None:
         "ENVIRONMENT": "production",
         "APP_PORT": "18000",
         "FRONTEND_PORT": "18001",
+        "LANDING_PORT": "18002",
+        "UMAMI_PORT": "18003",
         "POSTGRES_DB": "app",
         "POSTGRES_USER": "app",
         "POSTGRES_PASSWORD": secrets.token_hex(32),
@@ -40,6 +42,14 @@ def main() -> None:
         "RABBITMQ_PASSWORD": secrets.token_hex(32),
         "RABBITMQ_VHOST": "app",
         "API_TOKEN": secrets.token_hex(32),
+        "UMAMI_POSTGRES_DB": "umami",
+        "UMAMI_POSTGRES_USER": "umami",
+        "UMAMI_POSTGRES_PASSWORD": secrets.token_hex(32),
+        "UMAMI_APP_SECRET": secrets.token_hex(32),
+        "PUBLIC_APP_URL": "http://localhost:18001",
+        "PUBLIC_UMAMI_SCRIPT_URL": "",
+        "PUBLIC_UMAMI_WEBSITE_ID": "",
+        "PUBLIC_UMAMI_DOMAINS": "",
         "ALLOWED_HOSTS": json.dumps(["localhost", "127.0.0.1"]),
         "CORS_ORIGINS": json.dumps([]),
     }
@@ -49,6 +59,7 @@ def main() -> None:
             ACME_EMAIL=args.email,
             ALLOWED_HOSTS=json.dumps([args.domain.lower(), "localhost", "127.0.0.1"]),
             CORS_ORIGINS=json.dumps([f"https://{args.domain.lower()}"]),
+            PUBLIC_APP_URL=f"https://{args.domain.lower()}",
         )
     fd = os.open(args.output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:

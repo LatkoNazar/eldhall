@@ -31,6 +31,7 @@ class ReleaseIsolationTests(unittest.TestCase):
             "COMPOSE_PROJECT_NAME",
             "APP_IMAGE",
             "FRONTEND_IMAGE",
+            "LANDING_IMAGE",
             "FAKE_FAIL",
             "FAKE_FAIL_IMAGE",
         ):
@@ -39,26 +40,33 @@ class ReleaseIsolationTests(unittest.TestCase):
             PATH=f"{self.binary}:{self.environment['PATH']}", FAKE_DOCKER_LOG=str(self.log)
         )
 
-    def release(self, root: Path, sha: str, *, legacy=False):
+    def release(self, root: Path, sha: str, *, legacy=False, landing=False, analytics=False):
         release = root / "releases" / sha
-        (release / "apps/backend/scripts").mkdir(parents=True)
-        shutil.copy(REPO / "compose.yaml", release)
-        shutil.copy(REPO / "compose.prod.yaml", release)
+        api_scripts = release / ("apps/backend/scripts" if legacy else "apps/api/scripts")
+        api_scripts.mkdir(parents=True)
+        services = ["postgres", "redis", "rabbitmq", "api", "worker", "migrate", "frontend"]
         if legacy:
-            (release / "compose.yaml").write_text("services:\n  api: {}\n  worker: {}\n")
-            (release / "compose.prod.yaml").write_text("services: {}\n")
+            services = ["api", "worker"]
+        if landing:
+            services.append("landing")
+        if analytics:
+            services.extend(["umami-db", "umami"])
+        composition = "services:\n" + "".join(f"  {name}: {{}}\n" for name in services)
+        (release / "compose.yaml").write_text(composition)
+        (release / "compose.prod.yaml").write_text("services: {}\n")
         (release / "scripts").mkdir()
         shutil.copy(SCRIPTS / "frontend-smoke.py", release / "scripts")
-        shutil.copy(REPO / "apps/backend/scripts/smoke.py", release / "apps/backend/scripts")
+        shutil.copy(SCRIPTS / "landing-smoke.py", release / "scripts")
+        shutil.copy(REPO / "apps/api/scripts/smoke.py", api_scripts)
         (release / "image.tar.gz").write_bytes(b"test image archive")
         return release
 
-    def project(self, name: str):
+    def project(self, name: str, *, landing=False, analytics=False):
         root = self.directory / name
         root.mkdir()
         (root / ".env").write_text(f"PROJECT_NAME={name}\n")
-        self.release(root, SHA1)
-        self.release(root, SHA2)
+        self.release(root, SHA1, landing=landing, analytics=analytics)
+        self.release(root, SHA2, landing=landing, analytics=analytics)
         return root
 
     def run_script(self, name: str, *args: str | Path, fail=None, overrides=None):
@@ -209,6 +217,10 @@ class ReleaseIsolationTests(unittest.TestCase):
     def make_legacy(self, release):
         (release / "compose.yaml").write_text("services:\n  api: {}\n  worker: {}\n")
         (release / "compose.prod.yaml").write_text("services: {}\n")
+        historical = release / "apps/backend/scripts"
+        historical.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO / "apps/api/scripts/smoke.py", historical)
+        (release / "apps/api/scripts/smoke.py").unlink(missing_ok=True)
 
     def test_legacy_upgrade_and_rollback_restores_proxy_then_removes_only_frontend(self):
         root = self.project("alpha")
@@ -347,6 +359,113 @@ class ReleaseIsolationTests(unittest.TestCase):
             )
         )
         self.assertTrue(any("rm" in call["args"] and "frontend" in call["args"] for call in calls))
+
+    def test_landing_image_pair_is_saved_and_mismatched_reference_blocks_rollback(self):
+        root = self.project("alpha", landing=True)
+        self.deploy(root, SHA1, "alpha")
+        self.deploy(root, SHA2, "alpha")
+        self.assertEqual(
+            (root / "current/landing-image.ref").read_text().strip(), f"alpha-landing:{SHA2}"
+        )
+        reference = root / "previous/landing-image.ref"
+        for invalid in (None, f"beta-landing:{SHA1}", f"alpha-landing:{SHA2}"):
+            if invalid is None:
+                reference.unlink()
+            else:
+                reference.write_text(invalid)
+            self.log.write_text("")
+            self.assertNotEqual(self.run_script("rollback.sh", root).returncode, 0)
+            self.assertEqual((root / "current").resolve().name, SHA2)
+            self.assert_read_only_calls()
+
+    def test_failed_landing_upgrade_restores_the_previous_landing_image(self):
+        root = self.project("alpha", landing=True)
+        self.deploy(root, SHA1, "alpha")
+        self.log.write_text("")
+        result = self.run_script(
+            "deploy.sh",
+            root,
+            SHA2,
+            "alpha",
+            fail="landing",
+            overrides={"FAKE_FAIL_IMAGE": f"alpha:{SHA2}"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((root / "current").resolve().name, SHA1)
+        restored = [
+            call
+            for call in self.calls()
+            if "up" in call["args"]
+            and "landing" in call["args"]
+            and call["image"] == f"alpha:{SHA1}"
+        ]
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0]["landing_image"], f"alpha-landing:{SHA1}")
+
+    def test_rollback_to_pre_landing_release_removes_only_landing_and_keeps_analytics(self):
+        root = self.project("alpha")
+        modern = root / "releases" / SHA2
+        with (modern / "compose.yaml").open("a") as handle:
+            handle.write("  landing: {}\n  umami-db: {}\n  umami: {}\n")
+        self.deploy(root, SHA1, "alpha")
+        self.deploy(root, SHA2, "alpha")
+        self.assertEqual((root / "analytics-current").resolve().name, SHA2)
+        self.log.write_text("")
+        result = self.run_script("rollback.sh", root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((root / "analytics-current").resolve().name, SHA2)
+        removed = [call for call in self.calls() if "rm" in call["args"]]
+        self.assertEqual([call["args"][-1] for call in removed], ["landing"])
+        self.assertFalse(
+            any("umami" in call["args"] or "umami-db" in call["args"] for call in self.calls())
+        )
+        self.assertFalse(any("--volumes" in call["args"] for call in self.calls()))
+        backup = self.run_script("backup.sh", root)
+        self.assertEqual(backup.returncode, 0, backup.stderr)
+        paths = [Path(line) for line in backup.stdout.splitlines()]
+        self.assertEqual(
+            [path.read_text() for path in paths], ["database-dump\n", "analytics-dump\n"]
+        )
+
+    def test_analytics_version_change_is_rejected_before_mutations(self):
+        root = self.project("alpha", landing=True, analytics=True)
+        self.deploy(root, SHA1, "alpha")
+        with (root / "releases" / SHA2 / "compose.yaml").open("a") as handle:
+            handle.write("    image: ghcr.io/umami-software/umami:99.0.0\n")
+        self.log.write_text("")
+        result = self.run_script("deploy.sh", root, SHA2, "alpha")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("separate backed-up analytics upgrade", result.stderr)
+        self.assertEqual((root / "current").resolve().name, SHA1)
+        self.assert_read_only_calls()
+
+    def test_analytics_registry_images_are_started_without_pull_never(self):
+        root = self.project("alpha", analytics=True)
+        self.deploy(root, SHA1, "alpha")
+        calls = [call for call in self.calls() if "up" in call["args"] and "umami" in call["args"]]
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("--pull", calls[0]["args"])
+        app_calls = [
+            call for call in self.calls() if "up" in call["args"] and "api" in call["args"]
+        ]
+        self.assertEqual(len(app_calls), 1)
+        self.assertIn("never", app_calls[0]["args"])
+
+    def test_analytics_database_downgrade_is_rejected_before_mutations(self):
+        root = self.project("alpha", analytics=True)
+        self.deploy(root, SHA1, "alpha")
+        composition = root / "releases" / SHA2 / "compose.yaml"
+        composition.write_text(
+            composition.read_text().replace(
+                "  umami-db: {}\n", "  umami-db:\n    image: postgres:16.1-bookworm\n"
+            )
+        )
+        self.log.write_text("")
+        result = self.run_script("deploy.sh", root, SHA2, "alpha")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("separate backed-up analytics upgrade", result.stderr)
+        self.assertEqual((root / "current").resolve().name, SHA1)
+        self.assert_read_only_calls()
 
 
 if __name__ == "__main__":

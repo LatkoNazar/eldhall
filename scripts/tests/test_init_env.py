@@ -44,6 +44,8 @@ class EnvironmentGenerationTests(unittest.TestCase):
                     "REDIS_PASSWORD",
                     "RABBITMQ_PASSWORD",
                     "API_TOKEN",
+                    "UMAMI_POSTGRES_PASSWORD",
+                    "UMAMI_APP_SECRET",
                 ):
                     self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
                     self.assertNotIn(values[key], result.stdout + result.stderr)
@@ -83,9 +85,20 @@ class EnvironmentGenerationTests(unittest.TestCase):
             self.assertEqual(json.loads(values["CORS_ORIGINS"]), [])
             self.assertEqual(values["APP_PORT"], "18000")
             self.assertEqual(values["FRONTEND_PORT"], "18001")
+            self.assertEqual(values["LANDING_PORT"], "18002")
+            self.assertEqual(values["UMAMI_PORT"], "18003")
+            self.assertEqual(values["PUBLIC_APP_URL"], "http://localhost:18001")
+            self.assertEqual(values["PUBLIC_UMAMI_WEBSITE_ID"], "")
             self.assertNotIn("DOMAIN", values)
             self.assertNotIn("ACME_EMAIL", values)
-            for key in ("POSTGRES_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_PASSWORD", "API_TOKEN"):
+            for key in (
+                "POSTGRES_PASSWORD",
+                "REDIS_PASSWORD",
+                "RABBITMQ_PASSWORD",
+                "API_TOKEN",
+                "UMAMI_POSTGRES_PASSWORD",
+                "UMAMI_APP_SECRET",
+            ):
                 self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
                 self.assertNotIn(values[key], result.stdout + result.stderr)
 

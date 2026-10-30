@@ -19,6 +19,10 @@ jobs:
     timeout-minutes: 20
     env:
       PROJECT_NAME: ${{ vars.PROJECT_NAME || 'starter' }}
+      PUBLIC_APP_URL: http://localhost:18001
+      PUBLIC_UMAMI_SCRIPT_URL: ""
+      PUBLIC_UMAMI_WEBSITE_ID: ""
+      PUBLIC_UMAMI_DOMAINS: ""
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -33,11 +37,14 @@ jobs:
           echo "COMPOSE_PROJECT_NAME=${prefix%-}-ci-${run_key:0:12}" >> "$GITHUB_ENV"
           echo "APP_IMAGE=$PROJECT_NAME:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=$PROJECT_NAME-frontend:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "LANDING_IMAGE=$PROJECT_NAME-landing:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/frontend/package-lock.json
+          cache-dependency-path: |
+            apps/frontend/package-lock.json
+            apps/landing/package-lock.json
       - name: Check and build frontend
         working-directory: apps/frontend
         run: |
@@ -46,16 +53,23 @@ jobs:
           npm run typecheck
           npm run test
           npm run build
+      - name: Check and build landing
+        working-directory: apps/landing
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run build
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.0"
           python-version: "3.12"
-          cache-dependency-glob: apps/backend/uv.lock
+          cache-dependency-glob: apps/api/uv.lock
       - name: Install locked dependencies
-        working-directory: apps/backend
+        working-directory: apps/api
         run: uv sync --frozen
       - name: Lint, format and unit tests
-        working-directory: apps/backend
+        working-directory: apps/api
         run: |
           uv run ruff check --config pyproject.toml . ../../scripts
           uv run ruff format --check --config pyproject.toml . ../../scripts
@@ -69,17 +83,21 @@ jobs:
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
       - name: Build application images
         run: |
-          docker build --tag "$APP_IMAGE" apps/backend
-          docker build --target production --tag "$FRONTEND_IMAGE" apps/frontend
+          docker build --tag "$APP_IMAGE" apps/api
+          docker build -f apps/frontend/Dockerfile --target production --tag "$FRONTEND_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build -f apps/landing/Dockerfile --target production --tag "$LANDING_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
       - name: Start dependencies and migrate
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq umami-db umami
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
       - name: Start application and exercise real background job
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend landing
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < scripts/frontend-smoke.py
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < apps/backend/scripts/smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < apps/api/scripts/smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://landing:8080 api python - < scripts/landing-smoke.py
+      - name: Verify isolated analytics ingestion and attribution
+        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1 umami node - < scripts/analytics-smoke.mjs
       - name: Diagnostics
         if: failure() && steps.ci_project.outcome == 'success'
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
@@ -98,6 +116,10 @@ jobs:
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       PROJECT_NAME: ${{ vars.PROJECT_NAME }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      PUBLIC_UMAMI_SCRIPT_URL: ${{ vars.PUBLIC_UMAMI_SCRIPT_URL }}
+      PUBLIC_UMAMI_WEBSITE_ID: ${{ vars.PUBLIC_UMAMI_WEBSITE_ID }}
+      PUBLIC_UMAMI_DOMAINS: ${{ vars.PUBLIC_UMAMI_DOMAINS }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -118,6 +140,7 @@ jobs:
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
           test -n "$SSH_KEY"
           test -n "$KNOWN_HOSTS"
+          test -n "$PUBLIC_APP_URL" || { echo 'Set the public build-time PUBLIC_APP_URL repository variable.' >&2; exit 1; }
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
@@ -160,11 +183,12 @@ jobs:
           REMOTE
       - name: Build immutable release image and bundle
         run: |
-          docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/backend
-          docker build --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" apps/frontend
+          docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/api
+          docker build -f apps/frontend/Dockerfile --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           mkdir -p .deploy
-          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
-          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/backend/scripts/smoke.py
+          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/api/scripts/smoke.py
       - name: Upload release and deploy
         run: |
           set -euo pipefail
@@ -183,6 +207,11 @@ jobs:
           SMOKE_HOST=$(python3 -c 'import os; from urllib.parse import urlsplit; print(urlsplit(os.environ["PUBLIC_URL"]).netloc)')
           export SMOKE_HOST
           python3 scripts/frontend-smoke.py
+      - name: Check public landing endpoint
+        if: vars.LANDING_PUBLIC_URL != ''
+        env:
+          SMOKE_BASE_URL: ${{ vars.LANDING_PUBLIC_URL }}
+        run: python3 scripts/landing-smoke.py
       - name: Remove runner deployment key
         if: always()
         run: rm -f ~/.ssh/deploy_key

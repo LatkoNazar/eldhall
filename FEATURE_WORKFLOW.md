@@ -64,21 +64,22 @@ if ($LASTEXITCODE -ne 0) { throw 'Worktree не створено; агента �
 ## 3. Завдання виконавцю
 
 Передай агенту: мету, критерії приймання, дозволену область, залежності, базовий SHA, гілку, абсолютний workdir і потрібні перевірки.
-Backend розташований у `apps/backend`, React/TypeScript frontend — у `apps/frontend`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені. Frontend використовує npm та власний `package-lock.json`; признач одного автора для змін залежностей.
-Нові модулі додавай у `apps/backend/src/app/modules/`, дотримуючись меж модульного моноліту з README.
+Python backend розташований у `apps/api`, React/TypeScript застосунок — у `apps/frontend`, TypeScript/Vite лендинг — у `apps/landing`. Спільний браузерний SDK — у `packages/analytics`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені. Обидва вебзастосунки використовують npm та власні `package-lock.json`; признач одного автора для змін кожного lockfile й одного для спільного SDK. Окремий Node.js API-варіант не змінює Python foundation: його розробляй в окремій гілці від перевіреної спільної бази.
+Нові модулі додавай у `apps/api/src/app/modules/`, дотримуючись меж модульного моноліту з README.
 
 Git не переносить ігноровані `.env`, `.venv` та локальні артефакти у worktree.
 Створи там власний `.env` з `.env.example` або явно дозволеної конфігурації розробки; production-секрети не копіюй.
 Встанови залежності worktree окремо. З його кореня:
 
 ```powershell
-uv --directory apps/backend sync --frozen
-uv --directory apps/backend run ruff check .
-uv --directory apps/backend run ruff format --check .
-uv --directory apps/backend run pytest
+uv --directory apps/api sync --frozen
+uv --directory apps/api run ruff check .
+uv --directory apps/api run ruff format --check .
+uv --directory apps/api run pytest
 ```
 
 Для frontend з директорії `apps/frontend` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` і `npm run build`.
+Frontend-набір також перевіряє `packages/analytics`; для landing з `apps/landing` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`. Обидва Dockerfile вебзастосунків збираються з кореневого context, щоб включити спільний пакет.
 
 У кожному worktree `PROJECT_NAME` задає локальну ідентичність застосунку; за замовчуванням шаблон використовує `starter`.
 За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE`, `FRONTEND_IMAGE` і host-порти:
@@ -108,18 +109,20 @@ git merge --no-ff $featureBranch
 Виконавці зупиняють редагування перед передачею гілки на merge.
 Подальші виправлення роби в інтеграційній гілці одним призначеним автором або в новій repair-гілці від її актуального SHA.
 
-Після злиття пакета запусти Ruff, форматування й повний Python unit-набір наведеними вище командами, а також lint, typecheck, тести й production build frontend.
-Перевір `uv --directory apps/backend run alembic heads`: має залишитися один узгоджений head; за розгалуження створи й перевір merge-міграцію.
+Після злиття пакета запусти Ruff, форматування й повний Python unit-набір наведеними вище командами, а також lint, typecheck, тести й production build frontend та перевірки landing. Для змін deployment також запусти `python -m unittest discover -s scripts/tests -p 'test_*.py' -v` і `bash scripts/tests/test-release.sh`.
+Перевір `uv --directory apps/api run alembic heads`: має залишитися один узгоджений head; за розгалуження створи й перевір merge-міграцію.
 На ізольованому dev-стеку перебудуй образ, застосуй міграції до чистої БД і перевір оновлення попередньої схеми, якщо змінювалася схема.
 Запусти API й worker за README та виконай наявний smoke:
 
 ```powershell
-Get-Content -Raw apps/backend/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
+Get-Content -Raw apps/api/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
 ```
 
 Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle або `VITE_*`.
 Окремо перевір нові API/фонові сценарії, їхні помилки й права доступу; додай відповідні перевірки за потреби.
 Не позначай блоковані або невиконані перевірки як успішні.
+
+Для змін лендингу перевір `/landing-health`, справжні 404 та зібрані assets через `scripts/landing-smoke.py`; браузером перевір реальний перехід у застосунок і перенесення дозволених UTM. Для аналітики користуйся [контрактом і налаштуванням](docs/analytics.md). `scripts/analytics-smoke.mjs` з явним `UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1` призначений лише для ізольованого CI/QA Umami з тестовим website; ніколи не використовуй default login на production. Наявні події не доводять реалізацію реєстрації. Повний render відео не входить до CI application: `demos/` має власний workflow і QA, а MP4/джерела передаються команді через Git LFS.
 
 ## 5. Незалежне рев’ю та PR
 

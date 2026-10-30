@@ -38,7 +38,7 @@ assert_compose_project() {
 }
 
 assert_current_project() {
-  local root=$1 expected=$2 current_project current_image
+  local root=$1 expected=$2 current_project current_image kind
   if [[ -e "$root/current" || -L "$root/current" ]]; then
     test -f "$root/current/compose.yaml" && test -f "$root/current/image.ref" || {
       echo 'Current release is incomplete; refusing to replace its identity' >&2
@@ -46,12 +46,14 @@ assert_current_project() {
     }
     current_image=$(cat "$root/current/image.ref") || return
     current_project=$(project_from_image "$current_image") || return
-    if [[ -f "$root/current/frontend-image.ref" ]]; then
-      [[ "$(cat "$root/current/frontend-image.ref")" == "${current_image%:*}-frontend:${current_image##*:}" ]] || {
-        echo 'Current frontend image does not match its backend release' >&2
-        return 2
-      }
-    fi
+    for kind in frontend landing; do
+      if [[ -f "$root/current/$kind-image.ref" ]]; then
+        [[ "$(cat "$root/current/$kind-image.ref")" == "${current_image%:*}-$kind:${current_image##*:}" ]] || {
+          echo "Current $kind image does not match its API release" >&2
+          return 2
+        }
+      fi
+    done
     [[ "$current_project" == "$expected" ]] || {
       echo "Deploy root belongs to '$current_project', not '$expected'; use a separate deploy root" >&2
       return 2

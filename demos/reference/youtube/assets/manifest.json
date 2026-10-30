@@ -1,0 +1,125 @@
+{
+  "description": "Immutable reference assets and original approved deliverables. Rerenders are separate artifacts.",
+  "files": [
+    {
+      "path": "assets/video/controls.mp4",
+      "bytes": 6605880,
+      "sha256": "3ad1520e6b2706c0029ac615629d149088a57567ccf02cf9615adff435f383b8"
+    },
+    {
+      "path": "assets/video/fullscreen.mp4",
+      "bytes": 8740458,
+      "sha256": "cfe2a5ecd18ac074adcf08050a835a1e2e228b036a90064d9e0a54a48ec8afca"
+    },
+    {
+      "path": "assets/video/results.mp4",
+      "bytes": 1474987,
+      "sha256": "a9062ca874cd42beb3d67af7d8fa5b9245ed84e01be8cd8721067b1ffa4af9fc"
+    },
+    {
+      "path": "assets/video/search.mp4",
+      "bytes": 673304,
+      "sha256": "be7e94737a857735d432ee93957242e8b6a372ab0214ab1e6b93959ea5e2cc94"
+    },
+    {
+      "path": "assets/video/settings.mp4",
+      "bytes": 7574210,
+      "sha256": "100cfb6380a540ebe204a3a6951beb9c788621d0bc51c006a3077ab2526328ce"
+    },
+    {
+      "path": "assets/audio/controls.mp3",
+      "bytes": 41040,
+      "sha256": "9d91ffcd76c3d0c2bfab979012fd1a5d92c43f96360ebc799f54fb65ac901b3b"
+    },
+    {
+      "path": "assets/audio/controls.srt",
+      "bytes": 215,
+      "sha256": "6acc18520a83d886758714484c74f466959b85b0cd7b479fe30172202ce55e4f"
+    },
+    {
+      "path": "assets/audio/fullscreen.mp3",
+      "bytes": 37584,
+      "sha256": "f2d6e974755de2afe71ba6655787bf61d2438cb26bcce1b4a8ea93bde2dbfb5a"
+    },
+    {
+      "path": "assets/audio/fullscreen.srt",
+      "bytes": 204,
+      "sha256": "d2c8ccf5e75bdcdf898d217b8879d62d2dee82eb08f095baa006dd7407bd7a9c"
+    },
+    {
+      "path": "assets/audio/intro.mp3",
+      "bytes": 25776,
+      "sha256": "fda410e62ea1a83d64af52c1a5e17fa39950b05efbf13216c5bcf87304b0b11c"
+    },
+    {
+      "path": "assets/audio/intro.srt",
+      "bytes": 133,
+      "sha256": "426a263b9c683c813dd343ef93954f0b0af18968fbdd7c68690c5233b02db92f"
+    },
+    {
+      "path": "assets/audio/outro.mp3",
+      "bytes": 29952,
+      "sha256": "2b0c0be15ec79e3d2b82647cb7f872a8538675eff41e329bbf1589b31b4f6ae1"
+    },
+    {
+      "path": "assets/audio/outro.srt",
+      "bytes": 152,
+      "sha256": "049270021b11af6987f3d4ed286d875d235a3055023a787fd1aa514c76598961"
+    },
+    {
+      "path": "assets/audio/results.mp3",
+      "bytes": 39744,
+      "sha256": "6ec98c1180c05a7d0d2acfec4b4fc43dad795cc191a44f2a9a983384184b761f"
+    },
+    {
+      "path": "assets/audio/results.srt",
+      "bytes": 199,
+      "sha256": "53ce1995ab9ef7a9b61933285fe3941c664794861f4f9b9a83c2f87c372d5479"
+    },
+    {
+      "path": "assets/audio/search.mp3",
+      "bytes": 38304,
+      "sha256": "72df76348571cf09dba433aeef51833f5422b9dee9f3ab74d8b35648ffc14b65"
+    },
+    {
+      "path": "assets/audio/search.srt",
+      "bytes": 195,
+      "sha256": "7f196e8ea255ee0ae9ecb13589676e530408b3dd419b974e8424175ec57ff25e"
+    },
+    {
+      "path": "assets/audio/settings.mp3",
+      "bytes": 38880,
+      "sha256": "8ba3c1eeff7e52a373d8f8032fe87b99b268858bc10d47e0bececb08a1fd69e7"
+    },
+    {
+      "path": "assets/audio/settings.srt",
+      "bytes": 204,
+      "sha256": "4a3e0dae844865edf4617d2ea8b50daa4bf9b290806cea385dbe664dd8b33563"
+    },
+    {
+      "path": "assets/cursor/eldhall-arrow.svg",
+      "bytes": 996,
+      "sha256": "0c8d02271a120f70db1441cdd376d5b28be784ff0e82af5ecdc1bcce6f93af7f"
+    },
+    {
+      "path": "assets/cursor/eldhall-pointer.svg",
+      "bytes": 1118,
+      "sha256": "047b35110310726cd3f07450b4fc0ee6c8e6bd82c806fb3fa9f39e3f1a5c3d05"
+    },
+    {
+      "path": "assets/cursor/hotspots.json",
+      "bytes": 647,
+      "sha256": "5595252efb27307c7088d0f5c4c7946aceab58108ca863e9df7192f3a74499fd"
+    },
+    {
+      "path": "exports/youtube-tutorial-uk-60fps.mp4",
+      "bytes": 40786560,
+      "sha256": "3bc7350e73358229daea3f3feef4691ed3b83cd762aad2ee5d382daf8c713c07"
+    },
+    {
+      "path": "exports/youtube-tutorial-uk-60fps.srt",
+      "bytes": 1305,
+      "sha256": "d85c0043c3615d8a1725b47a228b634834b8dd9166d9844041ded54ea67a6747"
+    }
+  ]
+}
