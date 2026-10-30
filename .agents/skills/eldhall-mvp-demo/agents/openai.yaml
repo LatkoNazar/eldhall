@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eldhall MVP Demo"
+  short_description: "Record real MVP demos with verified smooth 60 fps"
+  default_prompt: "Використай $eldhall-mvp-demo, щоб записати актуальний MVP цього проєкту з курсором Eldhall, перевіреними 60 fps та українською озвучкою."

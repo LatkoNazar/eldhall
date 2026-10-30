@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "displaySize": { "width": 44, "height": 48 },
+  "coordinateSystem": "hotspots are CSS pixels at the declared 44x48 display size",
+  "arrow": { "file": "eldhall-arrow.svg", "hotspot": { "x": 3, "y": 3 }, "role": "default" },
+  "pointer": { "file": "eldhall-pointer.svg", "hotspot": { "x": 22, "y": 4 }, "role": "clickable / pointing hand" },
+  "palette": { "body": "#CF2639", "outline": "#FFFFFF", "edge": "#27242A", "flame": "#FFFFFF", "flameDetail": "#F8C8CE" },
+  "usage": "Original Eldhall assets. For local browser capture overlays; no system cursor installation. Place each image at pointer position minus its hotspot."
+}
