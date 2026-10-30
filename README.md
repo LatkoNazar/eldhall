@@ -1,6 +1,6 @@
 # Основа для змагання
 
-React, TypeScript, Vite, Python/FastAPI, PostgreSQL, Redis, Celery та RabbitMQ в одному репозиторії. `apps/api` містить Python API й worker, `apps/frontend` — застосунок, `apps/landing` — окремий статичний лендинг на TypeScript. Umami збирає маркетингові події у власну PostgreSQL-базу. Frontend і landing мають окремі production-образи. Docker Compose призначений для одного Linux VPS; CI перевіряє вебзбірки, реальну фонову задачу та аналітику перед деплоєм.
+React, TypeScript, Vite, Node.js/Fastify, PostgreSQL, Redis та RabbitMQ в одному репозиторії. `apps/api` містить Node.js/TypeScript API й worker, `apps/frontend` — застосунок, `apps/landing` — окремий статичний лендинг на TypeScript. Umami збирає маркетингові події у власну PostgreSQL-базу. Frontend і landing мають окремі production-образи. Docker Compose призначений для одного Linux VPS; CI перевіряє вебзбірки, реальну фонову задачу та аналітику перед деплоєм.
 
 Сценарії й відео для команди зберігаються в [demos/](demos/README.md); великі медіафайли передаються через Git LFS. Основний backend залишається Python; Node.js доступний як [окремий варіант у Git](#варіанти-backend).
 
@@ -8,7 +8,7 @@ React, TypeScript, Vite, Python/FastAPI, PostgreSQL, Redis, Celery та RabbitMQ
 
 ## Варіанти backend
 
-`main` — основний варіант із Python/FastAPI та Celery. `codex/node-backend` — альтернативний варіант із Node.js/TypeScript API й worker. Лендинг, frontend, Umami та demo-проєкт мають спільну основу. Команди Python у цьому README стосуються `main`; після перемикання користуйся командами README обраної гілки.
+`main` — основний варіант із Python/FastAPI та Celery. `codex/node-backend` — альтернативний варіант із Node.js/TypeScript API й worker. Лендинг, frontend, Umami та demo-проєкт мають спільну основу. Цей README описує Node.js-варіант; після перемикання на `main` користуйся Python-командами README тієї гілки.
 
 Збережи локальні зміни перед перемиканням і вибери потрібний варіант:
 
@@ -20,7 +20,7 @@ git switch codex/node-backend
 
 Node.js-варіант включає узгоджені API, worker, Compose, CI й серверні скрипти. Для перенесення в інший проєкт забирай увесь diff варіанта або працюй з його гілкою: одного каталогу `apps/api` недостатньо.
 
-Перехід між backend-варіантами передбачає зупинку стека. Перед використанням існуючої БД з іншим worker дочекайся завершення всіх queued/running задач і зупини попередній Compose-стек, зберігаючи volumes. Потім перебудуй та запусти повний стек за README обраної гілки; наявні Celery-повідомлення не є контрактом сумісності для іншого worker.
+Перехід між backend-варіантами передбачає зупинку стека. Перед використанням існуючої БД з іншим worker дочекайся завершення всіх queued/running задач і зупини попередній Compose-стек, зберігаючи volumes. Потім перебудуй та запусти повний стек за README обраної гілки; черга Node `jobs.transform.node.v1` має власний протокол. [Межі сумісності БД і черг](docs/backend-variants.md).
 
 ## Новий проєкт із шаблону
 
@@ -51,7 +51,7 @@ python scripts/init-env.py --project-name booking --domain api.booking.example.c
 
 ## Локальний запуск
 
-Потрібні Docker з Compose v2.24+ та Git. Python окремо потрібен лише для роботи поза контейнерами.
+Потрібні Docker з Compose v2.24+ та Git. Для Node поза контейнерами потрібен Node.js 24.15+ у межах 24.x. Python 3.10+ використовується тільки хостовими операційними утилітами (`init-env.py`, release guards/тести), його немає в runtime API/worker.
 
 ```powershell
 Copy-Item .env.example .env
@@ -62,7 +62,7 @@ docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
 docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker frontend landing
 ```
 
-Лендинг: http://localhost:5174, Umami: http://localhost:3001, застосунок: http://localhost:5173, API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. Vite автоматично оновлює React після змін `apps/frontend/`, API перечитує зміни `apps/api/src/`; worker після змін перезапускай: `docker compose -f compose.yaml -f compose.dev.yaml restart worker`. Після зміни залежностей перебудуй відповідний образ і перезапусти сервіс.
+Лендинг: http://localhost:5174, Umami: http://localhost:3001, застосунок: http://localhost:5173, API: http://localhost:8000/docs. RabbitMQ UI: http://localhost:15672, логін і пароль з `.env`. Порти БД, Redis і RabbitMQ у dev доступні тільки на localhost. Vite автоматично оновлює React після змін `apps/frontend/`, API й worker стежать за змінами `apps/api/src/` через TypeScript watch. Після зміни залежностей перебудуй відповідний образ і перезапусти сервіс.
 
 Для frontend поза Docker потрібен Node.js 24.15+ у межах гілки 24.x. Запусти backend за командами вище, але не запускай контейнер `frontend`, і в іншому терміналі виконай:
 
@@ -78,28 +78,31 @@ Frontend використовує відносні `/api/*` та `/health/*`. У
 $headers = @{ Authorization = "Bearer development-token-not-for-production" }
 $job = Invoke-RestMethod http://localhost:8000/api/v1/jobs -Method Post -Headers $headers -ContentType application/json -Body '{"text":"hello","operation":"uppercase"}'
 Invoke-RestMethod "http://localhost:8000/api/v1/jobs/$($job.id)" -Headers $headers
-Get-Content -Raw apps/api/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
+Get-Content -Raw apps/api/scripts/smoke.mjs | docker compose -f compose.yaml -f compose.dev.yaml exec -T api node --input-type=module -
 ```
 
-`GET /health/live` перевіряє процес, `/health/ready` — PostgreSQL, Redis та RabbitMQ. Окремий Docker healthcheck worker перевіряє відповідь Celery; smoke також чекає виконання задачі. У production Swagger вимкнений, API задач захищено Bearer `API_TOKEN`. Не вбудовуй спільний API_TOKEN у публічний frontend: перед відкриттям застосунку для користувачів додай його власну автентифікацію.
+`GET /health/live` перевіряє процес, `/health/ready` — PostgreSQL, Redis та RabbitMQ. Окремий Docker healthcheck worker перевіряє свіжість його Redis heartbeat; smoke також чекає виконання задачі. У production Swagger вимкнений, API задач захищено Bearer `API_TOKEN`. Не вбудовуй спільний API_TOKEN у публічний frontend: перед відкриттям застосунку для користувачів додай його власну автентифікацію.
 
 ## Структура та нові модулі
 
 ```text
 apps/
   api/
-    src/app/
-      main.py         # збирає застосунок і роутери
-      core/           # конфіг, БД, Celery, спільна інфраструктура
+    src/
+      app.ts          # Fastify, маршрути, auth та dependency injection
+      server.ts       # HTTP-процес на 8000
+      worker.ts       # окремий RabbitMQ worker
+      migrate.ts      # явний SQL runner зі schema compatibility guard
+      core/           # конфіг, PostgreSQL, Redis, AMQP, міграції
       modules/
-        system/       # health endpoints
-        jobs/         # model, schemas, services, router, tasks
-    migrations/       # спільний ланцюжок Alembic
-    tests/
-    scripts/smoke.py  # перевірка API та фонової задачі
-    pyproject.toml
-    uv.lock
-    alembic.ini
+        system/       # публічні health endpoints
+        jobs/         # schema, service, repository
+      scripts/worker-health.ts
+    migrations/0001_jobs.sql
+    tests/            # Node test runner та TypeScript
+    scripts/smoke.mjs # standalone перевірка API й реальної фонової задачі
+    package.json
+    package-lock.json
     Dockerfile
   frontend/
     src/              # React, TypeScript та UI-тести
@@ -118,19 +121,22 @@ compose*.yaml         # спільна інфраструктура всіх з�
 .env.example          # спільна конфігурація середовища
 ```
 
-Кожен застосунок має власні залежності, перевірки й Dockerfile. Python використовує `uv.lock`, frontend та landing — власні `package-lock.json` і `npm ci`. Docker Compose, CI/CD і скрипти сервера спільні в корені репозиторію.
+Кожен застосунок має власні залежності, перевірки й Dockerfile. API, frontend та landing використовують власні `package-lock.json` і `npm ci`. Docker Compose, CI/CD і скрипти сервера спільні в корені репозиторію.
 
-Для фічі створюй `apps/api/src/app/modules/<feature>/` і підключай її router у `main.py`. Логіку тримай в services, HTTP у router, ORM у models, Celery-обгортки у tasks. Інші модулі викликають публічні сервіси, не їхні router. Зареєструй ORM-моделі у `apps/api/migrations/env.py`, а task-модулі — у `core/celery_app.py`. Перевірки архітектурних меж не автоматизовані; дотримуйся цих правил у коді.
+Для фічі створюй `apps/api/src/modules/<feature>/`, тримай прикладну логіку в service, SQL у repository, HTTP-маршрути реєструй через `app.ts`. Точки входу API та worker окремі; спільну логіку викликай через модульні сервіси. Перевірки архітектурних меж не автоматизовані.
 
-Команди Python запускай з `apps/api`:
+Команди Node API/worker запускай з `apps/api`:
 
 ```powershell
 cd apps/api
-uv sync --frozen
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
+
+Production entrypoints — `node dist/server.js`, `node dist/worker.js` і `node dist/migrate.js`. Dev-команди `npm run dev` та `npm run dev:worker` використовують TypeScript watch. `npm run migrate` працює після build.
 
 Перевірки frontend запускай з `apps/frontend`:
 
@@ -142,9 +148,11 @@ npm test
 npm run build
 ```
 
-Production не запускає Vite dev/preview server: образ містить лише результат збірки й Caddy. `/` та адреси сторінок відкривають SPA, `/assets/*` віддає статичні файли, `/api/*` і `/health/*` передаються до FastAPI зі збереженням шляху. Відсутній API endpoint або asset повертає справжню помилку, а не HTML сторінки. `/frontend-health` перевіряє HTTP-сервер frontend; `/health/ready` — залежності backend.
+Production не запускає Vite dev/preview server: образ містить лише результат збірки й Caddy. `/` та адреси сторінок відкривають SPA, `/assets/*` віддає статичні файли, `/api/*` і `/health/*` передаються до Node API зі збереженням шляху. Відсутній API endpoint або asset повертає справжню помилку, а не HTML сторінки. `/frontend-health` перевіряє HTTP-сервер frontend; `/health/ready` — залежності backend.
 
-Для локального Python підстав у змінні середовища `POSTGRES_HOST`, `REDIS_HOST`, `RABBITMQ_HOST` значення `localhost`; credentials беруться зі спільного `.env` у корені репозиторію. Усі контейнери використовують внутрішні DNS-імена сервісів. З `apps/api/` команда `uv run alembic revision --autogenerate -m "feature"` створює міграцію, `uv run alembic upgrade head` застосовує її. Після створення міграції локально включи її у наступний Docker build. У production не запускай autogenerate: лише перевірені міграції з Git. Команди Docker Compose та серверні скрипти запускай з кореня репозиторію.
+Для Node поза контейнерами підстав у змінні середовища `POSTGRES_HOST`, `REDIS_HOST`, `RABBITMQ_HOST` значення `localhost` і фактичні host-порти; credentials читаються зі спільного `.env`. Контейнери використовують внутрішні DNS-імена сервісів. Із `apps/api/` виконай `npm run build`, `npm run migrate`, потім запусти API й worker в окремих терміналах (`npm start`, `npm run worker`). У Compose міграції запускаються окремим сервісом `migrate`.
+
+Поточний runner перевіряє схему `0001_jobs` і може прийняти сумісну Python-базу цієї ревізії. Невідому ревізію або дрейф схеми він відхиляє. Зміни схеми потребують явного розширення runner/версій і перевірки переходу зі старої БД; autogenerate в цьому варіанті немає. Докладніше: [backend variants](docs/backend-variants.md). Команди Docker Compose та серверні скрипти запускай з кореня репозиторію.
 
 ## Перший серверний запуск без домену
 
@@ -172,7 +180,7 @@ Production не запускає Vite dev/preview server: образ місти�
 | Secret | `DEPLOY_SSH_KEY` | окремий приватний ключ для Actions |
 | Secret | `DEPLOY_KNOWN_HOSTS` | перевірений SSH host key сервера |
 
-CI запускає Python lint, форматування та unit tests, перевірки frontend і landing, тести спільного analytics SDK та release-скриптів. Він збирає три образи, мігрує чисту БД, перевіряє маршрути frontend і виконує задачу через його proxy та справжню чергу. Обидва jobs, перевірка й деплой, використовують `RUNNER_LABEL` та збирають образи нативної архітектури runner: `linux/amd64` або `linux/arm64`. Обери ту саму архітектуру, що на VPS.
+CI запускає Node API/worker lint, typecheck, unit tests і build, тести хостових Python-утиліт, перевірки frontend і landing, тести спільного analytics SDK та release-скриптів. Він збирає три образи, мігрує чисту БД, перевіряє маршрути frontend і виконує задачу через його proxy та справжню чергу. Обидва jobs, перевірка й деплой, використовують `RUNNER_LABEL` та збирають образи нативної архітектури runner: `linux/amd64` або `linux/arm64`. Обери ту саму архітектуру, що на VPS.
 
 Деплой запускається лише після успішного CI для `main` та за ввімкненого `DEPLOY_ENABLED`. Перед збиранням релізних образів preflight перевіряє Docker/Compose на сервері, каталог і серверний `.env`, а також збіг архітектур сервера й runner. API, frontend і landing з тегом одного Git SHA передаються через SSH в одному архіві: серверу не потрібні GitHub registry credentials.
 
@@ -227,9 +235,9 @@ Backup і rollback беруть ідентичність Compose із серве
 
 Відкат повертає узгоджені образи API/frontend/landing, але не схему БД. Umami має незалежний життєвий цикл і не понижується при відкаті застосунку; його база та поточний analytics-реліз зберігаються. Деплой автоматично пробує відновити попередні сервіси при помилці. Міграції повинні бути сумісні з попереднім кодом: додавання поля/таблиці окремо від видалення старого. Відновлення БД роби лише усвідомлено зі збереженої копії: воно замінює дані. Для перевірки архіву: `pg_restore --list <backup.dump>` у контейнері PostgreSQL.
 
-PostgreSQL застосунку, окремий PostgreSQL Umami, RabbitMQ, Redis і Caddy мають постійні Docker volumes. Не виконуй `down --volumes` на сервері. Дані в `.env` застосовуються до користувачів PostgreSQL/RabbitMQ при першій ініціалізації: зміна пароля у файлі не змінить його у вже створеній БД. Redis використовує пароль і AOF; RabbitMQ — durable messages; Celery result backend — Redis DB1, cache — DB0. Результат демо також зберігається в PostgreSQL.
+PostgreSQL застосунку, окремий PostgreSQL Umami, RabbitMQ, Redis і Caddy мають постійні Docker volumes. Не виконуй `down --volumes` на сервері. Дані в `.env` застосовуються до користувачів PostgreSQL/RabbitMQ при першій ініціалізації: зміна пароля у файлі не змінить його у вже створеній БД. Redis використовує пароль і AOF; RabbitMQ — durable messages; Результати Node worker зберігаються в Redis DB1 (`node-task:<id>`), heartbeat — у DB0 (`node-worker:<hostname>`); ці ключі відокремлені від Celery. Результат демо також зберігається в PostgreSQL.
 
-Приклад задачі детермінований і допускає повторне виконання. Між збереженням job і публікацією повідомлення немає transactional outbox: при аварії процесу в цей момент задача може залишитися queued. Для платежів та іншої критичної доставки додай outbox і відповідну ідемпотентність до прикладної логіки.
+Приклад задачі детермінований і допускає повторне виконання. Між збереженням job і публікацією повідомлення немає transactional outbox: при аварії процесу в цей момент задача може залишитися queued. Для платежів та іншої критичної доставки додай outbox і відповідну ідемпотентність до прикладної логіки. Node worker використовує durable-чергу, persistent повідомлення, publisher confirms та manual ACK; подробиці обмежень і повторів — у [контракті черги](docs/backend-variants.md).
 
 Backup перед релізом зберігається на тому самому VPS; автоматичного offsite backup і ротації немає. Для важливих даних налаштуй щоденний backup і копію в окреме сховище. Старі образи, релізи і backup навмисно зберігаються для відкату; контролюй місце на диску. Secrets не повинні потрапляти в логи або git; `.env.example` призначений лише для локальної розробки/CI.
 

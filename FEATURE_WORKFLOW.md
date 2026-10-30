@@ -64,30 +64,31 @@ if ($LASTEXITCODE -ne 0) { throw 'Worktree не створено; агента �
 ## 3. Завдання виконавцю
 
 Передай агенту: мету, критерії приймання, дозволену область, залежності, базовий SHA, гілку, абсолютний workdir і потрібні перевірки.
-Python backend розташований у `apps/api`, React/TypeScript застосунок — у `apps/frontend`, TypeScript/Vite лендинг — у `apps/landing`. Спільний браузерний SDK — у `packages/analytics`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені. Обидва вебзастосунки використовують npm та власні `package-lock.json`; признач одного автора для змін кожного lockfile й одного для спільного SDK. Окремий Node.js API-варіант не змінює Python foundation: його розробляй в окремій гілці від перевіреної спільної бази.
-Нові модулі додавай у `apps/api/src/app/modules/`, дотримуючись меж модульного моноліту з README.
+У цій гілці Node.js/TypeScript backend розташований у `apps/api`, React/TypeScript застосунок — у `apps/frontend`, TypeScript/Vite лендинг — у `apps/landing`. Спільний браузерний SDK — у `packages/analytics`; `.env`, Compose, `infra/` та серверні скрипти спільні в корені. Обидва вебзастосунки використовують npm та власні `package-lock.json`; признач одного автора для змін кожного lockfile й одного для спільного SDK. Ця гілка `codex/node-backend` є альтернативою Python foundation на `main`; не перенось її в main без явної зміни обраного варіанта.
+Нові модулі додавай у `apps/api/src/modules/`, дотримуючись меж модульного моноліту з README.
 
 Git не переносить ігноровані `.env`, `.venv` та локальні артефакти у worktree.
 Створи там власний `.env` з `.env.example` або явно дозволеної конфігурації розробки; production-секрети не копіюй.
 Встанови залежності worktree окремо. З його кореня:
 
 ```powershell
-uv --directory apps/api sync --frozen
-uv --directory apps/api run ruff check .
-uv --directory apps/api run ruff format --check .
-uv --directory apps/api run pytest
+npm --prefix apps/api ci
+npm --prefix apps/api run lint
+npm --prefix apps/api run typecheck
+npm --prefix apps/api test
+npm --prefix apps/api run build
 ```
 
 Для frontend з директорії `apps/frontend` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` і `npm run build`.
 Frontend-набір також перевіряє `packages/analytics`; для landing з `apps/landing` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`. Обидва Dockerfile вебзастосунків збираються з кореневого context, щоб включити спільний пакет.
 
 У кожному worktree `PROJECT_NAME` задає локальну ідентичність застосунку; за замовчуванням шаблон використовує `starter`.
-За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE`, `FRONTEND_IMAGE` і host-порти:
-`API_LOCAL_PORT`, `FRONTEND_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`; для production-подібного запуску — `APP_PORT` і `FRONTEND_PORT`.
+За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE`, `FRONTEND_IMAGE`, `LANDING_IMAGE` і host-порти:
+`API_LOCAL_PORT`, `FRONTEND_LOCAL_PORT`, `LANDING_LOCAL_PORT`, `UMAMI_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`; для production-подібного запуску — `APP_PORT`, `FRONTEND_PORT`, `LANDING_PORT`, `UMAMI_PORT`.
 Самого окремого project name недостатньо: порти та тег образу також можуть конфліктувати.
 `COMPOSE_PROJECT_NAME` використовуй для локальної ізоляції; production-ім'я визначає `PROJECT_NAME` і має збігатися з однойменною GitHub Variable.
 Використовуй ці значення послідовно для build/up/run/exec/down; дані мають бути локальними для цього проєкту.
-Для Python поза контейнерами врахуй localhost і призначені порти; у контейнерах залиш внутрішні адреси сервісів.
+Для Node поза контейнерами врахуй localhost і призначені порти; у контейнерах залиш внутрішні адреси сервісів.
 
 Виконавець реалізує фічу, перевіряє поведінку та комітить лише свої зміни у власній гілці.
 Він не зливає її самостійно в інтеграційну гілку або `main`.
@@ -109,20 +110,20 @@ git merge --no-ff $featureBranch
 Виконавці зупиняють редагування перед передачею гілки на merge.
 Подальші виправлення роби в інтеграційній гілці одним призначеним автором або в новій repair-гілці від її актуального SHA.
 
-Після злиття пакета запусти Ruff, форматування й повний Python unit-набір наведеними вище командами, а також lint, typecheck, тести й production build frontend та перевірки landing. Для змін deployment також запусти `python -m unittest discover -s scripts/tests -p 'test_*.py' -v` і `bash scripts/tests/test-release.sh`.
-Перевір `uv --directory apps/api run alembic heads`: має залишитися один узгоджений head; за розгалуження створи й перевір merge-міграцію.
+Після злиття пакета запусти Node API lint, typecheck, unit-набір і production build наведеними вище командами, а також lint, typecheck, тести й production build frontend та перевірки landing. Для змін deployment також запусти `python -m unittest discover -s scripts/tests -p 'test_*.py' -v`, `node --test scripts/tests/*.test.mjs` і `bash scripts/tests/test-release.sh`.
+Міграції запускай через `docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate` або `npm --prefix apps/api run migrate` після build. Перевір прийняття поточної схеми й відмову за дрейфу/невідомої ревізії; зміни схеми узгоджуй із Python-варіантом. Черга має власний Node-протокол; для зміни backend виконуй [повний перехід](docs/backend-variants.md).
 На ізольованому dev-стеку перебудуй образ, застосуй міграції до чистої БД і перевір оновлення попередньої схеми, якщо змінювалася схема.
 Запусти API й worker за README та виконай наявний smoke:
 
 ```powershell
-Get-Content -Raw apps/api/scripts/smoke.py | docker compose -f compose.yaml -f compose.dev.yaml exec -T api python -
+Get-Content -Raw apps/api/scripts/smoke.mjs | docker compose -f compose.yaml -f compose.dev.yaml exec -T api node --input-type=module -
 ```
 
-Smoke доводить наявний шлях API → RabbitMQ → Celery → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle або `VITE_*`.
+Smoke доводить наявний шлях API → RabbitMQ → Node worker → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle, `PUBLIC_*` або `VITE_*`. Production smoke виконується Node усередині trusted API-контейнера; Python потрібен хостовим операційним тестам і підтримці історичних Python-релізів.
 Окремо перевір нові API/фонові сценарії, їхні помилки й права доступу; додай відповідні перевірки за потреби.
 Не позначай блоковані або невиконані перевірки як успішні.
 
-Для змін лендингу перевір `/landing-health`, справжні 404 та зібрані assets через `scripts/landing-smoke.py`; браузером перевір реальний перехід у застосунок і перенесення дозволених UTM. Для аналітики користуйся [контрактом і налаштуванням](docs/analytics.md). `scripts/analytics-smoke.mjs` з явним `UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1` призначений лише для ізольованого CI/QA Umami з тестовим website; ніколи не використовуй default login на production. Наявні події не доводять реалізацію реєстрації. Повний render відео не входить до CI application: `demos/` має власний workflow і QA, а MP4/джерела передаються команді через Git LFS.
+Для змін лендингу перевір `/landing-health`, справжні 404 та зібрані assets через `scripts/landing-smoke.mjs`; браузером перевір реальний перехід у застосунок і перенесення дозволених UTM. Для аналітики користуйся [контрактом і налаштуванням](docs/analytics.md). `scripts/analytics-smoke.mjs` з явним `UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1` призначений лише для ізольованого CI/QA Umami з тестовим website; ніколи не використовуй default login на production. Наявні події не доводять реалізацію реєстрації. Повний render відео не входить до CI application: `demos/` має власний workflow і QA, а MP4/джерела передаються команді через Git LFS.
 
 ## 5. Незалежне рев’ю та PR
 

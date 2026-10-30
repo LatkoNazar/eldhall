@@ -1,6 +1,6 @@
 # Current repository and scenario discovery
 
-Verified against the repository on 2026-10-30. Re-read these files on every invocation;
+Updated for the Node backend variant on 2026-10-31. Re-read these files on every invocation;
 the real MVP may have grown beyond this starter screen.
 
 ## Sources of truth
@@ -11,8 +11,10 @@ the real MVP may have grown beyond this starter screen.
 - `apps/api/`: API application by role; inspect its current README, package/pyproject,
   handlers and tests rather than assuming a language. During the role rename, an older
   checkout may still have `apps/backend/`; resolve the actual directory before commands.
-- In the Python implementation, `src/app/modules/system/router.py` defines public health
-  routes and `src/app/modules/jobs/router.py` defines token-protected backend-only jobs.
+- On `codex/node-backend`, `apps/api/src/app.ts` registers health and token-protected
+  job routes; `src/modules/system/health.ts` checks dependencies. Node API and worker
+  are separate entrypoints. `main` retains the Python/FastAPI/Celery variant; inspect
+  that branch's README before using its commands.
 - Current feature routes, auth components and fixtures, if new features have been added.
 
 ## Current browser surface
@@ -42,8 +44,10 @@ frontend code, a URL, visible DevTools, a recorded terminal or public demo asset
 Do not run startup merely to create or revise this skill. Reuse a healthy existing local
 stack when available; verify its origin and current branch first.
 
-The commands below describe the verified Python starter; recheck the current README and
-Compose services if the API implementation has changed. The demo workflow is language-agnostic.
+The commands below describe the Node variant; recheck the current README and Compose
+services on every invocation. The demo workflow is language-agnostic. Never consume
+existing Celery queue messages with the Node worker; drain and stop the prior stack
+before switching implementations against an existing database.
 Docker Compose requires v2.24+ according to that README. From the repository root, for a
 fresh local setup only, copy `.env.example` if `.env` does not already exist. Preserve the
 existing project name and credentials; do not regenerate an established environment.
@@ -51,14 +55,15 @@ existing project name and credentials; do not regenerate an established environm
 ```powershell
 if (-not (Test-Path -LiteralPath '.env')) { Copy-Item -LiteralPath '.env.example' -Destination '.env' }
 docker compose -f compose.yaml -f compose.dev.yaml build
-docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis rabbitmq
+docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis rabbitmq umami-db umami
 docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
-docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker frontend
+docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker frontend landing
 ```
 
 Defaults: frontend `http://localhost:5173/`; API `http://localhost:8000/`; development
-Swagger `/docs`. Respect existing `FRONTEND_LOCAL_PORT` / `API_LOCAL_PORT` overrides.
-Do not print the whole `.env` to discover ports. Vite uses strict port5173 and will fail
+Swagger `/docs` in development. Respect existing `FRONTEND_LOCAL_PORT` / `API_LOCAL_PORT` overrides.
+Landing is normally `http://localhost:5174/` and Umami `http://localhost:3001/`;
+`LANDING_LOCAL_PORT` / `UMAMI_LOCAL_PORT` may override these. Do not print the whole `.env` to discover ports. Vite uses strict port5173 and will fail
 instead of quietly choosing another one; verify the actual origin after launch.
 
 For a frontend process outside Docker, use Node24.x (currently minimum24.15), keep backend

@@ -40,7 +40,9 @@ web_image_for_release() {
 
 api_smoke_for_release() {
   local release=$1
-  if [[ -f "$release/apps/api/scripts/smoke.py" ]]; then
+  if [[ -f "$release/apps/api/scripts/smoke.mjs" ]]; then
+    printf '%s\n' "$release/apps/api/scripts/smoke.mjs"
+  elif [[ -f "$release/apps/api/scripts/smoke.py" ]]; then
     printf '%s\n' "$release/apps/api/scripts/smoke.py"
   else
     # Historical archived releases keep their original backend folder.
@@ -76,22 +78,24 @@ start_analytics() {
 }
 
 start_application() {
-  local release=$1 services=$2 smoke
+  local release=$1 services=$2 smoke extension
   shift 2
+  smoke=$(api_smoke_for_release "$release") || return
+  extension=${smoke##*.}
+  local runner=(python -)
+  if [[ "$extension" == mjs ]]; then runner=(node --input-type=module -); fi
   local application=(api worker)
   if has_service "$services" frontend; then application+=(frontend); fi
   if has_service "$services" landing; then application+=(landing); fi
   "$@" up -d --no-build --pull never --wait --wait-timeout 180 "${application[@]}" || return
   if has_service "$services" frontend; then
-    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < "$release/scripts/frontend-smoke.py" || return
-    smoke=$(api_smoke_for_release "$release") || return
-    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < "$smoke" || return
+    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api "${runner[@]}" < "$release/scripts/frontend-smoke.$extension" || return
+    "$@" exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api "${runner[@]}" < "$smoke" || return
   else
-    smoke=$(api_smoke_for_release "$release") || return
-    "$@" exec -T api python - < "$smoke" || return
+    "$@" exec -T api "${runner[@]}" < "$smoke" || return
   fi
   if has_service "$services" landing; then
-    "$@" exec -T -e SMOKE_BASE_URL=http://landing:8080 api python - < "$release/scripts/landing-smoke.py" || return
+    "$@" exec -T -e SMOKE_BASE_URL=http://landing:8080 api "${runner[@]}" < "$release/scripts/landing-smoke.$extension" || return
   fi
   if has_service "$services" caddy; then
     "$@" up -d --no-build --wait --wait-timeout 120 caddy || return

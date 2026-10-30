@@ -1,7 +1,7 @@
 # Лендинг, застосунок та Umami
 
 `apps/landing` — статичний TypeScript/Vite лендинг; `apps/frontend` — React-застосунок;
-`apps/api` — наявний Python API та Celery worker. `packages/analytics` — спільний браузерний
+`apps/api` — Node.js/TypeScript API та окремий RabbitMQ worker у цій гілці (`main` зберігає Python/Celery). `packages/analytics` — спільний браузерний
 SDK без окремого сервера. Umami 3.4.1 і `umami-db` PostgreSQL 17.11 входять до Compose.
 Аналітика не є залежністю API/readiness і не повинна блокувати роботу лендингу або застосунку.
 

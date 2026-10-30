@@ -3,7 +3,7 @@ name: CI and deploy
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/node-backend]
   workflow_dispatch:
 
 permissions:
@@ -43,6 +43,7 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
+            apps/api/package-lock.json
             apps/frontend/package-lock.json
             apps/landing/package-lock.json
       - name: Check and build frontend
@@ -60,24 +61,19 @@ jobs:
           npm run lint
           npm run typecheck
           npm run build
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: "0.11.0"
-          python-version: "3.12"
-          cache-dependency-glob: apps/api/uv.lock
-      - name: Install locked dependencies
-        working-directory: apps/api
-        run: uv sync --frozen
-      - name: Lint, format and unit tests
+      - name: Check and build Node API and worker
         working-directory: apps/api
         run: |
-          uv run ruff check --config pyproject.toml . ../../scripts
-          uv run ruff format --check --config pyproject.toml . ../../scripts
-          uv run pytest -m 'not integration'
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
       - name: Test project isolation and deployment guards
         run: |
           for script in scripts/*.sh scripts/tests/*.sh; do bash -n "$script"; done
           python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+          node --test scripts/tests/*.test.mjs
           bash scripts/tests/test-release.sh
       - name: Validate production composition
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
@@ -93,9 +89,9 @@ jobs:
       - name: Start application and exercise real background job
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend landing
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < scripts/frontend-smoke.py
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api python - < apps/api/scripts/smoke.py
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://landing:8080 api python - < scripts/landing-smoke.py
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < scripts/frontend-smoke.mjs
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < apps/api/scripts/smoke.mjs
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://landing:8080 api node --input-type=module - < scripts/landing-smoke.mjs
       - name: Verify isolated analytics ingestion and attribution
         run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1 umami node - < scripts/analytics-smoke.mjs
       - name: Diagnostics
@@ -124,6 +120,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - name: Configure verified SSH connection
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -188,7 +187,7 @@ jobs:
           docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           mkdir -p .deploy
           docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
-          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/api/scripts/smoke.py
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/api/scripts/smoke.mjs
       - name: Upload release and deploy
         run: |
           set -euo pipefail
@@ -206,12 +205,12 @@ jobs:
           curl --fail --show-error --silent --retry 6 --retry-all-errors --retry-delay 10 --max-time 15 "$SMOKE_BASE_URL/health/ready"
           SMOKE_HOST=$(python3 -c 'import os; from urllib.parse import urlsplit; print(urlsplit(os.environ["PUBLIC_URL"]).netloc)')
           export SMOKE_HOST
-          python3 scripts/frontend-smoke.py
+          node scripts/frontend-smoke.mjs
       - name: Check public landing endpoint
         if: vars.LANDING_PUBLIC_URL != ''
         env:
           SMOKE_BASE_URL: ${{ vars.LANDING_PUBLIC_URL }}
-        run: python3 scripts/landing-smoke.py
+        run: node scripts/landing-smoke.mjs
       - name: Remove runner deployment key
         if: always()
         run: rm -f ~/.ssh/deploy_key

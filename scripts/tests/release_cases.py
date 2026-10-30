@@ -57,7 +57,12 @@ class ReleaseIsolationTests(unittest.TestCase):
         (release / "scripts").mkdir()
         shutil.copy(SCRIPTS / "frontend-smoke.py", release / "scripts")
         shutil.copy(SCRIPTS / "landing-smoke.py", release / "scripts")
-        shutil.copy(REPO / "apps/api/scripts/smoke.py", api_scripts)
+        shutil.copy(SCRIPTS / "frontend-smoke.mjs", release / "scripts")
+        shutil.copy(SCRIPTS / "landing-smoke.mjs", release / "scripts")
+        if legacy:
+            shutil.copy(SCRIPTS / "tests/fixtures/python-api-smoke.py", api_scripts / "smoke.py")
+        else:
+            shutil.copy(REPO / "apps/api/scripts/smoke.mjs", api_scripts)
         (release / "image.tar.gz").write_bytes(b"test image archive")
         return release
 
@@ -219,8 +224,27 @@ class ReleaseIsolationTests(unittest.TestCase):
         (release / "compose.prod.yaml").write_text("services: {}\n")
         historical = release / "apps/backend/scripts"
         historical.mkdir(parents=True, exist_ok=True)
-        shutil.copy(REPO / "apps/api/scripts/smoke.py", historical)
+        shutil.copy(SCRIPTS / "tests/fixtures/python-api-smoke.py", historical / "smoke.py")
+        (release / "apps/api/scripts/smoke.mjs").unlink(missing_ok=True)
         (release / "apps/api/scripts/smoke.py").unlink(missing_ok=True)
+
+    def test_node_upgrade_and_rollback_select_each_release_runtime(self):
+        root = self.project("alpha", landing=True)
+        python_release = root / "releases" / SHA1
+        (python_release / "apps/api/scripts/smoke.mjs").unlink()
+        shutil.copy(
+            SCRIPTS / "tests/fixtures/python-api-smoke.py",
+            python_release / "apps/api/scripts/smoke.py",
+        )
+        self.deploy(root, SHA1, "alpha")
+        self.deploy(root, SHA2, "alpha")
+        self.assertEqual(self.run_script("rollback.sh", root).returncode, 0)
+        runtimes = [
+            call["args"][call["args"].index("api") + 1]
+            for call in self.calls()
+            if "exec" in call["args"] and "api" in call["args"]
+        ]
+        self.assertEqual(runtimes, ["python"] * 3 + ["node"] * 3 + ["python"] * 3)
 
     def test_legacy_upgrade_and_rollback_restores_proxy_then_removes_only_frontend(self):
         root = self.project("alpha")

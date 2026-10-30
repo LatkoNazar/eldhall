@@ -89,6 +89,12 @@ elif command == "up" and "landing" in args and fail == "landing":
 elif command == "run" and fail == "migrate":
     sys.exit(1)
 elif command == "exec" and "api" in args:
+    expected_runtime = (
+        "node" if (composition.parent / "apps/api/scripts/smoke.mjs").is_file() else "python"
+    )
+    if args[args.index("api") + 1] != expected_runtime:
+        print(f"Wrong API runtime: expected {expected_runtime}", file=sys.stderr)
+        sys.exit(2)
     sys.stdin.read()
     if fail == "smoke":
         sys.exit(1)

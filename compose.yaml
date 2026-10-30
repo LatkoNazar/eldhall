@@ -24,6 +24,7 @@ x-app-environment: &app-environment
   API_TOKEN: ${API_TOKEN:-}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1"]}
   CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-${CELERY_CONCURRENCY:-2}}
 
 x-dependencies: &dependencies
   postgres:
@@ -117,7 +118,7 @@ services:
     <<: *app
     networks: [backend, edge]
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=8)"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/health/ready', {signal: AbortSignal.timeout(8000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 10s
       retries: 6
@@ -126,14 +127,14 @@ services:
 
   worker:
     <<: *app
-    command: [celery, -A, 'app.core.celery_app:celery_app', worker, --loglevel=INFO, '--hostname=worker@%h', '--concurrency=${CELERY_CONCURRENCY:-2}']
+    command: [node, dist/worker.js]
     healthcheck:
-      test: [CMD-SHELL, 'celery -A app.core.celery_app:celery_app inspect ping --destination "worker@$${HOSTNAME}" --timeout 5 | grep -q pong']
+      test: [CMD, node, dist/scripts/worker-health.js]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    stop_grace_period: 120s
+    stop_grace_period: 35s
 
   frontend:
     image: ${FRONTEND_IMAGE:-${PROJECT_NAME:-starter}-frontend:local}
@@ -241,7 +242,7 @@ services:
   migrate:
     <<: *app
     profiles: [tools]
-    command: [uv, run, --no-sync, alembic, upgrade, head]
+    command: [node, dist/migrate.js]
     restart: "no"
 
 volumes:
