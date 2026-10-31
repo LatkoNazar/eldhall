@@ -8,6 +8,8 @@ import { lexicalSentiment, mergeSentiment, priorityFor, toneFor } from './sentim
 import { TOOLS, isToolName } from './tools.js';
 import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
+import type { KnowledgeRetriever } from '../knowledge/retriever.js';
+import { knowledgeRuntime } from '../knowledge/runtime.js';
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -22,6 +24,7 @@ export interface HarnessDeps {
   timeoutMs: number;
   integrations?: BusinessIntegrations;
   classifier?: TicketClassifier;
+  knowledge?: KnowledgeRetriever; // hybrid retrieval over published sources; defaults to the shared in-process index
 }
 
 export function argsHash(caseId: string, tool: string, args: unknown): string {
@@ -98,8 +101,11 @@ export class SupportHarness {
       await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
     }
 
-    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published').map(({ id, title, content, version }) => ({ id, title, content, version }));
+    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published' && (d.audience ?? 'customer') === 'customer' && (!d.plans?.length || d.plans.includes(customer.plan))).map(({ id, businessId, title, category, content, version, audience, plans, sourceUrl }) => ({ id, businessId, title, category, content, version, audience, plans, sourceUrl }));
     const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
+    // A native session or product history can reuse facts without searching this turn.
+    // Conservatively fence every eligible source until transitive citation tracking exists.
+    const sourceRefs = knowledge.map(({ id, version }) => ({ id, version }));
     const assertActive = async () => {
       if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
       const current = await store.knowledge(customer.businessId);
@@ -116,8 +122,9 @@ export class SupportHarness {
       assertActive, knowledge, skills, classification: settings.classification,
       searchKnowledge: async query => {
         await assertActive();
-        const terms = query.toLocaleLowerCase().split(/\s+/).filter(t => t.length > 2);
-        return knowledge.filter(d => terms.some(t => (d.title + ' ' + d.content).toLocaleLowerCase().includes(t))).slice(0, 5);
+        const hits = await (this.deps.knowledge ?? knowledgeRuntime.retriever).search(knowledge, query, { audience: 'customer', plan: customer.plan });
+        await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
+        return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
       },
       customer: { name: customer.name, plan: customer.plan },
       business: { name: business.name, currency: business.currency, policy: business.policy, responseStyle: { language: settings.language, tone: settings.tone } },
@@ -155,7 +162,7 @@ export class SupportHarness {
     const waiting = (await store.proposals(caseId)).some(p => ['pending', 'approved', 'executing'].includes(p.status));
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), knowledge.map(({id,version}) => ({id,version})), {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -286,7 +293,10 @@ export class SupportHarness {
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
     const ctx = await this.policyContext(customer);
-    ctx.openProposals = ctx.openProposals.filter(p => p.id !== proposal.id);
+    // claimExecution already reserves this payment atomically. Concurrently created
+    // pending/approved proposals cannot execute; allowing them to veto the owner
+    // would deadlock both approved requests without performing the authorised refund.
+    ctx.openProposals = ctx.openProposals.filter(p => p.id !== proposal.id && ['executing', 'unknown'].includes(p.status));
     const policy = evaluatePolicy(proposal.tool, proposal.args, ctx);
     const finish = async (status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, caseStatus: SupportCase['status'], message: string | null) => {
       const done = await store.finishProposal(proposal.id, status, result, error);

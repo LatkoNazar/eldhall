@@ -2,16 +2,18 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { staffTokenMatches } from '../../core/auth.js';
+import { fixedWindowLimiter } from './rate-limit.js';
 import { HarnessError, type SupportHarness } from '../agent/harness.js';
 import type { CaseStatus } from './contracts.js';
 import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
+import { importFromFile, importFromUrl, KnowledgeImportError, knowledgeRuntime } from '../knowledge/runtime.js';
 
 export interface SupportDependencies {
   harness: SupportHarness; store: SupportStore;
   execution?: 'inline' | 'worker';
-  capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical'; approvals: 'separate-execution'; maxToolCalls: number;
+  capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
     classification?: { provider: string; model: string; credentialsConfigured: boolean } };
 }
 interface Options { support: SupportDependencies; operatorToken: string; demoResetEnabled: boolean }
@@ -35,19 +37,13 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
   // Customer channel: identity comes only from the X-Customer-Session header, never from message text.
   await app.register(async chat => {
     const session = (headers: Record<string, unknown>) => typeof headers['x-customer-session'] === 'string' ? headers['x-customer-session'] : undefined;
-    // ponytail: per-process memory fixed window; multiple API instances need a shared store (e.g. Redis).
-    const windows = new Map<string, { count: number; resetAt: number }>();
-    const hit = (key: string, max: number, now: number) => {
-      let w = windows.get(key);
-      if (!w || w.resetAt <= now) windows.set(key, w = { count: 0, resetAt: now + 60_000 });
-      return ++w.count > max ? Math.ceil((w.resetAt - now) / 1000) : 0;
-    };
+    const hit = fixedWindowLimiter();
     chat.addHook('onRequest', async (request, reply) => {
       if (request.method !== 'POST') return;
       const now = Date.now();
-      if (windows.size > 10_000) for (const [k, w] of windows) if (w.resetAt <= now) windows.delete(k);
       const sid = session(request.headers);
-      const retry = Math.max(hit(`ip:${request.ip}`, 60, now), sid ? hit(`s:${sid}`, 20, now) : 0);
+      // Stop at the IP limit before allocating a bucket for an arbitrary session header.
+      const retry = hit(`ip:${request.ip}`, 60, now) || (sid ? hit(`s:${sid}`, 20, now) : 0);
       if (retry) return reply.code(429).header('Retry-After', String(retry)).send({ detail: 'Too many requests' });
     });
     chat.post('/cases', (request, reply) => guard(reply, async () => {
@@ -140,7 +136,46 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       return business.id;
     };
     operator.get('/knowledge', (request, reply) => guard(reply, async () => ({ sources: await store.knowledge(await scope(request.query)), capabilities: { create: true, update: true, publish: true, revoke: true } })));
-    const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000) }).strict();
+    // Same retrieval the agent uses for this business: published sources, hybrid BM25 + vector ranking,
+    // audience/plan filters as for a customer (audience=any also shows internal sources to staff).
+    operator.get('/knowledge/search', (request, reply) => guard(reply, async () => {
+      const { q, k, audience, plan, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), audience: z.enum(['customer', 'any']).default('customer'), plan: z.string().trim().min(1).max(80).optional(), businessId: z.string().uuid().optional() }).strict().parse(request.query);
+      const published = (await store.knowledge(await scope(rest))).filter(source => source.status === 'published');
+      return knowledgeRuntime.retriever.explain(published, q, { k, audience, plan });
+    }));
+    operator.get('/knowledge/index', (request, reply) => guard(reply, async () => {
+      const sources = await store.knowledge(await scope(request.query));
+      return { ...await knowledgeRuntime.retriever.status(), mode: 'hybrid', urlImport: knowledgeRuntime.urlAllowlist.length > 0, documents: sources.length, published: sources.filter(s => s.status === 'published').length, drafts: sources.filter(s => s.status === 'draft').length };
+    }));
+    operator.post('/knowledge/reindex', (request, reply) => guard(reply, async () => {
+      const published = (await store.knowledge(await scope(request.query))).filter(source => source.status === 'published');
+      return knowledgeRuntime.retriever.reindex(published);
+    }));
+    operator.get<{ Params: { id: string } }>('/knowledge/:id/versions', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
+      const versions = await store.knowledgeVersions(await scope(request.query), request.params.id);
+      if (!versions.length) throw new HarnessError(404, 'Document not found');
+      return { versions };
+    }));
+    const access = { audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().trim().min(1).max(80)).max(20).optional() };
+    const importBody = z.object({ category: z.string().trim().min(1).max(80), title: z.string().trim().min(1).max(200).optional(), ...access });
+    const imported = async (businessId: string, run: () => Promise<{ title: string; content: string; sourceUrl: string | null }>, fields: { category: string; audience?: 'customer' | 'internal'; plans?: string[] }) => {
+      let document;
+      try { document = await run(); } catch (error) {
+        if (error instanceof KnowledgeImportError) throw new HarnessError(error.status, error.message);
+        throw error;
+      }
+      return store.saveKnowledge({ ...document, content: document.content.slice(0, 100000), category: fields.category, audience: fields.audience ?? 'customer', plans: fields.plans ?? [], id: randomUUID(), businessId, version: 1, status: 'draft', updatedAt: new Date().toISOString() });
+    };
+    // Imports always create drafts: nothing reaches the AI before an operator publishes it.
+    operator.post('/knowledge/import-url', (request, reply) => guard(reply, async () => {
+      const body = importBody.extend({ url: z.string().trim().min(1).max(2000) }).strict().parse(request.body);
+      return reply.code(201).send(await imported(await scope(request.query), () => importFromUrl(body.url, body.title), body));
+    }));
+    operator.post('/knowledge/upload', (request, reply) => guard(reply, async () => {
+      const body = importBody.extend({ filename: z.string().trim().min(1).max(200), contentBase64: z.string().min(1).max(800_000) }).strict().parse(request.body);
+      return reply.code(201).send(await imported(await scope(request.query), async () => importFromFile(body.filename, body.contentBase64, body.title), body));
+    }));
+    const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000), ...access }).strict();
     operator.post('/knowledge', (request, reply) => guard(reply, async () => {
       const body = documentBody.parse(request.body);
       return reply.code(201).send(await store.saveKnowledge({ ...body, id: randomUUID(), businessId: await scope(request.query), version: 1, status: 'draft', updatedAt: new Date().toISOString() }));
@@ -172,7 +207,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
     operator.get('/metrics', () => store.metrics());
-    operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'lexical', approvals: 'separate-execution' });
+    operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', approvals: 'separate-execution' });
     if (demoResetEnabled) {
       operator.post('/demo/reset', async () => { await store.reset(seedData()); return { status: 'reset' }; });
     }

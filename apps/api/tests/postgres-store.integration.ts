@@ -47,10 +47,30 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       let dispatches=0;
       const h=new SupportHarness({store,model:new RulesModel(),fallback:new RulesModel(),provider:{refund:async()=>{dispatches++;return {providerRef:'SIM-CROSS-CASE',simulated:true};}},timeoutMs:1000});
       const cases=await Promise.all([h.openCase('demo-olena'),h.openCase('demo-olena')]);
-      const turns=await Promise.all(cases.map(c=>h.runTurn('demo-olena',c.id,'charged twice')));
-      await Promise.all(turns.map(turn=>h.approve(turn.proposal!.id,'staff',turn.proposal!.argsHash)));
-      await Promise.allSettled(turns.map(turn=>h.executeApproved(turn.proposal!.id,'staff',turn.proposal!.argsHash)));
+      const first=(await h.runTurn('demo-olena',cases[0]!.id,'charged twice')).proposal!;
+      assert.equal(first.status,'pending');
+      // Model the race where both requests passed the pre-insert policy check. The storage
+      // reservation must still dispatch only once, independently of scheduling the turn reads.
+      const second=await store.createProposal({caseId:cases[1]!.id,tool:first.tool,args:first.args,argsHash:argsHash(cases[1]!.id,first.tool,first.args),risk:first.risk,status:'pending',policy:first.policy});
+      const proposals=[first,second];
+      await Promise.all(proposals.map(proposal=>h.approve(proposal.id,'staff',proposal.argsHash)));
+      await Promise.allSettled(proposals.map(proposal=>h.executeApproved(proposal.id,'staff',proposal.argsHash)));
       assert.equal(dispatches,1);assert.equal((await store.refunds()).length,1);
+    });
+    await t.test('knowledge history survives restart, preserves access metadata and resets cleanly',async()=>{
+      const business=(await store.businessesList())[0]!;
+      const id=randomUUID();
+      const draft=await store.saveKnowledge({id,businessId:business.id,title:'Private guide',category:'Support',content:'Internal plan guide',version:1,status:'draft',audience:'internal',plans:['Premium monthly'],sourceUrl:'https://example.test/help',updatedAt:new Date().toISOString()});
+      await store.saveKnowledge({...draft,status:'published',version:2},1);
+      await migrateSupport(pool!);
+      const fresh=new PostgresSupportStore(pool!);
+      const versions=await fresh.knowledgeVersions(business.id,id);
+      assert.deepEqual(versions.map(v=>[v.version,v.status]),[[2,'published'],[1,'draft']]);
+      assert.ok(versions.every(v=>v.audience==='internal'&&v.plans?.[0]==='Premium monthly'&&v.sourceUrl==='https://example.test/help'));
+      const other=(await fresh.businessesList()).find(b=>b.id!==business.id)!;
+      assert.deepEqual(await fresh.knowledgeVersions(other.id,id),[]);
+      await store.reset(seedData());
+      assert.deepEqual(await fresh.knowledgeVersions(business.id,id),[]);
     });
     await t.test('turn exclusion, expired-run recovery and ownership fencing survive storage',async()=>{
       const c=await harness.openCase('demo-olena');

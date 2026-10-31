@@ -13,6 +13,10 @@ import { seedData } from './seed.js';
 import { MemorySupportStore, type SupportStore } from './store.js';
 import { PostgresSupportStore } from './postgres-store.js';
 import { isExampleToken } from '../../core/auth.js';
+import { createEmbedder } from '../knowledge/embeddings.js';
+import { KnowledgeRetriever } from '../knowledge/retriever.js';
+import { configureKnowledge } from '../knowledge/runtime.js';
+import { PgVectorStore } from '../knowledge/vector-store.js';
 
 export async function createSupport(settings: Settings, pool: pg.Pool): Promise<SupportDependencies> {
   if (settings.supportExecution === 'worker' && settings.supportStore !== 'postgres') throw new Error('Worker support execution requires SUPPORT_STORE=postgres; use SUPPORT_EXECUTION=inline for an explicit memory demo');
@@ -44,10 +48,14 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const classifier = settings.classificationProvider === 'openrouter' ? new OpenRouterTicketClassifier({
     model: settings.classificationModel, apiKey: settings.classificationApiKey, timeoutMs: settings.classificationTimeoutMs,
   }) : undefined;
-  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations });
+  // Knowledge retrieval: embedder from KB_EMBEDDINGS_*, pgvector when the Postgres store has the extension.
+  const vectors = settings.supportStore === 'postgres' ? await PgVectorStore.connect(pool) : null;
+  const knowledge = new KnowledgeRetriever(createEmbedder(settings.knowledgeEmbeddingsProvider, settings.knowledgeEmbeddingsModel, settings.knowledgeEmbeddingsApiKey), vectors, message => console.warn(message));
+  configureKnowledge({ retriever: knowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
+  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge });
   return { harness, store, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
-    knowledgeSearch: 'lexical', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
+    knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,
       credentialsConfigured: classifier ? Boolean(settings.classificationApiKey) : settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey) } } };
 }

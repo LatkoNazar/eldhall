@@ -43,7 +43,7 @@ const integrationSchema = z.object({
 export const supportConfigSchema = z.object({
   version: z.literal(1).default(1),
   businesses: z.array(z.object({ id, slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/), name: z.string().min(1).max(200), currency: z.string().regex(/^[A-Z]{3}$/), policy }).strict()).max(100).default([]),
-  knowledge: z.array(z.object({ id, businessId: id, title: z.string().min(1).max(200), category: z.string().max(100).default('general'), content: z.string().min(1).max(50_000), version: z.number().int().positive(), status: z.enum(['draft', 'published', 'revoked']), updatedAt: timestamp }).strict()).max(500).default([]),
+  knowledge: z.array(z.object({ id, businessId: id, title: z.string().min(1).max(200), category: z.string().max(100).default('general'), content: z.string().min(1).max(50_000), version: z.number().int().positive(), status: z.enum(['draft', 'published', 'revoked']), updatedAt: timestamp, audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().min(1).max(80)).max(20).optional(), sourceUrl: z.string().url().max(2000).nullable().optional() }).strict()).max(500).default([]),
   skills: z.array(z.object({ id, businessId: id, name: z.string().min(1).max(200), content: z.string().min(1).max(20_000), revision: z.number().int().positive(), enabled: z.boolean(), updatedAt: timestamp }).strict()).max(200).default([]),
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),

@@ -7,6 +7,7 @@ import { RulesModel } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 import { seedData } from '../src/modules/support/seed.js';
 import { MemorySupportStore } from '../src/modules/support/store.js';
+import { fixedWindowLimiter } from '../src/modules/support/rate-limit.js';
 
 test('chat POSTs are rate limited per customer session', async () => {
   const store = new MemorySupportStore();
@@ -26,12 +27,24 @@ test('chat POSTs are rate limited per customer session', async () => {
     // GET polling is outside the limiter even after the session's POST window is spent.
     for (let i = 0; i < 25; i++) await post(other);
     assert.equal((await app.inject({ method: 'GET', url: `/api/v1/chat/cases/${created.json().id}`, headers: { host: 'testserver', 'x-customer-session': other } })).statusCode, 200);
-    // Behind the proxy the per-IP window keys on X-Forwarded-For, not the shared proxy socket.
+    // A direct caller cannot rotate a forwarding header to bypass the socket IP limit.
     const viaProxy = (ip: string) => app.inject({ method: 'POST', url: '/api/v1/chat/cases', headers: { host: 'testserver', 'x-forwarded-for': ip } });
     for (let i = 0; i < 60; i++) await viaProxy('203.0.113.1');
     assert.equal((await viaProxy('203.0.113.1')).statusCode, 429);
-    assert.notEqual((await viaProxy('203.0.113.2')).statusCode, 429);
+    assert.equal((await viaProxy('203.0.113.2')).statusCode, 429);
+    assert.notEqual((await app.inject({ method: 'POST', url: '/api/v1/chat/cases', remoteAddress: '203.0.113.3', headers: { host: 'testserver' } })).statusCode, 429);
   } finally {
     await app.close();
   }
+});
+
+test('fixed windows bound identity storage, preserve limits at capacity, and expire', () => {
+  const hit = fixedWindowLimiter(2);
+  assert.equal(hit('first', 1, 0), 0);
+  assert.equal(hit('second', 1, 0), 0);
+  for (let i = 0; i < 100; i++) assert.equal(hit(`rotating-${i}`, 1, 0), 60);
+  assert.equal(hit('first', 1, 0), 60);
+  assert.equal(hit('first', 1, 59_000), 1);
+  assert.equal(hit('new', 1, 60_000), 0);
+  assert.equal(hit('first', 1, 60_000), 0);
 });
