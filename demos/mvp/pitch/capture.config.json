@@ -1,30 +1,33 @@
 {
-  "_comment": "Locators for the real MVP UI (WS2). Regex strings are case-insensitive. Adjust here after the UI lands; no code change needed.",
+  "_comment": "Locators for the MVP UI at origin/main acd7aaf. Strings are case-insensitive regex unless the key ends with Css.",
   "appUrl": "http://localhost:5173",
   "apiUrl": "http://localhost:5173",
   "channel": "chrome",
   "chat": {
     "path": "/chat",
-    "persona": { "role": "button", "name": "Olena" },
-    "input": { "role": "textbox" },
-    "send": { "role": "button", "name": "Надіслати|Send" },
+    "persona": "Olena",
+    "inputCss": "#customer-message",
+    "send": "Надіслати",
     "message": "Ви списали з мене двічі за жовтень!!! Негайно поверніть",
-    "reply": "підготував повернення|prepared a refund",
-    "confirmation": "SIM-RF-"
+    "reply": "підготував повернення",
+    "confirmation": "Симульоване повернення"
   },
   "operator": {
     "path": "/operator",
-    "loginName": { "label": "ім.я|name" },
-    "loginToken": { "label": "token|токен" },
-    "loginSubmit": { "role": "button", "name": "Увійти|Sign in|Log in|Login" },
-    "operatorName": "Anna",
-    "queueItem": "Olena|Олена",
-    "ivanItem": "Ivan|Іван",
-    "analysis": "Аналіз|Analysis",
-    "policy": "Policy|Правила|Перевірки",
-    "approve": { "role": "button", "name": "Approve|Підтвердити" },
-    "executed": "executed|виконано",
-    "denied": "denied|відхилено|within_refund_limit|ліміт"
+    "tokenCss": "#operator-token",
+    "loginSubmit": "Відкрити робочий простір",
+    "caseItemCss": "button.case-item",
+    "olena": "Olena",
+    "ivan": "Ivan",
+    "summary": "Коротко про звернення",
+    "signals": "Аналіз і сигнали",
+    "actionCardCss": "section.action-card",
+    "checksCss": "ul.policy-checks",
+    "approve": "Погодити повернення",
+    "approvedNote": "Погодження отримано",
+    "execute": "Виконати погоджену дію",
+    "refundRef": "SIM-RF-",
+    "deniedCheck": "within_refund_limit"
   },
   "ivanMessage": "Ви, ідіоти, двічі списали за річний план!!!"
 }

@@ -14,7 +14,7 @@ Video for slide 7 of the deck (`deliverables/pitch`). The pipeline follows the r
 | `scripts/build.mjs` | generates `index.html`, `scene-timing.json`, `assets/ledger.json` (SHA-256 of the footage), `exports/*.srt` |
 | `scripts/capture.mjs` | real recording + backend state check through the API |
 | `capture.config.json` | UI locators (regex) — edit here after WS2, no code changes |
-| `assets/capture/<scene>.mp4` | **slots** for real footage (request, triage, policy, approve, result, safety) |
+| `assets/capture/<scene>.mp4` | **slots** for real footage (request, triage, policy, approve, execute, result, safety) |
 
 ## Draft now (no MVP)
 ```bash
@@ -35,7 +35,7 @@ node scripts/capture.mjs --self-test     # needs the landing dev server on :5174
    ```bash
    OPERATOR_TOKEN=<token> node scripts/capture.mjs
    ```
-   The script does a demo reset and two continuous sessions (chat + console): Olena → AI reply → queue → analysis/policy → **real Approve** → confirmation `SIM-RF-…`; Ivan (via the real chat API) → denial + escalation. Then it checks through the API: Olena `resolved` + 1 refund + `executed`; Ivan `escalated` + `denied` + 0 refunds. If the state does not match, no slot is written (`capture/evidence.json`). In rules mode it warns that the captions must not claim LLM tool calls.
+   The script does a demo reset and two continuous sessions (chat + console): Olena → copilot reply → Inbox P1 case + signals → policy checklist → **«Погодити повернення»** (approved, no money moved) → separate **«Виконати погоджену дію»** (executed, `SIM-RF-…`) → confirmation in chat; Ivan (via the real chat API) → `within_refund_limit` denial + escalation. Then it checks through the API: Olena `resolved` + 1 refund + `executed`; Ivan `escalated` + `denied` + 0 refunds. If the state does not match, no slot is written (`capture/evidence.json`). In rules mode it warns that the captions must not claim LLM tool calls.
 4. `node scripts/build.mjs --final` → `npx hyperframes check` → snapshot review:
    ```bash
    npx hyperframes snapshot --at 6,12,18,24,30,36 --no-end --output .hyperframes/review
@@ -46,6 +46,9 @@ node scripts/capture.mjs --self-test     # needs the landing dev server on :5174
    ```
 6. QA: `ffprobe` (1920×1080, 30 fps, ~44 s), a full decode `ffmpeg -v error -i exports/eldhall-pitch-uk.mp4 -f null -`, one full watch-through, and a check that every caption matches `capture/evidence.json`.
 7. Slide 7: PowerPoint › Insert › Video › `exports/eldhall-pitch-uk.mp4` (see `deliverables/pitch/README.md`).
+
+## Recording of 31.10 (main acd7aaf)
+The MVP ran in the documented offline demo mode (`docs/implementation.md`): `LLM_PROVIDER=rules`, `AGENT_RUNTIME=rules`, `SUPPORT_STORE=memory`, `SUPPORT_EXECUTION=inline`, `DEMO_RESET_ENABLED=true`; Docker, PostgreSQL and a Gemini key were not available on the recording machine. Captions therefore say «копілот» / «режим правил (без LLM)» and claim no LLM tool calls. Evidence: `capture/evidence.json`.
 
 ## Known limitations
 - Playwright `recordVideo` captures the source at **25 fps** (measured). The output is 30 fps CFR with duplicated frames, no interpolation. True 60 fps needs the skill's WGC capture, which requires FFmpeg with `gfxcapture` (not in the local 7.1 essentials build).

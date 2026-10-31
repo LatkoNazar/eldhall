@@ -75,7 +75,8 @@ const body = [
       <p id="intro-sub">${esc(t.introSubtitle)}</p>
     </div>`,
   `<div id="desktop" class="clip desktop" data-start="${deskStart}" data-duration="${deskEnd - deskStart}" data-track-index="1"></div>`,
-  `<div id="stage" class="clip stage" data-start="${deskStart}" data-duration="${deskEnd - deskStart}" data-track-index="2">
+  // Untimed wrapper: nested <video> clips keep absolute data-start; GSAP owns the window visibility.
+  `<div id="stage" class="clip stage">
       <div id="window" class="window">
         <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>
           <div class="urlbar">${captures.map(s => `<div id="${s.id}-url" class="url">${LOCK}${esc(s.url)}</div>`).join('')}</div>

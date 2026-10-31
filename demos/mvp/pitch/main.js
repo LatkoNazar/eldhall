@@ -21,12 +21,24 @@ window.buildRootTimeline = (config) => {
   tl.fromTo('#disclaimer', { opacity: 0 }, { opacity: 1, duration: 0.4 }, captures[0].start + 0.6)
 
   // Camera: zoom the stage so a capture-space rect is centred and readable.
+  // Keep the window covering the frame on any axis it overflows (no empty desktop band),
+  // otherwise centre it; the focus rect is first clipped to the recorded viewport.
+  const clampAxis = (t, k, start, size, lo, hi) => {
+    const a = start * k, b = (start + size) * k
+    return b - a >= hi - lo ? Math.min(lo - a, Math.max(hi - b, t)) : (lo + hi) / 2 - (a + b) / 2
+  }
   const focusParams = (rect, scale) => {
-    const [x, y, w, h] = rect
-    const px = win.x + (x + w / 2) * win.scale
-    const py = win.y + win.titlebar + (y + h / 2) * win.scale
+    const x0 = Math.max(0, rect[0]), y0 = Math.max(0, rect[1])
+    const w = Math.max(40, Math.min(cap.width, rect[0] + rect[2]) - x0), h = Math.max(40, Math.min(cap.height, rect[1] + rect[3]) - y0)
+    const px = win.x + (x0 + w / 2) * win.scale
+    const py = win.y + win.titlebar + (y0 + h / 2) * win.scale
     const k = Math.max(1, Math.min(scale, 1720 / (w * win.scale), 880 / (h * win.scale)))
-    return { scale: k, x: 960 - px * k, y: 500 - py * k }
+    const winH = win.titlebar + cap.height * win.scale
+    return {
+      scale: k,
+      x: clampAxis(960 - px * k, k, win.x, win.width, 0, 1920),
+      y: clampAxis(500 - py * k, k, win.y, winH, 0, 1000),
+    }
   }
 
   captures.forEach((s, i) => {

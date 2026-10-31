@@ -73,7 +73,7 @@ function cut(src, start, len, out) {
 }
 
 async function api(method, p, body, headers = {}) {
-  const res = await fetch(cfg.apiUrl + p, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.OPERATOR_TOKEN ?? ''}`, ...headers }, body: body ? JSON.stringify(body) : undefined })
+  const res = await fetch(cfg.apiUrl + p, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), authorization: `Bearer ${process.env.OPERATOR_TOKEN ?? ''}`, ...headers }, body: body ? JSON.stringify(body) : undefined })
   if (!res.ok && res.status !== 409) throw new Error(`${method} ${p} -> ${res.status} ${await res.text()}`)
   return res.status === 204 ? null : res.json()
 }
@@ -100,7 +100,7 @@ if (selfTest) {
 }
 
 if (!process.env.OPERATOR_TOKEN) throw new Error('Set OPERATOR_TOKEN (same as the API)')
-await api('GET', '/health/live')
+const api1 = await fetch(cfg.apiUrl + '/health/live'); if (!api1.ok) throw new Error('API is not reachable')
 await api('POST', '/api/v1/demo/reset')
 
 const chat = await session(browser, 'chat', arrow, hand)
@@ -108,92 +108,110 @@ const op = await session(browser, 'operator', arrow, hand)
 const geometry = {}
 const seg = {}
 const C = cfg.chat, O = cfg.operator
+const text = (s, re) => s.page.getByText(rx(re)).first()
+const button = (s, re) => s.page.getByRole('button', { name: rx(re) }).first()
+const caseItem = name => op.page.locator(O.caseItemCss, { hasText: rx(name) }).first()
+const mark = (id, entry) => { geometry[id] ??= { focus: [], highlights: [] }; for (const k of ['focus', 'highlights']) if (entry[k]) geometry[id][k].push(...entry[k]) }
+const since = id => op.t() - seg[id].start
+const finish = (id, s) => { seg[id].len = Math.max(sceneDur(id), s.t() - seg[id].start + 0.4) }
+const inbox = () => op.page.getByRole('heading', { name: /Вхідні звернення/ }).waitFor()
 
-// Operator logs in off-camera time (segments start later).
+// Operator signs in before any operator segment starts (never on camera).
 await op.page.goto(cfg.appUrl + O.path)
-const nameField = op.loc(O.loginName)
-if (await nameField.isVisible().catch(() => false)) {
-  await nameField.fill(O.operatorName); await op.loc(O.loginToken).fill(process.env.OPERATOR_TOKEN); await op.loc(O.loginSubmit).click()
-}
+await op.page.locator(O.tokenCss).fill(process.env.OPERATOR_TOKEN)
+await button(op, O.loginSubmit).click()
+await inbox()
 
-// Scene "request": customer chat.
-await chat.page.goto(cfg.appUrl + C.path); await sleep(600)
-const persona = chat.loc(C.persona)
-if (await persona.isVisible().catch(() => false)) { await chat.click(persona); await sleep(400) }
+// request: customer chat
+await chat.page.goto(cfg.appUrl + C.path)
+await button(chat, C.persona).waitFor(); await sleep(500)
 seg.request = { s: chat, start: chat.t() }
-await chat.type(chat.loc(C.input), C.message)
-await chat.click(chat.loc(C.send))
-const reply = chat.page.getByText(rx(C.reply)).first()
-await reply.waitFor({ timeout: 30000 })
+await chat.click(button(chat, C.persona))
+const input = chat.page.locator(C.inputCss); await input.waitFor()
+await chat.type(input, C.message)
+await chat.click(button(chat, C.send))
+const reply = text(chat, C.reply); await reply.waitFor({ timeout: 30000 })
 const replyAt = chat.t() - seg.request.start
-geometry.request = { highlights: [{ at: replyAt + 0.2, dur: 2.2, rect: await chat.rect(reply) }], focus: [{ at: 0.8, to: replyAt + 2.4, rect: await chat.rect(reply), scale: 1.2 }] }
-seg.request.len = Math.max(sceneDur('request'), replyAt + 2.6)
+await sleep(1600)
+const replyRect = await chat.rect(reply)
+mark('request', { focus: [{ at: Math.max(0.5, replyAt - 1.2), to: chat.t() - seg.request.start - 0.2, rect: replyRect, scale: 1.25 }], highlights: [{ at: replyAt + 0.15, dur: 1.4, rect: replyRect }] })
+finish('request', chat)
 
-// Scene "triage": queue with the new P1 case.
-await op.page.goto(cfg.appUrl + O.path); await sleep(500)
+// triage: inbox, open the P1 case, show the copilot summary and signals
+await op.page.reload(); await inbox()
+const olena = caseItem(O.olena); await olena.waitFor({ timeout: 15000 }); await sleep(400)
 seg.triage = { s: op, start: op.t() }
-const item = op.loc(O.queueItem)
-await item.waitFor({ timeout: 15000 }); await sleep(900)
-const itemRect = await op.rect(item)
-await op.click(item)
-const openedAt = op.t() - seg.triage.start
-geometry.triage = { highlights: [{ at: 0.9, dur: Math.max(1.2, openedAt - 1.2), rect: itemRect }], focus: [{ at: 0.4, to: openedAt + 0.6, rect: itemRect, scale: 1.45 }] }
-await sleep(1200)
-seg.triage.len = Math.max(sceneDur('triage'), op.t() - seg.triage.start + 0.6)
+mark('triage', { highlights: [{ at: 0.3, dur: 1.2, rect: await op.rect(olena) }] })
+await op.click(olena)
+await text(op, O.summary).waitFor()
+await op.click(op.page.locator('summary', { hasText: rx(O.signals) }).first()); await sleep(900)
+const insp = await op.rect(op.page.locator('aside.inspector'))
+mark('triage', { focus: [{ at: since('triage') - 1.4, to: since('triage') + 0.3, rect: [insp[0], insp[1], insp[2], Math.min(insp[3], 520)], scale: 1.6 }] })
+finish('triage', op)
 
-// Scene "policy": analysis + checklist (real elements).
+// policy: the proposed refund with its checklist
 seg.policy = { s: op, start: op.t() }
-const analysis = op.loc(O.analysis), policy = op.loc(O.policy)
-await op.point(analysis, false); await sleep(1600)
-const aRect = await op.rect(analysis)
-await op.point(policy, false); await sleep(2600)
-const pRect = await op.rect(policy)
-geometry.policy = { focus: [{ at: 0.4, to: 2.6, rect: aRect, scale: 1.5 }, { at: 2.9, to: op.t() - seg.policy.start - 0.4, rect: pRect, scale: 1.5 }], highlights: [{ at: 0.8, dur: 1.6, rect: aRect }, { at: 3.2, dur: 2.0, rect: pRect }] }
-seg.policy.len = Math.max(sceneDur('policy'), op.t() - seg.policy.start + 0.4)
+const card = op.page.locator(O.actionCardCss).first()
+await card.scrollIntoViewIfNeeded(); await sleep(300)
+const checks = card.locator(O.checksCss).first()
+await op.point(checks, false); await sleep(2600)
+const cRect = await op.rect(card), kRect = await op.rect(checks)
+mark('policy', { focus: [{ at: 0.3, to: since('policy') + 0.3, rect: cRect, scale: 1.7 }], highlights: [{ at: 0.9, dur: 2.2, rect: kRect }] })
+finish('policy', op)
 
-// Scene "approve": the real click.
+// approve: consent only, no money moves
 seg.approve = { s: op, start: op.t() }
-const approve = op.loc(O.approve)
-const apRect = await op.rect(approve)
+const approve = button(op, O.approve); await approve.scrollIntoViewIfNeeded()
+const aRect = await op.rect(approve)
 await op.click(approve)
-const clickAt = op.t() - seg.approve.start
-const executed = op.page.getByText(rx(O.executed)).first()
-await executed.waitFor({ timeout: 15000 }); await sleep(1500)
-geometry.approve = { highlights: [{ at: Math.max(0.2, clickAt - 0.9), dur: 1.4, rect: apRect, kind: 'action' }, { at: clickAt + 0.6, dur: 2.0, rect: await op.rect(executed) }], focus: [{ at: 0.2, to: op.t() - seg.approve.start - 0.3, rect: apRect, scale: 1.5 }] }
-seg.approve.len = Math.max(sceneDur('approve'), op.t() - seg.approve.start + 0.4)
+const clickA = since('approve')
+const note = text(op, O.approvedNote); await note.waitFor({ timeout: 15000 }); await sleep(1700)
+mark('approve', { focus: [{ at: 0.2, to: since('approve') - 0.1, rect: await op.rect(card), scale: 1.7 }], highlights: [{ at: Math.max(0.2, clickA - 0.8), dur: 1.0, rect: aRect, kind: 'action' }, { at: clickA + 0.5, dur: 1.6, rect: await op.rect(note) }] })
+finish('approve', op)
 
-// Scene "result": the customer sees the confirmation (chat polls).
+// execute: separate server-side execution
+seg.execute = { s: op, start: op.t() }
+const execute = button(op, O.execute); await execute.scrollIntoViewIfNeeded()
+const eRect = await op.rect(execute)
+await op.click(execute)
+const clickE = since('execute')
+const ref = text(op, O.refundRef); await ref.waitFor({ timeout: 15000 }); await ref.scrollIntoViewIfNeeded(); await sleep(1800)
+const refRect = await op.rect(ref)
+mark('execute', { focus: [{ at: 0.2, to: since('execute') - 0.1, rect: refRect, scale: 1.6 }], highlights: [{ at: Math.max(0.2, clickE - 0.8), dur: 1.0, rect: eRect, kind: 'action' }, { at: since('execute') - 1.6, dur: 1.4, rect: refRect }] })
+finish('execute', op)
+
+// result: the customer sees the confirmation
 seg.result = { s: chat, start: chat.t() }
-const conf = chat.page.getByText(rx(C.confirmation)).first()
-await conf.waitFor({ timeout: 20000 })
-const confAt = chat.t() - seg.result.start
-await sleep(2400)
-geometry.result = { highlights: [{ at: confAt + 0.2, dur: 2.2, rect: await chat.rect(conf) }], focus: [{ at: Math.max(0.3, confAt - 0.4), to: chat.t() - seg.result.start - 0.3, rect: await chat.rect(conf), scale: 1.2 }] }
-seg.result.len = Math.max(sceneDur('result'), chat.t() - seg.result.start + 0.4)
+const conf = text(chat, C.confirmation); await conf.waitFor({ timeout: 20000 })
+await chat.point(conf, false); await sleep(2200)
+const confRect = await chat.rect(conf)
+mark('result', { focus: [{ at: 0.4, to: chat.t() - seg.result.start - 0.2, rect: confRect, scale: 1.3 }], highlights: [{ at: 0.9, dur: 2.2, rect: confRect }] })
+finish('result', chat)
 
-// Scene "safety": Ivan writes through the real chat API (off camera); operator opens the escalated case.
+// safety: Ivan writes through the real customer API (off camera); operator opens the case
 const ivanCase = await api('POST', '/api/v1/chat/cases', null, { 'x-customer-session': 'demo-ivan' })
-await api('POST', `/api/v1/chat/cases/${ivanCase.id}/messages`, { body: cfg.ivanMessage }, { 'x-customer-session': 'demo-ivan' })
-await op.page.goto(cfg.appUrl + O.path); await sleep(600)
+await api('POST', `/api/v1/chat/cases/${ivanCase.id}/messages`, { body: cfg.ivanMessage, clientMessageId: crypto.randomUUID() }, { 'x-customer-session': 'demo-ivan' })
+await op.page.reload(); await inbox()
+const ivan = caseItem(O.ivan); await ivan.waitFor({ timeout: 15000 }); await sleep(300)
 seg.safety = { s: op, start: op.t() }
-const ivan = op.loc(O.ivanItem)
-await ivan.waitFor({ timeout: 15000 }); await op.click(ivan)
-const denied = op.page.getByText(rx(O.denied)).first()
-await denied.waitFor({ timeout: 15000 }); await op.point(denied, false); await sleep(2600)
-geometry.safety = { highlights: [{ at: op.t() - seg.safety.start - 2.5, dur: 2.2, rect: await op.rect(denied), kind: 'deny' }], focus: [{ at: 0.5, to: op.t() - seg.safety.start - 0.3, rect: await op.rect(denied), scale: 1.4 }] }
-seg.safety.len = Math.max(sceneDur('safety'), op.t() - seg.safety.start + 0.4)
+await op.click(ivan)
+const denied = text(op, O.deniedCheck); await denied.waitFor({ timeout: 15000 }); await denied.scrollIntoViewIfNeeded()
+await op.point(denied, false); await sleep(2400)
+const dRect = await op.rect(denied)
+mark('safety', { focus: [{ at: since('safety') - 2.6, to: since('safety') - 0.1, rect: dRect, scale: 1.6 }], highlights: [{ at: since('safety') - 2.3, dur: 2.0, rect: dRect, kind: 'deny' }] })
+finish('safety', op)
 
 // Verify the real backend state before writing any slot.
 const cases = await api('GET', '/api/v1/cases')
 const detail = async name => api('GET', `/api/v1/cases/${cases.find(c => rx(name).test(c.customerName)).id}`)
-const olena = await detail('Olena'), ivanD = await detail('Ivan')
+const olenaD = await detail(O.olena), ivanD = await detail(O.ivan)
 const evidence = {
   at: new Date().toISOString(), appUrl: cfg.appUrl,
-  model: olena.runs.map(r => ({ provider: r.provider, model: r.model, status: r.status, toolCalls: r.toolCalls })),
-  olena: { status: olena.case.status, proposals: olena.proposals.map(p => [p.tool, p.status]), refunds: olena.refunds.length },
-  ivan: { status: ivanD.case.status, proposals: ivanD.proposals.map(p => [p.tool, p.status]), refunds: ivanD.refunds.filter(r => ivanD.payments.some(p => p.id === r.paymentId)).length },
+  model: [...olenaD.runs, ...ivanD.runs].map(r => ({ provider: r.provider, model: r.model, status: r.status })),
+  olena: { status: olenaD.case.status, proposals: olenaD.proposals.map(p => [p.tool, p.status]), refunds: olenaD.refunds.map(r => r.providerRef) },
+  ivan: { status: ivanD.case.status, priority: ivanD.case.priority, proposals: ivanD.proposals.map(p => [p.tool, p.status]), refunds: ivanD.refunds.length },
 }
-const ok = evidence.olena.status === 'resolved' && evidence.olena.refunds === 1 && olena.proposals.some(p => p.tool === 'refund_payment' && p.status === 'executed')
+const ok = evidence.olena.status === 'resolved' && evidence.olena.refunds.length === 1 && olenaD.proposals.some(p => p.tool === 'refund_payment' && p.status === 'executed')
   && evidence.ivan.status === 'escalated' && evidence.ivan.refunds === 0 && ivanD.proposals.some(p => p.tool === 'refund_payment' && p.status === 'denied')
 await fs.mkdir(path.join(root, 'capture'), { recursive: true })
 await fs.writeFile(path.join(root, 'capture', 'evidence.json'), JSON.stringify({ ok, ...evidence }, null, 2))
@@ -201,11 +219,10 @@ await chat.context.close(); await op.context.close(); await browser.close()
 if (!ok) throw new Error('Backend state does not match the storyboard; no slots written. See capture/evidence.json')
 if (evidence.model.every(r => r.provider === 'rules')) console.warn('NOTE: rules mode — captions must not claim LLM tool calls.')
 
-// Cut slots (+overlap tail for crossfades) and store measured geometry/durations.
 await fs.mkdir(path.join(root, 'assets', 'capture'), { recursive: true })
 for (const [id, g] of Object.entries(seg)) {
   cut(await g.s.page.video().path(), g.start, g.len + OVERLAP + 0.1, path.join(root, 'assets', 'capture', `${id}.mp4`))
   geometry[id].duration = Math.ceil(g.len * FPS) / FPS
 }
 await fs.writeFile(path.join(root, 'scenes', 'geometry.json'), JSON.stringify(geometry, null, 2))
-console.log('Captured', Object.keys(seg).join(', '), '— evidence ok. Next: node scripts/build.mjs --final')
+console.log('Captured', Object.keys(seg).join(', '), '— evidence ok:', JSON.stringify(evidence))

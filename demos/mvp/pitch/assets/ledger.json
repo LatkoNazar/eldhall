@@ -1,12 +1,90 @@
 {
-  "built": "draft",
-  "placeholders": [
-    "assets/capture/request.mp4",
-    "assets/capture/triage.mp4",
-    "assets/capture/policy.mp4",
-    "assets/capture/approve.mp4",
-    "assets/capture/result.mp4",
-    "assets/capture/safety.mp4"
-  ],
-  "footage": []
+  "built": "final",
+  "placeholders": [],
+  "footage": [
+    {
+      "id": "request",
+      "slot": "assets/capture/request.mp4",
+      "sha256": "ec035a09e9380d74cf3dadd11ccaa70b063a481f4a71f28fa6f34c7a56425760",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "triage",
+      "slot": "assets/capture/triage.mp4",
+      "sha256": "6cf553f1f6388cb16f46755776d62509a420336a1fd5ebb4997e2f504bf69f0b",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "policy",
+      "slot": "assets/capture/policy.mp4",
+      "sha256": "bfa0bc0e66f27dd8e18ced77f4d1a68d45427afd30f0b1a568fab991f8957b50",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "approve",
+      "slot": "assets/capture/approve.mp4",
+      "sha256": "931f71d32daa42f4cb01cc1f217854ead3826a6273a251a1248e60d7b45bd715",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "execute",
+      "slot": "assets/capture/execute.mp4",
+      "sha256": "e622ae4a4c6c2d3b3bc346d6934d96e5dd5e1fb2db22824d1bc635c873ef1e41",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "result",
+      "slot": "assets/capture/result.mp4",
+      "sha256": "55289eb70a86790a13e3b8cda6ea5e573037505d3b44022fb25b5952f7a73ea1",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    },
+    {
+      "id": "safety",
+      "slot": "assets/capture/safety.mp4",
+      "sha256": "5dbde2d2cdf875b4be4fe37ca0994e019c22cab3ffd26faf7835f88c645506b6",
+      "mediaStart": 0,
+      "playbackRate": 1,
+      "stream": {
+        "width": 1600,
+        "height": 900,
+        "r_frame_rate": "30/1"
+      }
+    }
+  ]
 }
