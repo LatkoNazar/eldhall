@@ -8,6 +8,7 @@ x-logging: &logging
 
 x-app-environment: &app-environment
   ENVIRONMENT: ${ENVIRONMENT:-development}
+  DATABASE_URL: ${DATABASE_URL:-}
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${POSTGRES_DB:-app}
@@ -43,6 +44,8 @@ x-app-environment: &app-environment
   KB_EMBEDDINGS_PROVIDER: ${KB_EMBEDDINGS_PROVIDER:-local}
   KB_EMBEDDINGS_MODEL: ${KB_EMBEDDINGS_MODEL:-}
   KB_URL_ALLOWLIST: ${KB_URL_ALLOWLIST:-[]}
+  QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+  KB_EXTERNAL_EMBEDDING_API_KEY: ${KB_EXTERNAL_EMBEDDING_API_KEY:-}
   OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
 
 x-dependencies: &dependencies

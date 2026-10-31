@@ -8,13 +8,15 @@ export interface AgentContext {
   conversationId: string;
   runId: string;
   runtimeAttempt?: number;
+  /** External sources are fetched afresh: never replay a previous native tool result. */
+  knowledgeSessionKey?: string;
   turnJobId?: string;
   businessId: string;
   ownershipVersion: number;
   assertActive: () => Promise<void>;
   knowledge: { id: string; title: string; content: string; version: number }[];
   skills: { id: string; name: string; content: string; revision: number }[];
-  searchKnowledge: (query: string) => Promise<{ id: string; title: string; content: string; version: number }[]>;
+  searchKnowledge: (query: string, signal?: AbortSignal) => Promise<{ id: string; title: string; content: string; version: number }[]>;
   businessTools?: { integrationId: string; name: string; description: string; inputSchema: Record<string, unknown> }[];
   callBusinessTool?: (integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
   customer: { name: string; plan: string };
@@ -70,11 +72,11 @@ const ukrainian = (text: string) => /[а-яіїєґ]/i.test(text);
 export class RulesModel implements AgentModel {
   readonly provider = 'rules';
   readonly model = 'keyword-rules-v1';
-  async decide(ctx: AgentContext): Promise<ModelOutput> {
+  async decide(ctx: AgentContext, signal?: AbortSignal): Promise<ModelOutput> {
     const text = ctx.message;
     const uk = ukrainian(text);
     const base = { sentiment: { label: 'calm' as const, urgency: 'low' as const } };
-    const sources = await ctx.searchKnowledge(text);
+    const sources = await ctx.searchKnowledge(text, signal);
     if (sources.length && !has(text, /twice|double|duplicate|двічі|подвійн|refund|поверн|cancel|скасу/)) {
       const source = sources[0]!;
       return out({ ...base, intent: 'other', summary: source.title, reasoning: 'Answer grounded in a published business document.', reply: source.content.slice(0, 1000) + '\n\n[' + source.title + '] (джерело ' + source.id + ', версія ' + source.version + ')', action: null });

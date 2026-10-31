@@ -1,0 +1,129 @@
+# Standalone existing-PostgreSQL deployment. Do not combine with support.compose.yaml.
+name: ${PROJECT_NAME:-support}
+
+x-server: &server
+  image: ${SUPPORT_SERVER_IMAGE:-support-server:local}
+  build:
+    context: ../apps/api
+    target: production
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=128m
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  environment: &server-env
+    ENVIRONMENT: production
+    DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to your existing PostgreSQL database}
+    REDIS_HOST: redis
+    REDIS_PORT: '6379'
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    API_TOKEN: ${API_TOKEN:?Set API_TOKEN}
+    OPERATOR_TOKEN: ${OPERATOR_TOKEN:?Set OPERATOR_TOKEN}
+    ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1"]}
+    CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+    SUPPORT_STORE: postgres
+    DEMO_RESET_ENABLED: 'false'
+    AGENT_RUNTIME: ${AGENT_RUNTIME:-dsh}
+    LLM_PROVIDER: ${LLM_PROVIDER:-google}
+    LLM_MODEL: ${LLM_MODEL:-gemini-3.5-flash-lite}
+    LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-60000}
+    LLM_BASE_URL: ${LLM_BASE_URL:-}
+    LOCAL_MODEL_API_KEY: ${LOCAL_MODEL_API_KEY:-}
+    SUPPORT_EXECUTION: worker
+    SUPPORT_CONFIG_FILE: ${SUPPORT_CONFIG_FILE:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    KB_EMBEDDINGS_PROVIDER: ${KB_EMBEDDINGS_PROVIDER:-local}
+    KB_EMBEDDINGS_MODEL: ${KB_EMBEDDINGS_MODEL:-}
+    KB_URL_ALLOWLIST: ${KB_URL_ALLOWLIST:-[]}
+    QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    KB_EXTERNAL_EMBEDDING_API_KEY: ${KB_EXTERNAL_EMBEDDING_API_KEY:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    CLASSIFICATION_PROVIDER: ${CLASSIFICATION_PROVIDER:-agent}
+    CLASSIFICATION_MODEL: ${CLASSIFICATION_MODEL:-}
+    CLASSIFICATION_TIMEOUT_MS: ${CLASSIFICATION_TIMEOUT_MS:-10000}
+    OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    MAX_RUNTIME_TOOL_CALLS: ${MAX_RUNTIME_TOOL_CALLS:-8}
+    RUNTIME_HOME: /data/dsh
+  volumes:
+    - runtime_data:/data/dsh
+  depends_on:
+    redis: { condition: service_healthy }
+  networks: [support]
+
+services:
+  redis:
+    image: redis:7.4.11-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command: [sh, -ec, 'exec redis-server --appendonly yes --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [support]
+  migrate:
+    <<: *server
+    command: [node, dist/migrate.js]
+    restart: 'no'
+  api:
+    <<: *server
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    ports:
+      - '127.0.0.1:${SUPPORT_API_PORT:-18000}:8000'
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+  worker:
+    <<: *server
+    command: [node, dist/worker.js]
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: [CMD, node, dist/scripts/worker-health.js]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+  web:
+    profiles: [ui]
+    image: ${SUPPORT_WEB_IMAGE:-support-web:local}
+    build:
+      context: ..
+      dockerfile: apps/frontend/Dockerfile
+      target: production
+      args:
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:18001}
+    ports:
+      - '127.0.0.1:${SUPPORT_WEB_PORT:-18001}:8080'
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, wget, --quiet, --tries=1, --spider, http://127.0.0.1:8080/frontend-health]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    networks: [support]
+
+networks:
+  support:
+volumes:
+  redis_data:
+  runtime_data:

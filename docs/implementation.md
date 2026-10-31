@@ -12,6 +12,33 @@ The dedicated support profile exposes scoped payment lookup, published-knowledge
 
 With `SUPPORT_STORE=postgres`, `SUPPORT_EXECUTION=worker` is the default. HTTP message acceptance commits the customer message and PostgreSQL outbox atomically and returns 202 with `reply:null` and `runId`. The worker republishes pending rows to Redis, acquires a fenced lease and completes the final message with the durable job outcome. Poll the customer case for completion. One active run per case, bounded recovery and payment reservations guard redelivery; this is not a claim of exactly-once broker delivery. A repeated `clientMessageId` with the same text returns the original run. Staff takeover fences the old run; resuming the bot is explicit.
 
+## Existing PostgreSQL database by URL
+
+Set a private `DATABASE_URL` to use PostgreSQL on your existing server or managed service. A non-empty URL takes precedence over `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` for API, worker and migrations. An empty URL keeps the existing separate-field configuration. `ENVIRONMENT` does not choose a database: the configured connection selects the actual write target for both development and production.
+
+```dotenv
+DATABASE_URL='postgresql://support_user:encoded_password@db.example.com:5432/existing_app?sslmode=verify-full'
+SUPPORT_STORE=postgres
+SUPPORT_EXECUTION=worker
+DEMO_RESET_ENABLED=false
+```
+
+Both `postgres://` and `postgresql://` are accepted. Percent-encode reserved characters in usernames/passwords, for example `@` as `%40`; keep the real URL untracked and server-side. URL query parameters, including `sslmode`, are passed to node-postgres's connection-string parser. TLS configuration follows [node-postgres SSL behavior](https://node-postgres.com/features/ssl); certificate-file paths in URL parameters refer to files available inside the running process/container. The service does not add a separate SSL override or disable certificate verification.
+
+The target can be an existing application database; no second database is required. Migrations create/update the application's own `support_*` tables and the starter's `public.jobs` and `public.alembic_version`. Those names must be available or match the expected existing schema; an unrelated jobs table or Alembic migration history can cause compatibility checks to reject startup. The connection user needs the relevant schema/table creation and migration permissions, temporary-table permission, and runtime read/write permissions. Existing bank/CRM tables are not imported or interpreted automatically, and no separate custom-schema isolation is implemented here. Set API, worker and migrations to the same target and use distinct dev/prod URLs as appropriate.
+
+### Reading an existing business database
+
+There are two separate connections: `DATABASE_URL` stores the support application's own writable state; a business integration reads existing customer/order/product data. The latter may be backed by PostgreSQL, MySQL, SQL Server, MongoDB or another engine, hosted on-premises, in a private network or by a cloud provider. Expose reviewed read operations through an MCP server reachable from the API/worker and register its HTTPS endpoint under `integrations` in `SUPPORT_CONFIG_FILE`. The MCP server owns the engine-specific database driver and credentials. Those engines are not interchangeable values for `DATABASE_URL`, and the support service does not currently ship native drivers for each one.
+
+Use the working `get_order_status` configuration in [examples/support.config.json](../examples/support.config.json): replace the MCP endpoint and configure its `credentialEnv`, `inputSchema`, `scopeBindings` and `outputFields`. Keep the actual token in the server environment. The model supplies an order reference; the support backend injects the authenticated business/customer identifiers. The upstream operation must enforce both identifiers with parameterized queries or equivalent document filters and return only the approved fields. Give its database account only the necessary read permissions. Arbitrary model-written SQL, direct write access, automatic schema discovery and migrations against the business database are not part of this integration.
+
+For a private deployment, run the adapter inside the network that can reach the database and expose only its reviewed MCP interface to support. A connection URL alone cannot describe a company's schema, customer ownership rules or allowed actions; the explicit tool contract supplies that mapping. See [MCP protocol and trust boundary](integrations-runtime.md#mcp-protocol-and-trust-boundary) for the enforced request/output bounds and scope checks.
+
+### External KB credentials in containers
+
+The supplied Compose recipes pass `QDRANT_API_KEY` and `KB_EXTERNAL_EMBEDDING_API_KEY` into API, worker and migration containers. These are server-only example credential names; the external KB connection URL, collection and payload mappings belong in the operator-controlled support JSON config. A custom `credentialEnv` name must also be explicitly supplied to the API and worker containers through a private `env_file`, deployment secret injection or an `environment` entry in your Compose overlay. A root `.env` variable is not automatically available inside a container just because its name appears in the JSON config. Never prefix these secrets with `VITE_` or `PUBLIC_`.
+
 ## Native start
 
 Install API dependencies with `npm --prefix apps/api ci`. Copy `.env.example` only when no private `.env` exists. Make the configured database available, start PostgreSQL/Redis and set their native hostnames, ports and credentials in `.env`:
@@ -112,10 +139,29 @@ The overlay sets `/config/support.json` for API/worker and optionally reads `../
 
 The original root Compose files, deployment scripts, landing and Umami remain available as starter infrastructure. They are separate from this support deployment recipe. Production Caddy serves the optional web build and proxies `/api` without exposing provider secrets.
 
+### Docker with an existing PostgreSQL database
+
+Use `deploy/support.external-db.compose.yaml` as a standalone alternative to `support.compose.yaml`. It starts Redis, migrations, API and worker, plus optional `web`; it has no local PostgreSQL service, PostgreSQL volume or `POSTGRES_PASSWORD` requirement. Create a private `.env.support` with `DATABASE_URL`, `REDIS_PASSWORD` (at least 16 characters), `API_TOKEN` (at least 32), `OPERATOR_TOKEN` (at least 24), the model key and any domain/configuration settings. The URL uses credentials already provisioned for the target database; separate `POSTGRES_*` values are unnecessary in this recipe.
+
+```powershell
+docker compose --env-file .env.support -f deploy/support.external-db.compose.yaml --profile ui config --quiet
+docker compose --env-file .env.support -f deploy/support.external-db.compose.yaml --profile ui up -d --build --wait
+```
+
+The migration container applies the schema to the URL target before API/worker startup. That target must be reachable from the containers; `localhost` inside a container identifies that container. Redis/runtime data still use named volumes. Manage the external PostgreSQL backup and recovery through its host/provider; the bundled `scripts/backup.sh` and root deployment helpers target the local Compose PostgreSQL service and do not manage backups of the URL target.
+
+The business-config overlay works with this recipe as well:
+
+```powershell
+docker compose --env-file .env.support -f deploy/support.external-db.compose.yaml -f deploy/support.config.compose.yaml --profile ui up -d --build --wait
+```
+
+The original root/local-PostgreSQL Compose recipes also forward `DATABASE_URL`, but continue to provision their local PostgreSQL service and require its credentials. Choose the external recipe when you want to use only your existing PostgreSQL.
+
 ## Verification and current limits
 
 API checks: `npm --prefix apps/api run lint`, `run typecheck`, `test`, `run build`. `npm --prefix apps/api run test:runtime` runs the actual pinned DSH against a deterministic local compatible model server. It starts native processes and must be run where native checkpoint writes are permitted. `npm --prefix apps/api run test:postgres` uses a real PostgreSQL connection, an isolated temporary schema and `TEST_POSTGRES_HOST/PORT/DB/USER/PASSWORD`; it does not silently skip a missing database. The ordinary API suite also exercises real local MCP protocol connections. Live Gemini testing requires the private server key and is distinct from the deterministic runtime suite.
 
-Frontend checks are `lint`, `typecheck`, `test`, `build`; install landing dependencies too because the frontend tests import the real landing module. CI also validates the standalone headless/UI/config Compose definitions, while preserving starter jobs and analytics checks.
+Frontend checks are `lint`, `typecheck`, `test`, `build`; install landing dependencies too because the frontend tests import the real landing module. CI also validates the standalone headless/UI/config Compose definitions and the external-PostgreSQL recipe without local PostgreSQL credentials, while preserving starter jobs and analytics checks.
 
-Implemented financial operations use a **simulated payment provider**. Knowledge search is lexical, without embeddings/pgvector. MCP integration supports configured reads only. Authentication has one configured staff principal; SSO, invitations and RBAC remain future work. No OSI license has been selected, and no managed-cloud deployment is provisioned here. A successful Compose parse is not evidence of a Docker image build or container startup; report those checks separately from native validation.
+Implemented financial operations use a **simulated payment provider**. Knowledge retrieval and embedding configuration are described in [the knowledge-base guide](KNOWLEDGE_BASE.md). MCP integration supports configured reads only. Authentication has one configured staff principal; SSO, invitations and RBAC remain future work. No OSI license has been selected, and no managed-cloud deployment is provisioned here. A successful Compose parse is not evidence of a Docker image build or container startup; report those checks separately from native validation.

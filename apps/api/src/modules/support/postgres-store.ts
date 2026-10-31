@@ -120,7 +120,7 @@ export class PostgresSupportStore implements SupportStore {
         await client.query("UPDATE support_cases SET ownership_version=ownership_version+1,assigned_to='queue:tier-2' WHERE id=$1",[lease.caseId]);
         await client.query("UPDATE support_proposals SET status='rejected',error='Conversation handed to staff' WHERE case_id=$1 AND status IN ('pending','approved')",[lease.caseId]);
       }
-      const reply=await this.insertMessage(client,lease.caseId,'assistant',body,sourceRefs);
+      const reply=await this.insertMessage(client,lease.caseId,'assistant',body,sourceRefs,context?.externalSourceRefs);
       if(lease.jobFence!==undefined) {
         await client.query("UPDATE support_turn_jobs SET status='completed',worker_id=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1",[lease.runId]);
         await client.query('UPDATE support_cases SET active_run_id=NULL,active_run_at=NULL WHERE id=$1',[lease.caseId]);
@@ -129,8 +129,8 @@ export class PostgresSupportStore implements SupportStore {
       return {case:supportCase,reply};
     });
   }
-  private async insertMessage(client:Queryable,caseId:string,role:MessageRole,body:string,sourceRefs:Message['sourceRefs']=[]) {
-    return map<Message>((await client.query('INSERT INTO support_messages(id,case_id,role,body,source_refs) VALUES($1,$2,$3,$4,$5) RETURNING *',[randomUUID(),caseId,role,body,json(sourceRefs)])).rows[0]);
+  private async insertMessage(client:Queryable,caseId:string,role:MessageRole,body:string,sourceRefs:Message['sourceRefs']=[],externalSourceRefs:Message['externalSourceRefs']=[]) {
+    return map<Message>((await client.query('INSERT INTO support_messages(id,case_id,role,body,source_refs,external_source_refs) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[randomUUID(),caseId,role,body,json(sourceRefs),json(externalSourceRefs)])).rows[0]);
   }
   async addMessage(caseId:string,role:MessageRole,body:string) { return this.insertMessage(this.pool,caseId,role,body); }
   async messages(caseId:string) { return (await this.pool.query('SELECT * FROM support_messages WHERE case_id=$1 ORDER BY created_at,id',[caseId])).rows.map(r=>map<Message>(r)); }

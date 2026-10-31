@@ -36,12 +36,14 @@ test('real PostgreSQL insights admission, worker recovery, evidence isolation, d
     const source = await support.saveKnowledge({ id: randomUUID(), businessId: business.id, title: 'Billing documents', category: 'Billing', content: 'Ask a support agent to check a billing-document error. The cause must be verified.', version: 1, status: 'published', updatedAt: new Date().toISOString() });
     const revoked = await support.saveKnowledge({ ...source, id: randomUUID(), title: 'Old secret advice', content: 'REVOKED_KB_MARKER', status: 'revoked' });
     await pool.query("INSERT INTO support_messages(id,case_id,role,body,source_refs) VALUES($1,$2,'assistant','REVOKED_ASSISTANT_MARKER',$3)", [randomUUID(), cases[0]!.id, JSON.stringify([{ id: revoked.id, version: 1 }])]);
+    await pool.query("INSERT INTO support_messages(id,case_id,role,body,external_source_refs) VALUES($1,$2,'assistant','EXTERNAL_UNVALIDATED_MARKER',$3)", [randomUUID(), cases[0]!.id, JSON.stringify([{ connectorId: 'company-kb', pointId: 42, contentHash: 'a'.repeat(64) }])]);
     const repository = new InsightsRepository(pool);
     let calls = 0;
     let analyze: (input: InsightInput) => Promise<InsightOutput> = async input => ({ findings: [{ kind: 'recurring_issue', title: 'Synthetic invoice-download reports', summary: 'Two sampled dialogues report an error. Cause remains unknown.', recommendation: 'Ask staff to reproduce the reported error.',
       evidence: input.tickets.map(ticket => ({ caseId: ticket.id, messageIds: [ticket.messages[0]!.id] })), knowledgeRefs: input.knowledge.map(kb => ({ id: kb.id, version: kb.version })), proposedArticle: { title: 'Invoice download troubleshooting — proposal', content: 'Draft for staff verification. Ask which error appears and check the service state; do not promise a confirmed resolution.' } }] });
     const model: InsightModel = { provider: 'synthetic-test', model: 'typed-fixture', analyze: async input => {
-      calls++; assert.doesNotMatch(JSON.stringify(input), /OTHER_BUSINESS_PRIVATE_MARKER|REVOKED_KB_MARKER|REVOKED_ASSISTANT_MARKER|fake@example\.test|sessionToken|customerId/);
+      calls++; assert.doesNotMatch(JSON.stringify(input), /OTHER_BUSINESS_PRIVATE_MARKER|REVOKED_KB_MARKER|REVOKED_ASSISTANT_MARKER|EXTERNAL_UNVALIDATED_MARKER|fake@example\.test|sessionToken|customerId/);
+      assert.equal(input.sample.truncated, true);
       return analyze(input);
     } };
     const service = new InsightsService(repository, model, 10000);

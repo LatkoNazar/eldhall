@@ -7,7 +7,7 @@ type StoredSettings = Omit<SupportSettings, 'classification'> & { classification
 
 export type NewProposal = Omit<Proposal, 'id' | 'createdAt' | 'decidedBy' | 'decidedAt' | 'result' | 'error'>;
 export type CasePatch = Partial<Pick<SupportCase, 'status' | 'priority' | 'intent' | 'analysis' | 'ownership' | 'assignedTo'>>;
-export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification'] }
+export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs'] }
 export class DuplicateRefund extends Error {}
 export class StaleTurn extends Error {}
 export class VersionConflict extends Error {}
@@ -241,7 +241,7 @@ export class MemorySupportStore implements SupportStore {
       row.ownershipVersion++; row.assignedTo='queue:tier-2';
       for(const proposal of this.proposalRows.values()) if(proposal.caseId===lease.caseId && ['pending','approved'].includes(proposal.status)) Object.assign(proposal,{status:'rejected',error:'Conversation handed to staff'});
     }
-    const message: Message={id:randomUUID(),caseId:lease.caseId,role:'assistant',body,createdAt:now(),sourceRefs:copy(sourceRefs)};
+    const message: Message={id:randomUUID(),caseId:lease.caseId,role:'assistant',body,createdAt:now(),sourceRefs:copy(sourceRefs),externalSourceRefs:copy(context?.externalSourceRefs ?? [])};
     this.messageRows.push(message); const reply=copy(message);
     if (lease.jobFence !== undefined) {
       Object.assign(this.turnJobs.get(lease.runId)!, { status: 'completed', workerId: null, leaseExpiresAt: null, updatedAt: now() });

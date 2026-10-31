@@ -71,10 +71,12 @@ export class InsightsRepository {
       const input: InsightInput = { tickets: [], knowledge: sources.map(({ id, title, version, content }) => ({ id, title, version, content })), sourceRefs: sources.map(({ id, version }) => ({ id, version })), sample: { ...emptySample(), totalCases: counts.cases, totalPublishedKnowledge: counts.knowledge, truncated: counts.cases > cases.length || counts.knowledge > sources.length || sources.some(source => source.full_length > 1200) } };
       const refs = new Map(input.sourceRefs.map(ref => [ref.id, ref.version]));
       for (const c of cases) {
-        const messages = (await client.query<{ id: string; role: string; body: string; created_at: Date; source_refs: { id: string; version: number }[] }>('SELECT id,role,body,source_refs,created_at FROM support_messages WHERE case_id=$1 ORDER BY created_at DESC,id DESC LIMIT 9', [c.id])).rows;
+        const messages = (await client.query<{ id: string; role: string; body: string; created_at: Date; source_refs: { id: string; version: number }[]; external_source_refs: unknown[] }>('SELECT id,role,body,source_refs,external_source_refs,created_at FROM support_messages WHERE case_id=$1 ORDER BY created_at DESC,id DESC LIMIT 9', [c.id])).rows;
         if (messages.length > 8) input.sample.truncated = true;
         const visible = [];
         for (const message of messages.slice(0, 8).reverse()) {
+          // Insights does not claim to validate or enumerate a remote company's corpus.
+          if (message.external_source_refs.length) { input.sample.truncated = true; continue; }
           if (!await this.refsCurrent(client, lease.businessId, message.source_refs)) { input.sample.truncated = true; continue; }
           const item = { id: message.id, role: message.role, body: clean(message.body) };
           if (message.body.length > 600) input.sample.truncated = true;

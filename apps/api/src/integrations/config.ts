@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { classificationConfigSchema } from '../modules/agent/classification.js';
 import { safeKey, validateInputSchema, type InputSchema } from './schema.js';
+import { qdrantKnowledgeSchema } from '../modules/knowledge/qdrant.js';
 
 const id = z.string().uuid();
 const key = z.string().refine(safeKey, 'Expected a safe identifier');
@@ -47,12 +48,15 @@ export const supportConfigSchema = z.object({
   skills: z.array(z.object({ id, businessId: id, name: z.string().min(1).max(200), content: z.string().min(1).max(20_000), revision: z.number().int().positive(), enabled: z.boolean(), updatedAt: timestamp }).strict()).max(200).default([]),
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),
+  externalKnowledge: z.array(qdrantKnowledgeSchema).max(100).default([]),
 }).strict().superRefine((config, ctx) => {
   for (const field of ['businesses', 'knowledge', 'skills', 'integrations'] as const) {
     if (new Set(config[field].map(row => row.id)).size !== config[field].length) ctx.addIssue({ code: 'custom', message: `Duplicate ${field} id` });
   }
   if (new Set(config.businesses.map(row => row.slug)).size !== config.businesses.length) ctx.addIssue({ code: 'custom', message: 'Duplicate business slug' });
   if (new Set(config.classifications.map(row => row.businessId)).size !== config.classifications.length) ctx.addIssue({ code: 'custom', message: 'Duplicate classification business' });
+  if (new Set(config.externalKnowledge.map(row => row.id)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Duplicate external knowledge connector id' });
+  if (new Set(config.externalKnowledge.map(row => row.businessId)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Only one external knowledge connector per business is supported' });
 });
 export type SupportConfig = z.infer<typeof supportConfigSchema>;
 export type McpIntegrationConfig = SupportConfig['integrations'][number];

@@ -17,6 +17,7 @@ import { createEmbedder } from '../knowledge/embeddings.js';
 import { KnowledgeRetriever } from '../knowledge/retriever.js';
 import { configureKnowledge } from '../knowledge/runtime.js';
 import { PgVectorStore } from '../knowledge/vector-store.js';
+import { createExternalKnowledge } from '../knowledge/qdrant.js';
 
 export async function createSupport(settings: Settings, pool: pg.Pool): Promise<SupportDependencies> {
   if (settings.supportExecution === 'worker' && settings.supportStore !== 'postgres') throw new Error('Worker support execution requires SUPPORT_STORE=postgres; use SUPPORT_EXECUTION=inline for an explicit memory demo');
@@ -29,6 +30,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
     await pool.query('SELECT turn_job_id FROM support_agent_runs LIMIT 0');
     await pool.query('SELECT id FROM support_turn_jobs LIMIT 0');
     await pool.query('SELECT classification FROM support_settings LIMIT 0');
+    await pool.query('SELECT external_source_refs FROM support_messages LIMIT 0');
     store = new PostgresSupportStore(pool);
     if (settings.demoResetEnabled) await store.seedIfEmpty(seedData());
   } else {
@@ -51,8 +53,9 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   // Knowledge retrieval: embedder from KB_EMBEDDINGS_*, pgvector when the Postgres store has the extension.
   const vectors = settings.supportStore === 'postgres' ? await PgVectorStore.connect(pool) : null;
   const knowledge = new KnowledgeRetriever(createEmbedder(settings.knowledgeEmbeddingsProvider, settings.knowledgeEmbeddingsModel, settings.knowledgeEmbeddingsApiKey), vectors, message => console.warn(message));
-  configureKnowledge({ retriever: knowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
-  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge });
+  const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
+  configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
+  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
   return { harness, store, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,

@@ -72,6 +72,18 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       await store.reset(seedData());
       assert.deepEqual(await fresh.knowledgeVersions(business.id,id),[]);
     });
+    await t.test('external citations persist separately from local UUID source references',async()=>{
+      const c=await store.createCase(seedData().customers[0]!.businessId,seedData().customers[0]!.id);
+      const lease=(await store.acquireTurn(c.id,randomUUID()))!;
+      const business=(await store.business(c.businessId))!;
+      const refs=[{connectorId:'company-kb',pointId:42,contentHash:'a'.repeat(64)}];
+      const completed=await store.completeTurn(lease,{},'Remote answer',[],{policy:business.policy,skills:[],externalSourceRefs:refs});
+      assert.ok(completed);
+      const fresh=new PostgresSupportStore(pool!);
+      assert.deepEqual((await fresh.messages(c.id))[0]!.sourceRefs,[]);
+      assert.deepEqual((await fresh.messages(c.id))[0]!.externalSourceRefs,refs);
+      await store.releaseTurn(lease);
+    });
     await t.test('turn exclusion, expired-run recovery and ownership fencing survive storage',async()=>{
       const c=await harness.openCase('demo-olena');
       const old=(await store.acquireTurn(c.id,randomUUID()))!;

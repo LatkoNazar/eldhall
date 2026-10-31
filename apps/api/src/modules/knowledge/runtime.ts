@@ -1,12 +1,13 @@
 import { checkUrl, EgressError, httpsFetcher, type PageFetcher } from './egress.js';
 import { KnowledgeRetriever } from './retriever.js';
 import { htmlToMarkdown, normalizeText } from './text.js';
+import type { ExternalKnowledge } from './qdrant.js';
 
 /**
  * Process-wide knowledge runtime shared by the harness and the operator routes. createSupport()
  * replaces it from Settings (embedder, pgvector, URL allowlist); tests may inject their own.
  */
-export const knowledgeRuntime: { retriever: KnowledgeRetriever; urlAllowlist: string[]; fetcher: PageFetcher } = {
+export const knowledgeRuntime: { retriever: KnowledgeRetriever; external?: ExternalKnowledge; urlAllowlist: string[]; fetcher: PageFetcher } = {
   retriever: new KnowledgeRetriever(),
   urlAllowlist: [],
   fetcher: httpsFetcher([]),

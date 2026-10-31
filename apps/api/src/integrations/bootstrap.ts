@@ -20,7 +20,7 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
     classifierStates.set(business.id, await store.classificationState(business.id));
   }
   // Validate every reference/revision before writing any bootstrap rows.
-  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
+  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications, ...config.externalKnowledge]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
   for (const source of config.knowledge) {
     const old = existingKnowledge.get(source.id);
     if (old && (old.businessId !== source.businessId || (old.version === source.version && ['title', 'category', 'content', 'status'].some(key => old[key as keyof typeof old] !== source[key as keyof typeof source])))) throw new Error('Configured document requires a new version or a distinct id');

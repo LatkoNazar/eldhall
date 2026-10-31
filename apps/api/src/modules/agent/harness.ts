@@ -10,6 +10,7 @@ import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
 import type { KnowledgeRetriever } from '../knowledge/retriever.js';
 import { knowledgeRuntime } from '../knowledge/runtime.js';
+import type { ExternalKnowledge, ExternalKnowledgeRef } from '../knowledge/qdrant.js';
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -25,6 +26,7 @@ export interface HarnessDeps {
   integrations?: BusinessIntegrations;
   classifier?: TicketClassifier;
   knowledge?: KnowledgeRetriever; // hybrid retrieval over published sources; defaults to the shared in-process index
+  externalKnowledge?: ExternalKnowledge;
 }
 
 export function argsHash(caseId: string, tool: string, args: unknown): string {
@@ -41,8 +43,27 @@ export class SupportHarness {
   private async visibleMessages(businessId: string, caseId: string): Promise<Message[]> {
     const messages = await this.deps.store.messages(caseId);
     const sources = await this.deps.store.knowledge(businessId);
-    return messages.map(message => message.sourceRefs?.some(ref => !sources.some(source => source.id === ref.id && source.version === ref.version && source.status === 'published'))
-      ? { ...message, body: '[Відповідь приховано: джерело змінено або відкликано]' } : message);
+    const supportCase = await this.deps.store.getCase(caseId);
+    const customer = supportCase ? await this.deps.store.customer(supportCase.customerId) : null;
+    const external = this.deps.externalKnowledge ?? knowledgeRuntime.external;
+    const validationSignal = AbortSignal.timeout(Math.min(this.deps.timeoutMs, 5000));
+    const checks = new Map<string, Promise<boolean>>();
+    const visible: Message[] = [];
+    for (const [index, message] of messages.entries()) {
+      let current = !message.sourceRefs?.some(ref => !sources.some(source => source.id === ref.id && source.version === ref.version && source.status === 'published' && (source.audience ?? 'customer') === 'customer' && (!source.plans?.length || (customer && source.plans.includes(customer.plan)))));
+      if (message.externalSourceRefs?.length) {
+        // Bound remote work for long transcripts; older external responses are retained in
+        // storage for audit but are not displayed as currently verified customer guidance.
+        current = current && !validationSignal.aborted && index >= messages.length - 100 && !!customer && !!external?.hasBusiness(businessId) && message.externalSourceRefs.length <= 50;
+        if (current) {
+          const key = JSON.stringify(message.externalSourceRefs);
+          if (!checks.has(key)) checks.set(key, external!.validate({ businessId, plan: customer!.plan }, message.externalSourceRefs, validationSignal).catch(() => false));
+          current = await checks.get(key)!;
+        }
+      }
+      visible.push(current ? message : { ...message, body: '[Відповідь приховано: джерело змінено, відкликано або недоступне]', sourceRefs: [], externalSourceRefs: [] });
+    }
+    return visible;
   }
 
   async customer(sessionToken: string | undefined): Promise<Customer> {
@@ -101,27 +122,64 @@ export class SupportHarness {
       await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
     }
 
-    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published' && (d.audience ?? 'customer') === 'customer' && (!d.plans?.length || d.plans.includes(customer.plan))).map(({ id, businessId, title, category, content, version, audience, plans, sourceUrl }) => ({ id, businessId, title, category, content, version, audience, plans, sourceUrl }));
+    const external = this.deps.externalKnowledge ?? knowledgeRuntime.external;
+    const externalMode = external?.hasBusiness(customer.businessId) ?? false;
+    const externalSignal = AbortSignal.timeout(this.deps.timeoutMs);
+    const knowledge = externalMode ? [] : (await store.knowledge(customer.businessId)).filter(d => d.status === 'published' && (d.audience ?? 'customer') === 'customer' && (!d.plans?.length || d.plans.includes(customer.plan))).map(({ id, businessId, title, category, content, version, audience, plans, sourceUrl }) => ({ id, businessId, title, category, content, version, audience, plans, sourceUrl }));
     const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
     // A native session or product history can reuse facts without searching this turn.
     // Conservatively fence every eligible source until transitive citation tracking exists.
     const sourceRefs = knowledge.map(({ id, version }) => ({ id, version }));
+    const history = (await this.visibleMessages(customer.businessId, caseId)).slice(-10).map(message => externalMode && message.sourceRefs?.length
+      ? { ...message, body: '[Попередню відповідь із локальної бази знань не включено: джерело бізнесу змінено]', sourceRefs: [], externalSourceRefs: [] }
+      : message);
+    const externalRefs = new Map<string, ExternalKnowledgeRef>();
+    const remember = (refs: ExternalKnowledgeRef[]) => {
+      for (const ref of refs) {
+        const key = JSON.stringify([ref.connectorId, ref.pointId]);
+        const prior = externalRefs.get(key);
+        if (prior && prior.contentHash !== ref.contentHash) throw new StaleTurn('External knowledge changed during this turn');
+        externalRefs.set(key, ref);
+      }
+      if (externalRefs.size > 50) throw new StaleTurn('Too many external sources; narrow the question');
+    };
+    if (externalMode) for (const message of history) remember(message.externalSourceRefs ?? []);
+    let externalFailed = false;
+    const assertExternal = async () => {
+      if (!externalMode) return;
+      if (externalFailed || externalSignal.aborted || !await external!.validate({ businessId: customer.businessId, plan: customer.plan }, [...externalRefs.values()], externalSignal).catch(() => false)) throw new StaleTurn('External knowledge changed or is unavailable');
+    };
     const assertActive = async () => {
       if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
+      if (externalMode) {
+        const currentCustomer = await store.customer(customer.id);
+        if (!currentCustomer || currentCustomer.businessId !== customer.businessId || currentCustomer.plan !== customer.plan) throw new StaleTurn('External knowledge scope changed');
+      }
       const current = await store.knowledge(customer.businessId);
       if (knowledge.some(d => !current.some(n => n.id === d.id && n.version === d.version && n.status === 'published'))) throw new StaleTurn('Knowledge access changed');
       const currentSkills = await store.skills(customer.businessId);
       if (skills.some(s => !currentSkills.some(n => n.id === s.id && n.revision === s.revision && n.enabled))) throw new StaleTurn('Skill access changed');
       if (JSON.stringify((await store.business(customer.businessId))?.policy) !== JSON.stringify(business.policy)) throw new StaleTurn('Business policy changed');
       if (!sameClassificationConfig((await store.settings(customer.businessId)).classification, settings.classification)) throw new StaleTurn('Classification taxonomy changed');
+      if (externalFailed) throw new StaleTurn('External knowledge is unavailable');
     };
     const ctx: AgentContext = {
       conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
       runtimeAttempt: lease.jobFence !== undefined && lease.jobFence > 1 ? lease.jobFence : undefined,
+      ...(externalMode ? { knowledgeSessionKey: lease.runId } : {}),
       turnJobId: lease.jobFence !== undefined ? lease.runId : undefined,
       assertActive, knowledge, skills, classification: settings.classification,
-      searchKnowledge: async query => {
+      searchKnowledge: async (query, signal) => {
         await assertActive();
+        if (externalMode) {
+          try {
+            const result = await external!.search({ businessId: customer.businessId, plan: customer.plan }, query, signal ? AbortSignal.any([signal, externalSignal]) : externalSignal);
+            remember(result.refs);
+            await assertActive();
+            await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { source: 'external', queryLength: query.length, hits: result.hits.map(hit => ({ id: hit.id, version: hit.version, section: hit.section })) });
+            return result.hits;
+          } catch (error) { externalFailed = true; throw error; }
+        }
         const hits = await (this.deps.knowledge ?? knowledgeRuntime.retriever).search(knowledge, query, { audience: 'customer', plan: customer.plan });
         await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
         return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
@@ -129,7 +187,7 @@ export class SupportHarness {
       customer: { name: customer.name, plan: customer.plan },
       business: { name: business.name, currency: business.currency, policy: business.policy, responseStyle: { language: settings.language, tone: settings.tone } },
       payments: await store.payments(customer.id, 10),
-      history: (await this.visibleMessages(customer.businessId, caseId)).slice(-10).map(m => ({ role: m.role, body: m.body })),
+      history: history.map(m => ({ role: m.role, body: m.body })),
       message: body,
       allowedTools: business.policy.enabledTools,
     };
@@ -139,6 +197,7 @@ export class SupportHarness {
 
     const { decision, source, model, classification } = await this.decide(caseId, ctx);
     await assertActive();
+    await assertExternal();
     const sentiment = mergeSentiment(lexicalSentiment(body), decision.sentiment);
     const analysis: Analysis = {
       intent: decision.intent, summary: decision.summary, reasoning: decision.reasoning, sentiment,
@@ -162,7 +221,8 @@ export class SupportHarness {
     const waiting = (await store.proposals(caseId)).some(p => ['pending', 'approved', 'executing'].includes(p.status));
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
+    await assertExternal();
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {

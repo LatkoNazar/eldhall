@@ -140,15 +140,30 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     // audience/plan filters as for a customer (audience=any also shows internal sources to staff).
     operator.get('/knowledge/search', (request, reply) => guard(reply, async () => {
       const { q, k, audience, plan, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), audience: z.enum(['customer', 'any']).default('customer'), plan: z.string().trim().min(1).max(80).optional(), businessId: z.string().uuid().optional() }).strict().parse(request.query);
-      const published = (await store.knowledge(await scope(rest))).filter(source => source.status === 'published');
+      const businessId = await scope(rest);
+      const external = knowledgeRuntime.external;
+      if (external?.hasBusiness(businessId)) {
+        const started = Date.now();
+        try {
+          const result = await external.search({ businessId, plan: plan ?? '' }, q);
+          return { query: q, mode: 'external', embedder: external.describe(businessId)?.embedder ?? 'configured', tookMs: Date.now() - started,
+            hits: result.hits.slice(0, k).map(hit => ({ ...hit, audience: 'customer', score: 0, passages: [{ section: hit.section, text: hit.content, score: 0, lexicalRank: null, vectorRank: null, similarity: null }] })) };
+        } catch { throw new HarnessError(502, 'External knowledge search is unavailable; check the server connector configuration'); }
+      }
+      const published = (await store.knowledge(businessId)).filter(source => source.status === 'published');
       return knowledgeRuntime.retriever.explain(published, q, { k, audience, plan });
     }));
     operator.get('/knowledge/index', (request, reply) => guard(reply, async () => {
-      const sources = await store.knowledge(await scope(request.query));
+      const businessId = await scope(request.query);
+      const external = knowledgeRuntime.external?.describe(businessId);
+      if (external) return { embedder: { id: external.embedder }, vectorStore: 'qdrant', mode: 'external', readOnly: true, connectorId: external.id, collection: external.collection, chunks: null, staleChunks: null, published: null, documents: null, drafts: null, urlImport: false };
+      const sources = await store.knowledge(businessId);
       return { ...await knowledgeRuntime.retriever.status(), mode: 'hybrid', urlImport: knowledgeRuntime.urlAllowlist.length > 0, documents: sources.length, published: sources.filter(s => s.status === 'published').length, drafts: sources.filter(s => s.status === 'draft').length };
     }));
     operator.post('/knowledge/reindex', (request, reply) => guard(reply, async () => {
-      const published = (await store.knowledge(await scope(request.query))).filter(source => source.status === 'published');
+      const businessId = await scope(request.query);
+      if (knowledgeRuntime.external?.hasBusiness(businessId)) throw new HarnessError(409, 'External knowledge is read-only; indexing is managed by the source owner');
+      const published = (await store.knowledge(businessId)).filter(source => source.status === 'published');
       return knowledgeRuntime.retriever.reindex(published);
     }));
     operator.get<{ Params: { id: string } }>('/knowledge/:id/versions', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {

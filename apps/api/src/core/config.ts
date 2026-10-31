@@ -6,6 +6,7 @@ import { isExampleToken } from './auth.js';
 
 export interface Settings {
   environment: 'development' | 'production';
+  databaseUrl: string;
   postgresHost: string;
   postgresPort: number;
   postgresDb: string;
@@ -88,13 +89,30 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
   const provider = value('LLM_PROVIDER', 'rules');
   const supportStore = value('SUPPORT_STORE', 'memory');
   const agentRuntime = value('AGENT_RUNTIME', provider === 'rules' ? 'rules' : 'dsh');
+  const databaseUrl = value('DATABASE_URL', '').trim();
+  if (databaseUrl) {
+    try {
+      const url = new URL(databaseUrl);
+      if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || url.pathname.length < 2 || url.hash
+        || /\s/.test(databaseUrl) || (url.port && (!/^\d+$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535))) throw new Error();
+      // Catch malformed percent-encoding before the driver parses credentials.
+      decodeURIComponent(url.username);
+      decodeURIComponent(url.password);
+      decodeURIComponent(url.hostname);
+      decodeURIComponent(url.pathname);
+    } catch {
+      // Never attach the parsing error: it can contain the credential-bearing URL.
+      throw new Error('DATABASE_URL must be a valid postgres:// or postgresql:// URL with a host and database');
+    }
+  }
   if (environment !== 'development' && environment !== 'production') {
     throw new Error('ENVIRONMENT must be development or production');
   }
   const settings: Settings = {
     environment,
+    databaseUrl,
     postgresHost: value('POSTGRES_HOST', 'postgres'),
-    postgresPort: integer('POSTGRES_PORT', '5432'),
+    postgresPort: databaseUrl ? 5432 : integer('POSTGRES_PORT', '5432'),
     postgresDb: value('POSTGRES_DB', 'app'),
     postgresUser: value('POSTGRES_USER', 'app'),
     postgresPassword: value('POSTGRES_PASSWORD', 'development-only'),
@@ -156,7 +174,8 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(configured!)) throw new Error(`${name} must contain 1..64 letters, digits, hyphens or underscores`);
   }
   if (settings.environment === 'production') {
-    if ([settings.postgresPassword, settings.redisPassword].some(secret => secret.length < 16 || secret === 'development-only')) {
+    const servicePasswords = settings.databaseUrl ? [settings.redisPassword] : [settings.postgresPassword, settings.redisPassword];
+    if (servicePasswords.some(secret => secret.length < 16 || secret === 'development-only')) {
       throw new Error('Production service passwords must contain at least 16 characters');
     }
     if (settings.apiToken.length < 32 || /\s/.test(settings.apiToken) || isExampleToken(settings.apiToken)) throw new Error('Production API_TOKEN must contain at least 32 non-whitespace characters and cannot use a public example or placeholder');

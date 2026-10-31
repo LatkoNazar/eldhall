@@ -99,7 +99,7 @@ export class DshSupportModel implements AgentModel {
           send(200, { payments: ctx.payments.slice(0, Number(limit)) });
         } else if (input.tool === 'search_knowledge') {
           if (typeof input.args.query !== 'string' || input.args.query.length > 500 || !input.args.query.trim()) { send(400, { error: 'Invalid search query' }); return; }
-          const sources = await ctx.searchKnowledge(input.args.query);
+          const sources = await ctx.searchKnowledge(input.args.query, controller.signal);
           await assertActive();
           send(200, { sources: sources.slice(0, 5).map(source => ({ ...source, content: source.content.slice(0, 4000) })) });
         } else if (input.tool === 'submit_decision') {
@@ -134,6 +134,7 @@ export class DshSupportModel implements AgentModel {
       const contextRevision = createHash('sha256').update(JSON.stringify({ tools: ctx.allowedTools, policy: ctx.business.policy, responseStyle: ctx.business.responseStyle,
         classification: ctx.classification ?? null,
         knowledge: ctx.knowledge.map(source => [source.id, source.version]), skills: ctx.skills.map(skill => [skill.id, skill.revision]),
+        ...(ctx.knowledgeSessionKey ? { knowledgeSessionKey: ctx.knowledgeSessionKey } : {}),
         businessTools: ctx.businessTools ?? [] })).digest('hex');
       const profile = await prepareProfile({ homeRoot: this.options.homeRoot, businessId: ctx.businessId,
         conversationId: `${ctx.conversationId}:${contextRevision}${ctx.runtimeAttempt === undefined ? '' : `:run:${ctx.runId}:attempt:${ctx.runtimeAttempt}`}`,

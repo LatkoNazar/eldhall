@@ -83,6 +83,8 @@ jobs:
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
           docker compose --env-file .env.example -f deploy/support.compose.yaml --profile ui config --quiet
           SUPPORT_CONFIG_PATH=../examples/support.config.json docker compose --env-file .env.example -f deploy/support.compose.yaml -f deploy/support.config.compose.yaml --profile ui config --quiet
+          env -u POSTGRES_PASSWORD DATABASE_URL='postgresql://ci_user:synthetic@db.example.invalid:5432/existing_app?sslmode=verify-full' REDIS_PASSWORD=synthetic-redis-password API_TOKEN=synthetic-api-token OPERATOR_TOKEN=synthetic-operator-token docker compose --env-file /dev/null -f deploy/support.external-db.compose.yaml --profile ui config --quiet
+          env -u POSTGRES_PASSWORD DATABASE_URL='postgresql://ci_user:synthetic@db.example.invalid:5432/existing_app?sslmode=verify-full' REDIS_PASSWORD=synthetic-redis-password API_TOKEN=synthetic-api-token OPERATOR_TOKEN=synthetic-operator-token SUPPORT_CONFIG_PATH=../examples/support.config.json docker compose --env-file /dev/null -f deploy/support.external-db.compose.yaml -f deploy/support.config.compose.yaml --profile ui config --quiet
       - name: Build application images
         run: |
           docker build --tag "$APP_IMAGE" apps/api

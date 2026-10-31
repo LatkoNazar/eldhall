@@ -10,6 +10,16 @@ const result = {
     passages: [{ section: 'Політика повернень › Подвійне списання', text: 'Повертаємо пізніше списання.', score: 0.0328, lexicalRank: 1, vectorRank: 1, similarity: 0.49 }] }],
 }
 
+it('shows an external collection as read-only without offering remote reindex or internal access', async () => {
+  const index = { embedder: { id: 'local:existing:384' }, vectorStore: 'qdrant', readOnly: true, collection: 'central', chunks: null, staleChunks: null, published: null, urlImport: false }
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(index), { headers: { 'Content-Type': 'application/json' } })))
+  render(<KnowledgeSearchTest token="op-token" businessId={businessId} />)
+  expect(await screen.findByText('Індекс: Зовнішній Qdrant')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Переіндексувати' })).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Від імені')).toBeDisabled()
+  expect(screen.getByRole('status')).toHaveTextContent('central')
+})
+
 it('asks the operator search route with the business scope and shows ranked passages', async () => {
   const index = { embedder: { id: 'local:hashing-v1:768' }, vectorStore: 'pgvector', chunks: 42, staleChunks: 0, published: 3, urlImport: true }
   const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? index : result), { status: 200, headers: { 'Content-Type': 'application/json' } }))

@@ -1,5 +1,7 @@
 # Knowledge base (v2, unified)
 
+For an existing centralized Qdrant collection, use the read-only `externalKnowledge` connector described in [Existing company data sources](EXTERNAL_DATA.md). It queries the company's corpus directly instead of populating local knowledge rows. The sections below describe the built-in local knowledge mode.
+
 One knowledge-base tool for the whole product. It combines three earlier pieces:
 
 | From | What we kept |

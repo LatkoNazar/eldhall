@@ -8,7 +8,9 @@ API-агент підтримки на TypeScript/Node.js: DeepSeek Harness ви
 
 **AI Insights:** ручний аналіз вибірки діалогів знаходить повторювані проблеми, можливі прогалини KB та суперечності з посиланнями на фактичні повідомлення. Результат — пропозиція для перевірки; оператор може створити [чернетку KB](docs/insights.md), а публікація залишається окремою дією.
 
-**Межі:** платіжний провайдер симульований (`SIM-RF-*`), реальні гроші не рухаються. Пошук KB — лексичний; staff auth — один серверний bearer, без OAuth, запрошень і повного RBAC. Ліцензію ще не обрано. Документи з пропозиціями нижче не є списком реалізованих можливостей.
+**Зовнішні дані:** [підключення до централізованої Qdrant](docs/EXTERNAL_DATA.md) через конфігурацію без імпорту корпусу; зовнішня PostgreSQL через `DATABASE_URL`; інші бізнесові БД через налаштовані MCP-конектори. Qdrant працює лише на читання з явною embedding-моделлю, колекцією та фільтрами доступу.
+
+**Межі:** платіжний провайдер симульований (`SIM-RF-*`), реальні гроші не рухаються. Локальний KB використовує гібридний пошук; staff auth — один серверний bearer, без OAuth, запрошень і повного RBAC. Ліцензію ще не обрано. Документи з пропозиціями нижче не є списком реалізованих можливостей.
 
 ## Швидкий старт: native API + worker
 
@@ -48,6 +50,8 @@ API: `http://localhost:8000`; readiness: `/health/ready`. Створи бізн�
 Матеріали: [поточна архітектура](docs/ARCHITECTURE.md) · [архітектурна пропозиція](docs/architecture-review.md) · [PRD і тест-план](docs/PRD.md) · [результати перевірок](docs/STATUS.md) · [архів командних промптів](docs/TEAM_PROMPTS.md) · [сценарій демо](docs/DEMO_SCRIPT.md).
 
 Окремий support-стек: `docker compose --env-file .env -f deploy/support.compose.yaml up -d --build --wait`; додай `--profile ui` перед `up`, якщо потрібний dashboard. Production secrets і приватні loopback-порти описані в [інструкції](docs/implementation.md#self-host-compose). Решта README зберігає інструкції базового шаблону, landing та Umami; для support MVP користуйся розділом вище й поточною інструкцією.
+
+**Наявна PostgreSQL:** задай приватний `DATABASE_URL='postgresql://user:encoded_password@db.example.com:5432/existing_app?sslmode=verify-full'`. URL має пріоритет над `POSTGRES_*` для API, worker і міграцій. Для Docker без локального PostgreSQL використовуй `docker compose --env-file .env.support -f deploy/support.external-db.compose.yaml --profile ui up -d --build --wait`. У `.env.support` потрібні URL, Redis password, API/operator tokens та ключ моделі; окремий `POSTGRES_PASSWORD` цьому стеку не потрібний. Сервіс записує власні таблиці у вибрану БД; назви `support_*`, `public.jobs` та `public.alembic_version` мають бути доступні або сумісні. [Підключення, TLS, права й зовнішні резервні копії](docs/implementation.md#existing-postgresql-database-by-url).
 
 ---
 

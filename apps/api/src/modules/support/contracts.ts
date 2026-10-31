@@ -1,4 +1,5 @@
 import type { ClassificationConfig, TicketClassification } from '../agent/classification.js';
+import type { ExternalKnowledgeRef } from '../knowledge/qdrant.js';
 
 // Shared support contracts. Owner: WS1. Change only through the integration owner;
 // apps/frontend/src/lib/api.ts mirrors these types.
@@ -75,7 +76,7 @@ export interface SupportSettings {
   classification?: ClassificationConfig | null;
 }
 
-export interface Message { id: string; caseId: string; role: MessageRole; body: string; createdAt: string; sourceRefs?: { id: string; version: number }[] }
+export interface Message { id: string; caseId: string; role: MessageRole; body: string; createdAt: string; sourceRefs?: { id: string; version: number }[]; externalSourceRefs?: ExternalKnowledgeRef[] }
 
 export interface PolicyCheck { name: string; passed: boolean; detail: string }
 export interface PolicyResult { allowed: boolean; requiresApproval: boolean; checks: PolicyCheck[] }

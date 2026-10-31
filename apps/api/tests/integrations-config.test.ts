@@ -11,7 +11,7 @@ import { MemorySupportStore } from '../src/modules/support/store.js';
 const example = async () => supportConfigSchema.parse(JSON.parse(await readFile(new URL('../../../examples/support.config.json', import.meta.url), 'utf8')) as unknown);
 
 test('absent config is headless/empty; example mounts reviewed content idempotently without resetting operator guards', async () => {
-  assert.deepEqual(await loadSupportConfig(), { version: 1, businesses: [], knowledge: [], skills: [], classifications: [], integrations: [] });
+  assert.deepEqual(await loadSupportConfig(), { version: 1, businesses: [], knowledge: [], skills: [], classifications: [], integrations: [], externalKnowledge: [] });
   const config = await example();
   config.integrations[0]!.tools[0]!.name = 'orders.get-status';
   assert.equal(supportConfigSchema.safeParse(config).success, true);

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "businesses": [{
+    "id": "10000000-0000-4000-8000-000000000001",
+    "slug": "example-store",
+    "name": "Example Store",
+    "currency": "UAH",
+    "policy": { "refundLimitCents": 50000, "duplicateWindowMinutes": 10, "enabledTools": ["lookup_payments", "refund_payment", "escalate_to_human"] }
+  }],
+  "externalKnowledge": [{
+    "id": "company-help",
+    "businessId": "10000000-0000-4000-8000-000000000001",
+    "type": "qdrant",
+    "url": "https://qdrant.example.com:6333",
+    "collection": "company_knowledge",
+    "credentialEnv": "QDRANT_API_KEY",
+    "vectorName": "text",
+    "embedding": { "provider": "google", "model": "gemini-embedding-001", "dimensions": 768, "credentialEnv": "GEMINI_API_KEY" },
+    "fields": { "text": "content", "title": "metadata.title", "section": "metadata.section", "version": "metadata.version" },
+    "access": {
+      "tenant": { "field": "metadata.company_id", "value": "example-company" },
+      "published": { "field": "metadata.status", "value": "published" },
+      "customerVisible": { "field": "metadata.audience", "value": "customer" },
+      "planField": "metadata.plans",
+      "publicPlanValue": "all"
+    },
+    "limit": 5,
+    "timeoutMs": 5000
+  }]
+}
