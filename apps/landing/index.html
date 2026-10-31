@@ -3,46 +3,254 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#cf2639" />
-    <meta name="description" content="Eldhall. Від іскри до першої версії. Відкрийте застосунок і стежте за його розвитком." />
-    <title>Eldhall — від іскри до першої версії</title>
+    <meta name="theme-color" content="#d7263d" />
+    <meta name="description" content="Eldhall Support Copilot — AI-підтримка, яка розуміє звернення, перевіряє правила бізнесу й виконує дозволені дії після підтвердження оператора." />
+    <title>Eldhall — AI Support Copilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
   </head>
   <body>
+    <svg width="0" height="0" class="sprite" aria-hidden="true">
+      <symbol id="i-flame" viewBox="0 0 32 40"><path d="M19 1C21 12 7 13 12 23c-5-1-6-5-6-5C-6 34 9 43 20 38 34 32 34 20 25 12c2 10-4 13-6 11C26 15 19 1 19 1Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 3v4M21 5h-4"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+      <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></symbol>
+    </svg>
+
     <a class="skip-link" href="#main">Перейти до вмісту</a>
-    <div class="page-shell">
-      <header class="site-header">
-        <a class="brand" href="/" aria-label="Eldhall — головна">
-          <svg class="brand-flame" viewBox="0 0 32 40" aria-hidden="true"><path d="M19 1C21 12 7 13 12 23c-5-1-6-5-6-5C-6 34 9 43 20 38 34 32 34 20 25 12c2 10-4 13-6 11C26 15 19 1 19 1Z" fill="currentColor"/></svg>
-          eldhall<span class="brand-dot">.</span>
+
+    <header class="site-header" data-header>
+      <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="Eldhall — на початок сторінки">
+          <svg class="brand-flame" aria-hidden="true"><use href="#i-flame" /></svg>
+          eldhall
         </a>
-        <a class="header-link" data-app-link="header">Відкрити застосунок <span aria-hidden="true">↗</span></a>
-      </header>
-      <main id="main">
-        <section class="hero" aria-labelledby="hero-title">
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-menu-toggle>
+          <svg class="i" aria-hidden="true"><use href="#i-menu" /></svg><span class="visually-hidden">Меню</span>
+        </button>
+        <nav class="site-nav" id="site-nav" aria-label="Розділи сторінки" data-nav>
+          <a href="#how">Як це працює</a>
+          <a href="#features">Можливості</a>
+          <a href="#scenario">Сценарій</a>
+          <a href="#trust">Безпека</a>
+          <a class="btn btn-primary nav-cta" href="#scenario" data-app-link="header">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="container hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Eldhall / перша версія</p>
-            <h1 id="hero-title">Усе починається<br />з <span>іскри.</span></h1>
-            <p class="hero-description">Ідеї набувають форми крок за кроком.<br class="desktop-break" /> Ми починаємо з основи — і будуємо далі.</p>
-            <a class="button" data-app-link="hero">До застосунку <span aria-hidden="true">↗</span></a>
-            <p class="release-note">Зараз доступна початкова версія.</p>
+            <p class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> AI Support Copilot · MVP</p>
+            <h1 id="hero-title">Підтримка, яка не лише відповідає, а&nbsp;<em>вирішує</em>.</h1>
+            <p class="lead">Eldhall розуміє звернення і настрій клієнта, знаходить потрібні дані, перевіряє правила бізнесу та пропонує конкретну дію. Ризиковані операції виконуються лише після підтвердження оператора.</p>
+            <div class="cta-row">
+              <a class="btn btn-primary btn-lg" href="#scenario" data-app-link="hero">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+              <a class="btn btn-ghost btn-lg" href="#scenario">Подивитися сценарій</a>
+            </div>
+            <ul class="proof" aria-label="Ключові принципи">
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg>Policy guardrails</li>
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg>Human-in-the-loop</li>
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg>Audit trail</li>
+            </ul>
           </div>
-          <div class="spark-art" aria-hidden="true">
-            <div class="art-grid"></div>
-            <div class="art-orbit orbit-one"></div>
-            <div class="art-orbit orbit-two"></div>
-            <svg class="hero-flame" viewBox="0 0 200 250"><defs><linearGradient id="ember" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ed3b50"/><stop offset="1" stop-color="#bb1830"/></linearGradient></defs><path d="M120 6C134 75 45 81 76 143c-31-6-38-31-38-31C-38 213 57 270 126 238c89-38 89-114 32-164 13 63-25 82-38 69C165 93 120 6 120 6Z" fill="url(#ember)"/></svg>
-            <span class="art-caption">A small spark.<br />A new beginning.</span>
-            <span class="art-coordinate">01 / ELDHALL</span>
+
+          <figure class="hero-visual">
+            <div class="console" aria-hidden="true">
+              <div class="console-bar">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="console-title">Eldhall · Operator console</span>
+                <span class="tag tag-grey">demo data</span>
+              </div>
+              <div class="console-body">
+                <div class="case-head">
+                  <div>
+                    <p class="case-id">Case · NovaPay Fitness</p>
+                    <p class="case-title">Подвійне списання за жовтень</p>
+                  </div>
+                  <span class="tag tag-accent"><span class="dot"></span>P1</span>
+                </div>
+                <div class="chips">
+                  <span class="tag tag-warn">frustrated</span>
+                  <span class="tag tag-info">duplicate_charge</span>
+                  <span class="tag tag-grey">lookup_payments → submit_decision</span>
+                </div>
+                <div class="bubble bubble-cust">Ви списали з мене двічі за жовтень!!! Негайно поверніть</div>
+                <div class="policy">
+                  <p class="policy-title"><svg class="i"><use href="#i-shield" /></svg>Policy check</p>
+                  <ul>
+                    <li><svg class="i ok"><use href="#i-check" /></svg>Платіж належить клієнту</li>
+                    <li><svg class="i ok"><use href="#i-check" /></svg>Ідентичне списання за 40 с</li>
+                    <li><svg class="i ok"><use href="#i-check" /></svg>У межах ліміту повернення</li>
+                  </ul>
+                </div>
+                <div class="action">
+                  <div>
+                    <p class="action-label">Proposed action · high risk</p>
+                    <p class="action-title">refund_payment · 499.00 UAH</p>
+                  </div>
+                  <span class="fake-btn">Approve</span>
+                </div>
+              </div>
+            </div>
+            <div class="float-chip" aria-hidden="true">
+              <span class="float-ic"><svg class="i"><use href="#i-check" /></svg></span>
+              <span><b>Повернення підтверджено</b><small>SIM-RF-… · симульований провайдер</small></span>
+            </div>
+            <figcaption class="visually-hidden">Приклад консолі оператора з демонстраційними даними: кейс подвійного списання з пріоритетом P1, перевіркою правил і запропонованим поверненням 499 гривень, яке очікує підтвердження.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="contrast" aria-labelledby="contrast-title">
+        <div class="container">
+          <h2 id="contrast-title" class="visually-hidden">Чим Eldhall відрізняється від чатбота</h2>
+          <div class="contrast-grid reveal">
+            <div class="contrast-col">
+              <p class="contrast-kicker">Звичайний чатбот</p>
+              <ul>
+                <li><svg class="i" aria-hidden="true"><use href="#i-x" /></svg>Відповідає шаблоном і відсилає до форми</li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-x" /></svg>Не бачить платежів і правил компанії</li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-x" /></svg>Або нічого не робить, або діє без контролю</li>
+              </ul>
+            </div>
+            <div class="contrast-col contrast-ours">
+              <p class="contrast-kicker"><svg class="i flame-ic" aria-hidden="true"><use href="#i-flame" /></svg>Eldhall Copilot</p>
+              <ul>
+                <li><svg class="i" aria-hidden="true"><use href="#i-check" /></svg>Знаходить дані клієнта через дозволені інструменти</li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-check" /></svg>Перевіряє бізнес-правила перед будь-якою дією</li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-check" /></svg>Пропонує дію, людина підтверджує, backend виконує</li>
+              </ul>
+            </div>
           </div>
-        </section>
-        <section class="foundation" aria-labelledby="foundation-title">
-          <div class="section-heading"><p class="eyebrow">Іскра → рух → результат</p><h2 id="foundation-title">Місце для наступного кроку.</h2></div>
-          <p>Це початок Eldhall. Застосунок уже має технічну основу; його можливості з’являтимуться разом із розвитком продукту.</p>
-          <a class="text-link" data-app-link="footer">Переглянути поточну версію <span aria-hidden="true">↗</span></a>
-        </section>
-      </main>
-      <footer class="site-footer"><span>© <span data-year>2026</span> Eldhall</span><span>Від іскри — до дії.</span><a href="https://eldhall.com">eldhall.com <span aria-hidden="true">↗</span></a></footer>
-    </div>
+        </div>
+      </section>
+
+      <section class="section" id="how" aria-labelledby="how-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Як це працює</p>
+            <h2 id="how-title">Від повідомлення до вирішення — п'ять прозорих кроків.</h2>
+          </div>
+          <ol class="steps">
+            <li class="step reveal"><span class="step-n">01</span><svg class="i step-i" aria-hidden="true"><use href="#i-msg" /></svg><h3>Звернення</h3><p>Клієнт пише в чат. Хто це — визначає сесія, а не текст повідомлення.</p></li>
+            <li class="step reveal"><span class="step-n">02</span><svg class="i step-i" aria-hidden="true"><use href="#i-spark" /></svg><h3>AI-аналіз</h3><p>Намір, настрій і терміновість. AI сам викликає інструмент і знаходить платежі.</p></li>
+            <li class="step reveal"><span class="step-n">03</span><svg class="i step-i" aria-hidden="true"><use href="#i-shield" /></svg><h3>Перевірка правил</h3><p>Policy engine перевіряє належність платежу, дубль, ліміт і статус.</p></li>
+            <li class="step reveal"><span class="step-n">04</span><svg class="i step-i" aria-hidden="true"><use href="#i-user" /></svg><h3>Дія або підтвердження</h3><p>Безпечні дії виконуються одразу, ризиковані — чекають на оператора.</p></li>
+            <li class="step reveal"><span class="step-n">05</span><svg class="i step-i" aria-hidden="true"><use href="#i-check" /></svg><h3>Вирішення</h3><p>Backend змінює стан, клієнт отримує відповідь, кожен крок записано в журнал.</p></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="features" aria-labelledby="features-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Можливості</p>
+            <h2 id="features-title">Усе, щоб підтримка діяла швидко — і безпечно.</h2>
+          </div>
+          <div class="features">
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-spark" /></svg></span><h3 lang="en">Context-aware AI</h3><p>Контекст збирається на сервері: профіль, останні платежі, політика бізнесу та історія розмови.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-bolt" /></svg></span><h3 lang="en">Action Execution</h3><p>Дії — лише через явний реєстр інструментів із типізованими аргументами. Жодного довільного доступу до бази.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-pulse" /></svg></span><h3 lang="en">Sentiment Detection</h3><p>Роздратування, грубість і терміновість змінюють пріоритет, тон і ескалацію, але ніколи не авторизують гроші.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg></span><h3 lang="en">Human-in-the-loop</h3><p>Оператор бачить аналіз, сигнали й перевірки та підтверджує саме ту операцію, яку запропонував AI.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg></span><h3 lang="en">Policy Guardrails</h3><p>Правила кожного бізнесу задаються окремо: ліміти, вікно дубля, дозволені інструменти.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg></span><h3 lang="en">Case Tracking &amp; Audit</h3><p>Кейс, пропозиції, рішення оператора, запуски моделі й результат дії зберігаються в журналі.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="scenario" aria-labelledby="scenario-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Сценарій з MVP</p>
+            <h2 id="scenario-title">Подвійне списання: що відбувається всередині.</h2>
+            <p class="section-sub">Інтерактивна демонстрація на демонстраційних даних. Пройдіть кроки або перемкніть сценарій.</p>
+          </div>
+
+          <div class="scenario reveal" data-scenario>
+            <div class="scenario-tabs" role="tablist" aria-label="Варіант сценарію">
+              <button class="tab" type="button" role="tab" id="tab-refund" aria-selected="true" aria-controls="scenario-panel" data-scenario-tab="refund">Повернення в межах правил</button>
+              <button class="tab" type="button" role="tab" id="tab-limit" aria-selected="false" aria-controls="scenario-panel" tabindex="-1" data-scenario-tab="limit">Перевищено ліміт</button>
+            </div>
+
+            <div class="scenario-panel" id="scenario-panel" role="tabpanel" aria-labelledby="tab-refund" data-scenario-panel>
+              <ol class="scenario-progress" data-scenario-progress aria-label="Кроки сценарію"></ol>
+              <div class="scenario-stage">
+                <div class="phone">
+                  <div class="phone-head"><span class="phone-logo"><svg class="i" aria-hidden="true"><use href="#i-flame" /></svg></span><span><b data-scenario-business>NovaPay Fitness</b><small>Підтримка · AI Copilot</small></span></div>
+                  <div class="phone-msgs" data-scenario-chat role="log" aria-label="Чат клієнта"></div>
+                </div>
+                <div class="state-card">
+                  <div aria-live="polite" class="state-live">
+                    <p class="state-kicker" data-scenario-kicker></p>
+                    <h3 class="state-title" data-scenario-title></h3>
+                    <p class="state-text" data-scenario-text></p>
+                    <div class="state-detail" data-scenario-detail></div>
+                  </div>
+                  <div class="scenario-controls">
+                    <button class="btn btn-ghost" type="button" data-scenario-prev>Назад</button>
+                    <button class="btn btn-primary" type="button" data-scenario-next>Далі</button>
+                  </div>
+                </div>
+              </div>
+              <p class="disclaimer"><svg class="i" aria-hidden="true"><use href="#i-lock" /></svg>Демонстраційні дані. У MVP повернення виконує симульований платіжний провайдер: змінюється лише стан демо-середовища, реальні кошти не рухаються.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="trust" aria-labelledby="trust-title">
+        <div class="container trust-grid">
+          <div class="section-head reveal">
+            <p class="eyebrow">Безпека за замовчуванням</p>
+            <h2 id="trust-title">AI пропонує. Правила перевіряють. Людина вирішує.</h2>
+            <p class="section-sub">Модель не пише в базу даних і не може сама виконати фінансову операцію.</p>
+          </div>
+          <ul class="trust-list">
+            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-lock" /></svg><div><h3>Підтвердження прив'язане до операції</h3><p>Оператор схвалює конкретний платіж і суму. Змінилась операція — схвалення недійсне.</p></div></li>
+            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-repeat" /></svg><div><h3>Без повторного виконання</h3><p>Друге натискання не створить другого повернення: схвалення можна використати лише раз, а на один платіж — лише одне повернення.</p></div></li>
+            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-flag" /></svg><div><h3>Чесні результати</h3><p>Якщо провайдер не підтвердив дію, клієнт дізнається саме це — без вигаданого «готово».</p></div></li>
+            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-card" /></svg><div><h3>Особа — із сесії</h3><p>Номер платежу в тексті повідомлення не відкриває доступ до чужих даних.</p></div></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="final" aria-labelledby="final-title">
+        <div class="container final-inner reveal">
+          <svg class="final-flame" aria-hidden="true"><use href="#i-flame" /></svg>
+          <h2 id="final-title">Подивіться, як Eldhall вирішує звернення від початку до кінця.</h2>
+          <p>Відкрийте демо: напишіть від імені клієнта і підтвердіть дію як оператор.</p>
+          <div class="cta-row cta-center">
+            <a class="btn btn-primary btn-lg" href="#scenario" data-app-link="footer">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+            <a class="btn btn-ghost btn-lg" href="#scenario">Пройти сценарій тут</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <a class="brand brand-sm" href="#top"><svg class="brand-flame" aria-hidden="true"><use href="#i-flame" /></svg>eldhall</a>
+        <nav aria-label="Нижня навігація" class="footer-nav">
+          <a href="#how">Як це працює</a><a href="#features">Можливості</a><a href="#scenario">Сценарій</a><a href="#trust">Безпека</a>
+        </nav>
+        <p class="footer-note">© <span data-year>2026</span> Eldhall · MVP для PolyTech Code Fest × SKELAR. Усі дані на сторінці демонстраційні.</p>
+      </div>
+    </footer>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

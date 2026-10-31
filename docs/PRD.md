@@ -16,7 +16,7 @@
 | Honesty | provider failure → `failed`, no refund row, honest reply; success claims without state replaced | WS4 | 9, guard test |
 | Sentiment & escalation | abusive → P1 + escalation; frustrated ≠ abusive; signals shown in UI | WS4 | 10 |
 | Unsupported / missing info | cancellation → escalation; no duplicate → clarifying question | WS4 | 2, 3 |
-| Customer chat | persona picker, phone frame, live updates | WS2 | frontend RTL |
+| Customer chat | responsive (mobile-first chat; desktop centred), persona picker, live updates | WS2 | frontend RTL + 375/768/1440 check |
 | Operator console | queue by priority, analysis, policy checklist, approve/reject, audit, metrics | WS2 | frontend RTL |
 | Persistence | Postgres store, atomic claim, UNIQUE refunds, reset | WS3 | postgres-store.test |
 | E2E smoke + deploy | `support-smoke.mjs` passes locally and on the Oracle server | WS3 | smoke |

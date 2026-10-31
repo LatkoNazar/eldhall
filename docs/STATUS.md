@@ -13,7 +13,14 @@ Ownership and what not to reimplement: `docs/TEAM_PROMPTS.md`.
 | Frontend chat + console | ⏳ WS2 (current UI = starter health page) | – |
 | E2E smoke script | ⏳ WS3 | – |
 | Oracle deploy (ARM64) | ⏳ WS3 | – |
-| Video + slides | ⏳ WS1, script in `docs/DEMO_SCRIPT.md` | – |
+| Landing page (`apps/landing`) | ✅ merged (`6d78238`) | lint/typecheck/build, frontend 27/27, browser 375/768/1440 |
+| Video + slides | ⏳ WS1 after E2E gate — `docs/DEMO_VIDEO.md`, slides in `docs/DEMO_SCRIPT.md` | – |
+| Product analytics (PostHog) | 📝 plan only — `docs/ANALYTICS_PLAN.md`, after MVP stabilises | – |
+
+## Team changes (latest first)
+- **WS2:** no iPhone frame. Fully responsive app: desktop-first operator console, mobile-first customer chat; verify 375/768/1440. Updated prompt in `docs/TEAM_PROMPTS.md`.
+- **All:** no new analytics/tracking calls until the analytics phase (`docs/ANALYTICS_PLAN.md`); never log message text or payment data.
+- **WS3/WS4:** the video is recorded only after `support-smoke.mjs` passes on integration and WS4 reports the golden path 3/3 with the chosen LLM; send both results to WS1.
 
 ## Open decisions (team)
 - License (proposal: MIT) — approve before making the repo public.
