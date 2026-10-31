@@ -1,6 +1,6 @@
 # Pitch deliverables
 
-> **Historical draft.** The PPTX/PDF and generator were supplied at the earlier team checkpoint and have not been regenerated or verified against the current implementation. They retain team/video/evaluation placeholders and may depict the old one-click flow. Current behavior is **Approve (consent only) → separate Execute → simulated refund**. Conversation/tool work uses DSH with Gemini; optional ticket classification uses the separate OpenRouter Decisions model. Use [current status](../../docs/STATUS.md), [architecture](../../docs/ARCHITECTURE.md), and [demo script](../../docs/DEMO_SCRIPT.md) as the source of truth. Do not present draft metrics, license, video or deployment claims as measured results.
+> **Final deck (31.10, main acd7aaf).** Reflects the two-step flow **Approve (consent only) → separate Execute → simulated refund**, the current architecture (Fastify API + BullMQ worker, DSH + Gemini, PostgreSQL/Redis) and only results recorded in [docs/STATUS.md](../../docs/STATUS.md). Slide 7 embeds the real 45 s demo `demos/mvp/pitch/exports/eldhall-pitch-uk.mp4`, recorded in the documented offline rules mode (no LLM) and labelled as such. The PDF shows the video's poster frame only.
 
 | File | What |
 |---|---|
