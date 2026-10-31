@@ -13,7 +13,7 @@ window.buildRootTimeline = (config) => {
   tl.fromTo('#intro-kicker', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' }, 0.45)
   tl.fromTo('#intro-title .word', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out', stagger: 0.06 }, 0.6)
   tl.fromTo('#intro-sub', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 1.55)
-  tl.to('#intro-card', { opacity: 0, scale: 1.03, duration: 0.45, ease: 'power2.in' }, intro.duration - 0.85)
+  tl.to('#intro-card', { opacity: 0, scale: 1.03, duration: 0.45, ease: 'power2.in' }, intro.duration - 0.45)
 
   // Desktop + window entrance
   tl.fromTo('#desktop', { opacity: 0 }, { opacity: 1, duration: 0.6, ease: 'none' }, intro.duration - 0.5)
@@ -47,7 +47,7 @@ window.buildRootTimeline = (config) => {
     tl.fromTo(`#${s.id}-content`, { opacity: 0 }, { opacity: 1, duration: i === 0 ? 0.01 : overlap, ease: 'none' }, t0)
     tl.fromTo(`#${s.id}-url`, { opacity: 0 }, { opacity: 1, duration: 0.25 }, t0)
     tl.to(`#${s.id}-url`, { opacity: 0, duration: 0.2 }, t0 + s.duration - (last ? 0.2 : 0))
-    tl.fromTo(`#${s.id}-caption`, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out' }, t0 + 0.35)
+    tl.fromTo(`#${s.id}-caption`, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.45, ease: 'power3.out' }, t0 + (s.captionAt ?? 0.35))
     tl.to(`#${s.id}-caption`, { opacity: 0, y: -8, duration: 0.3, ease: 'power2.in' }, t0 + s.duration - 0.45)
 
     const foci = s.focus || []

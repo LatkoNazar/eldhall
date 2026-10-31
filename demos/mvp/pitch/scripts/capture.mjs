@@ -113,7 +113,12 @@ const button = (s, re) => s.page.getByRole('button', { name: rx(re) }).first()
 const caseItem = name => op.page.locator(O.caseItemCss, { hasText: rx(name) }).first()
 const mark = (id, entry) => { geometry[id] ??= { focus: [], highlights: [] }; for (const k of ['focus', 'highlights']) if (entry[k]) geometry[id][k].push(...entry[k]) }
 const since = id => op.t() - seg[id].start
-const finish = (id, s) => { seg[id].len = Math.max(sceneDur(id), s.t() - seg[id].start + 0.4) }
+// Hold genuinely until the scene (plus its crossfade tail) is over, so no clip ever contains the next action.
+const finish = async (id, s) => {
+  const elapsed = s.t() - seg[id].start
+  seg[id].len = Math.max(sceneDur(id), elapsed + 0.4)
+  await sleep((seg[id].len + OVERLAP + 0.25 - elapsed) * 1000)
+}
 const inbox = () => op.page.getByRole('heading', { name: /Вхідні звернення/ }).waitFor()
 
 // Operator signs in before any operator segment starts (never on camera).
@@ -135,7 +140,7 @@ const replyAt = chat.t() - seg.request.start
 await sleep(1600)
 const replyRect = await chat.rect(reply)
 mark('request', { focus: [{ at: Math.max(0.5, replyAt - 1.2), to: chat.t() - seg.request.start - 0.2, rect: replyRect, scale: 1.25 }], highlights: [{ at: replyAt + 0.15, dur: 1.4, rect: replyRect }] })
-finish('request', chat)
+await finish('request', chat)
 
 // triage: inbox, open the P1 case, show the copilot summary and signals
 await op.page.reload(); await inbox()
@@ -147,7 +152,7 @@ await text(op, O.summary).waitFor()
 await op.click(op.page.locator('summary', { hasText: rx(O.signals) }).first()); await sleep(900)
 const insp = await op.rect(op.page.locator('aside.inspector'))
 mark('triage', { focus: [{ at: since('triage') - 1.4, to: since('triage') + 0.3, rect: [insp[0], insp[1], insp[2], Math.min(insp[3], 520)], scale: 1.6 }] })
-finish('triage', op)
+await finish('triage', op)
 
 // policy: the proposed refund with its checklist
 seg.policy = { s: op, start: op.t() }
@@ -157,7 +162,7 @@ const checks = card.locator(O.checksCss).first()
 await op.point(checks, false); await sleep(2600)
 const cRect = await op.rect(card), kRect = await op.rect(checks)
 mark('policy', { focus: [{ at: 0.3, to: since('policy') + 0.3, rect: cRect, scale: 1.7 }], highlights: [{ at: 0.9, dur: 2.2, rect: kRect }] })
-finish('policy', op)
+await finish('policy', op)
 
 // approve: consent only, no money moves
 seg.approve = { s: op, start: op.t() }
@@ -167,7 +172,7 @@ await op.click(approve)
 const clickA = since('approve')
 const note = text(op, O.approvedNote); await note.waitFor({ timeout: 15000 }); await sleep(1700)
 mark('approve', { focus: [{ at: 0.2, to: since('approve') - 0.1, rect: await op.rect(card), scale: 1.7 }], highlights: [{ at: Math.max(0.2, clickA - 0.8), dur: 1.0, rect: aRect, kind: 'action' }, { at: clickA + 0.5, dur: 1.6, rect: await op.rect(note) }] })
-finish('approve', op)
+await finish('approve', op)
 
 // execute: separate server-side execution
 seg.execute = { s: op, start: op.t() }
@@ -178,15 +183,16 @@ const clickE = since('execute')
 const ref = text(op, O.refundRef); await ref.waitFor({ timeout: 15000 }); await ref.scrollIntoViewIfNeeded(); await sleep(1800)
 const refRect = await op.rect(ref)
 mark('execute', { focus: [{ at: 0.2, to: since('execute') - 0.1, rect: refRect, scale: 1.6 }], highlights: [{ at: Math.max(0.2, clickE - 0.8), dur: 1.0, rect: eRect, kind: 'action' }, { at: since('execute') - 1.6, dur: 1.4, rect: refRect }] })
-finish('execute', op)
+await finish('execute', op)
 
 // result: the customer sees the confirmation
 seg.result = { s: chat, start: chat.t() }
 const conf = text(chat, C.confirmation); await conf.waitFor({ timeout: 20000 })
 await chat.point(conf, false); await sleep(2200)
 const confRect = await chat.rect(conf)
+geometry.result = { focus: [], highlights: [], captionAt: 0.7 }
 mark('result', { focus: [{ at: 0.4, to: chat.t() - seg.result.start - 0.2, rect: confRect, scale: 1.3 }], highlights: [{ at: 0.9, dur: 2.2, rect: confRect }] })
-finish('result', chat)
+await finish('result', chat)
 
 // safety: Ivan writes through the real customer API (off camera); operator opens the case
 const ivanCase = await api('POST', '/api/v1/chat/cases', null, { 'x-customer-session': 'demo-ivan' })
@@ -198,8 +204,9 @@ await op.click(ivan)
 const denied = text(op, O.deniedCheck); await denied.waitFor({ timeout: 15000 }); await denied.scrollIntoViewIfNeeded()
 await op.point(denied, false); await sleep(2400)
 const dRect = await op.rect(denied)
+geometry.safety = { focus: [], highlights: [], captionAt: Math.max(0.35, since('safety') - 2.7) }
 mark('safety', { focus: [{ at: since('safety') - 2.6, to: since('safety') - 0.1, rect: dRect, scale: 1.6 }], highlights: [{ at: since('safety') - 2.3, dur: 2.0, rect: dRect, kind: 'deny' }] })
-finish('safety', op)
+await finish('safety', op)
 
 // Verify the real backend state before writing any slot.
 const cases = await api('GET', '/api/v1/cases')
