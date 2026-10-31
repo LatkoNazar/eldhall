@@ -13,7 +13,7 @@ AI support copilot: customer chat → agent harness (intent, sentiment, tool cal
 ## Commands
 ```bash
 cd apps/api && npm ci && npm test && npm run lint && npm run typecheck
-cd apps/api && OPERATOR_TOKEN=development-operator-token npm run dev     # :8000, in-memory store, no Docker needed
+cd apps/api && npm run dev     # :8000, in-memory store, no Docker; root .env sets OPERATOR_TOKEN
 cd apps/frontend && npm ci && npm run dev                                 # :5173, proxies /api to :8000
 cd apps/frontend && npm run lint && npm run typecheck && npm test && npm run build
 cd apps/api && npx tsx scripts/llm-spike.ts                               # real LLM tool-call check (keys in root .env)

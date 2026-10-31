@@ -1,7 +1,7 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
-import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
 import { decisionSchema, type AgentContext, type AgentModel, type ModelOutput } from './model.js';
 import { TOOLS } from './tools.js';
 
@@ -25,10 +25,12 @@ export class AiSdkModel implements AgentModel {
   readonly model: string;
   private readonly languageModel: LanguageModel;
 
-  constructor(provider: Provider, model?: string) {
+  constructor(provider: Provider, model?: string, apiKey?: string) {
     this.provider = provider;
     this.model = model || DEFAULT_MODELS[provider];
-    this.languageModel = { openai, google, anthropic }[provider](this.model);
+    const key = apiKey || undefined;  // undefined → provider reads its standard env var
+    const factories = { openai: () => createOpenAI({ apiKey: key }), google: () => createGoogleGenerativeAI({ apiKey: key }), anthropic: () => createAnthropic({ apiKey: key }) };
+    this.languageModel = factories[provider]()(this.model);
   }
 
   async decide(ctx: AgentContext, signal: AbortSignal): Promise<ModelOutput> {

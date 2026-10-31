@@ -9,7 +9,7 @@ AI-копілот підтримки, який не лише відповіда�
 ```bash
 cp .env.example .env
 cd apps/api && npm ci && npm test
-OPERATOR_TOKEN=development-operator-token npm run dev     # API :8000, in-memory store
+npm run dev                                                # API :8000, in-memory store; .env sets OPERATOR_TOKEN
 cd apps/frontend && npm ci && npm run dev                  # http://localhost:5173/chat і /operator
 ```
 LLM: у `.env` задай `LLM_PROVIDER=openai|google|anthropic` і відповідний ключ; без ключа працює детермінований `rules`-режим (позначається як fallback).

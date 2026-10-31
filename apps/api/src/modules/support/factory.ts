@@ -21,7 +21,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
     await store.reset(seedData());
   }
   const fallback = new RulesModel();
-  const model = settings.llmProvider === 'rules' ? fallback : new AiSdkModel(settings.llmProvider, settings.llmModel);
+  const model = settings.llmProvider === 'rules' ? fallback : new AiSdkModel(settings.llmProvider, settings.llmModel, settings.llmApiKey);
   const harness = new SupportHarness({ store, model, fallback, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs });
   return { harness, store };
 }

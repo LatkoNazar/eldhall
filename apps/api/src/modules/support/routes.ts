@@ -31,7 +31,8 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     chat.get<{ Params: { id: string } }>('/cases/:id', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
       const { supportCase, messages } = await harness.customerCase(session(request.headers), request.params.id);
-      return { id: supportCase.id, status: supportCase.status, messages };
+      const business = await store.business(supportCase.businessId);
+      return { id: supportCase.id, status: supportCase.status, businessName: business?.name ?? '', messages };
     }));
     chat.post<{ Params: { id: string }; Body: { body: string } }>('/cases/:id/messages', {
       schema: { params: uuidParams, body: { type: 'object', additionalProperties: false, required: ['body'], properties: { body: { type: 'string', minLength: 1, maxLength: 2000 } } } },
@@ -40,8 +41,10 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       return { caseId: result.case.id, status: result.case.status, reply: result.reply };
     }));
     if (demoResetEnabled) {
-      chat.get('/personas', async () => (await Promise.all(seedData().customers.map(c => store.customer(c.id))))
-        .filter(c => c !== null).map(c => ({ name: c.name, plan: c.plan, sessionToken: c.sessionToken })));
+      chat.get('/personas', async () => {
+        const customers = (await Promise.all(seedData().customers.map(c => store.customer(c.id)))).filter(c => c !== null);
+        return Promise.all(customers.map(async c => ({ name: c.name, plan: c.plan, sessionToken: c.sessionToken, businessName: (await store.business(c.businessId))?.name ?? '' })));
+      });
     }
   }, { prefix: '/api/v1/chat' });
 

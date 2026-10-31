@@ -176,6 +176,9 @@ test('HTTP: customer session scoping, operator auth and approval flow', async ()
     const opened = await app.inject({ method: 'POST', url: '/api/v1/chat/cases', headers: { ...host, 'x-customer-session': OLENA } });
     assert.equal(opened.statusCode, 201);
     const id = opened.json().id;
+    const own = await app.inject({ url: `/api/v1/chat/cases/${id}`, headers: { ...host, 'x-customer-session': OLENA } });
+    assert.equal(own.json().businessName, 'NovaPay Fitness');
+    assert.equal((await app.inject({ url: '/api/v1/chat/personas', headers: host })).json()[0].businessName, 'NovaPay Fitness');
     const foreign = await app.inject({ url: `/api/v1/chat/cases/${id}`, headers: { ...host, 'x-customer-session': 'demo-taras' } });
     assert.equal(foreign.statusCode, 404);
     assert.equal((await app.inject({ method: 'POST', url: `/api/v1/chat/cases/${id}/messages`, headers: { ...host, 'x-customer-session': OLENA }, payload: { body: '' } })).statusCode, 422);
@@ -195,4 +198,9 @@ test('HTTP: customer session scoping, operator auth and approval flow', async ()
     assert.equal((await app.inject({ method: 'POST', url: '/api/v1/demo/reset', headers: op })).statusCode, 200);
     assert.equal((await app.inject({ url: '/api/v1/cases', headers: op })).json().length, 0);
   } finally { await app.close(); }
+});
+
+test('LLM key comes from the provider-specific variable, not process.env', () => {
+  assert.equal(settingsFrom({ LLM_PROVIDER: 'google', GOOGLE_GENERATIVE_AI_API_KEY: 'g-key', OPENAI_API_KEY: 'o-key' }).llmApiKey, 'g-key');
+  assert.equal(settingsFrom({}).llmApiKey, '');
 });

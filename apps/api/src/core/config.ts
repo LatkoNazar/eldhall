@@ -28,6 +28,7 @@ export interface Settings {
   supportStore: 'memory' | 'postgres';
   llmProvider: 'openai' | 'google' | 'anthropic' | 'rules';
   llmModel: string;
+  llmApiKey: string;
   llmTimeoutMs: number;
   demoResetEnabled: boolean;
 }
@@ -97,6 +98,8 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     supportStore: value('SUPPORT_STORE', 'memory') as Settings['supportStore'],
     llmProvider: value('LLM_PROVIDER', 'rules') as Settings['llmProvider'],
     llmModel: value('LLM_MODEL', ''),
+    // .env values are not copied into process.env, so the key is passed to the provider explicitly.
+    llmApiKey: value({ openai: 'OPENAI_API_KEY', google: 'GOOGLE_GENERATIVE_AI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', rules: '' }[value('LLM_PROVIDER', 'rules')] ?? '', ''),
     llmTimeoutMs: integer('LLM_TIMEOUT_MS', '20000', 120000),
     demoResetEnabled: (env.DEMO_RESET_ENABLED || (environment === 'development' ? 'true' : 'false')) === 'true',
   };
