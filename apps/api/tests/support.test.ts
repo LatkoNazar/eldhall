@@ -31,12 +31,19 @@ async function duplicateTurn(h: ReturnType<typeof setup>, text = 'You charged me
   return { caseId: opened.id, turn };
 }
 
+async function approveAndExecute(h: ReturnType<typeof setup>, proposal: NonNullable<Awaited<ReturnType<typeof duplicateTurn>>['turn']['proposal']>) {
+  const approved = await h.harness.approve(proposal.id, 'anna', proposal.argsHash);
+  assert.equal(approved.proposal.status, 'approved');
+  assert.equal((await h.store.refunds()).length, 0);
+  return h.harness.executeApproved(proposal.id, 'anna', proposal.argsHash);
+}
+
 test('1. duplicate charge: approved refund updates payment, refund, case and audit', async () => {
   const h = setup();
   const { caseId, turn } = await duplicateTurn(h);
   assert.equal(turn.proposal?.tool, 'refund_payment');
   assert.equal(turn.proposal?.args.payment_id, DUP_LATER);
-  const result = await h.harness.approve(turn.proposal!.id, 'anna', turn.proposal!.argsHash);
+  const result = await approveAndExecute(h, turn.proposal!);
   assert.equal(result.proposal.status, 'executed');
   assert.equal(result.case.status, 'resolved');
   assert.equal((await h.store.payment(DUP_LATER))?.status, 'refunded');
@@ -62,7 +69,7 @@ test('3. missing information: no duplicate found -> clarifying question, no prop
   const turn = await h.harness.runTurn('demo-taras', opened.id, 'I think you charged me twice');
   assert.equal(turn.proposal, null);
   assert.equal(turn.case.status, 'open');
-  assert.match(turn.reply.body, /date and amount/);
+  assert.match(turn.reply!.body, /date and amount/);
 });
 
 test('4. policy denies: another customer\'s payment id, non-duplicate, over limit', async () => {
@@ -90,7 +97,7 @@ test('5. refund requires approval: nothing executes before a human decides', asy
   assert.equal(turn.proposal?.status, 'pending');
   assert.equal(turn.case.status, 'awaiting_approval');
   assert.equal((await h.store.refunds()).length, 0);
-  assert.doesNotMatch(turn.reply.body, /has been approved|refunded/i);
+  assert.doesNotMatch(turn.reply!.body, /has been approved|refunded/i);
 });
 
 test('6. rejected approval: no refund, customer informed', async () => {
@@ -107,7 +114,7 @@ test('7. duplicate approval and tampered approval are refused; one refund only',
   const h = setup();
   const { turn } = await duplicateTurn(h);
   await assert.rejects(h.harness.approve(turn.proposal!.id, 'anna', 'f'.repeat(64)), (e: HarnessError) => e.status === 409 && /does not match/.test(e.message));
-  await h.harness.approve(turn.proposal!.id, 'anna', turn.proposal!.argsHash);
+  await approveAndExecute(h, turn.proposal!);
   await assert.rejects(h.harness.approve(turn.proposal!.id, 'anna', turn.proposal!.argsHash), (e: HarnessError) => e.status === 409);
   // The customer asks again: policy blocks a second refund proposal for the same payment.
   const again = await h.harness.runTurn(OLENA, turn.case.id, 'you charged me twice again');
@@ -134,7 +141,7 @@ test('9. payment provider failure: proposal failed, honest reply, no refund reco
   const h = setup();
   h.provider.failing.add(DUP_LATER);
   const { caseId, turn } = await duplicateTurn(h);
-  const result = await h.harness.approve(turn.proposal!.id, 'anna', turn.proposal!.argsHash);
+  const result = await approveAndExecute(h, turn.proposal!);
   assert.equal(result.proposal.status, 'failed');
   assert.equal((await h.store.payment(DUP_LATER))?.status, 'captured');
   assert.equal((await h.store.refunds()).length, 0);
@@ -163,7 +170,7 @@ test('10. abusive message: P1 + escalation; frustration alone never authorises m
 test('model reply claiming a refund without execution is replaced', async () => {
   const h = setup(new ScriptedModel(() => decision({ intent: 'other', reply: 'Good news, we have refunded you!' })));
   const { turn } = await duplicateTurn(h, 'hello');
-  assert.doesNotMatch(turn.reply.body, /refunded/);
+  assert.doesNotMatch(turn.reply!.body, /refunded/);
 });
 
 test('HTTP: customer session scoping, operator auth and approval flow', async () => {
@@ -192,6 +199,8 @@ test('HTTP: customer session scoping, operator auth and approval flow', async ()
     assert.equal(detail.customer.sessionToken, undefined);
     const approve = (hash: string) => app.inject({ method: 'POST', url: `/api/v1/proposals/${proposal.id}/approve`, headers: op, payload: { operator: 'anna', argsHash: hash } });
     assert.equal((await approve(proposal.argsHash)).statusCode, 200);
+    assert.equal((await h.store.refunds()).length, 0);
+    assert.equal((await app.inject({ method: 'POST', url: `/api/v1/proposals/${proposal.id}/execute`, headers: op, payload: { argsHash: proposal.argsHash } })).statusCode, 200);
     assert.equal((await approve(proposal.argsHash)).statusCode, 409);
     const metrics = (await app.inject({ url: '/api/v1/metrics', headers: op })).json();
     assert.equal(metrics.refundsIssuedCents, 49900);

@@ -13,6 +13,7 @@ node_modules/
 *.tsbuildinfo
 *.egg-info/
 .omc/
+.runtime/
 *.pem
 *.key
 backups/

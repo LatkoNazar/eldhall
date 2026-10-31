@@ -9,8 +9,10 @@ import { jobCreateSchema, jobReadSchema, type JobCreate, type Job } from './modu
 import { createJob, QueueUnavailable } from './modules/jobs/service.js';
 import { readiness, type Checks } from './modules/system/health.js';
 import { supportRoutes, type SupportDependencies } from './modules/support/routes.js';
+import { insightsRoutes } from './modules/insights/routes.js';
+import type { InsightsService } from './modules/insights/service.js';
 
-export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks; readJob?: (id: string) => Promise<Job | null>; support?: SupportDependencies }
+export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks; readJob?: (id: string) => Promise<Job | null>; support?: SupportDependencies; insights?: InsightsService }
 
 export async function createApp(settings: Settings, dependencies: AppDependencies, logging = false) {
   const app = Fastify({
@@ -24,7 +26,10 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     }
   });
   const anyOrigin = settings.corsOrigins.includes('*');
-  await app.register(cors, { origin: anyOrigin ? '*' : settings.corsOrigins, methods: ['GET', 'POST'], allowedHeaders: ['Authorization', 'Content-Type'], credentials: false, preflight: false });
+  const corsMethods = ['GET', 'POST', 'PATCH'];
+  const corsHeaders = ['Accept', 'Accept-Language', 'Authorization', 'Content-Language', 'Content-Type', 'X-Customer-Session'];
+  const allowedHeaders = new Set(corsHeaders.map(header => header.toLowerCase()));
+  await app.register(cors, { origin: anyOrigin ? '*' : settings.corsOrigins, methods: corsMethods, allowedHeaders: corsHeaders, credentials: false, preflight: false });
   app.addHook('onRequest', async (request, reply) => {
     const origin = request.headers.origin;
     const method = request.headers['access-control-request-method'];
@@ -32,14 +37,13 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     const failures: string[] = [];
     const allowedOrigin = anyOrigin || settings.corsOrigins.includes(origin);
     if (!allowedOrigin) failures.push('origin');
-    if (!['GET', 'POST'].includes(String(method))) failures.push('method');
-    const allowedHeaders = ['accept', 'accept-language', 'authorization', 'content-language', 'content-type'];
+    if (!corsMethods.includes(String(method))) failures.push('method');
     const requestedHeaders = String(request.headers['access-control-request-headers'] ?? '').split(',').map(header => header.trim().toLowerCase()).filter(Boolean);
-    if (requestedHeaders.some(header => !allowedHeaders.includes(header))) failures.push('headers');
+    if (requestedHeaders.some(header => !allowedHeaders.has(header))) failures.push('headers');
     if (!anyOrigin) reply.header('Vary', 'Origin');
-    reply.header('Access-Control-Allow-Methods', 'GET, POST')
+    reply.header('Access-Control-Allow-Methods', corsMethods.join(', '))
       .header('Access-Control-Max-Age', '600')
-      .header('Access-Control-Allow-Headers', 'Accept, Accept-Language, Authorization, Content-Language, Content-Type');
+      .header('Access-Control-Allow-Headers', corsHeaders.join(', '));
     if (allowedOrigin) reply.header('Access-Control-Allow-Origin', anyOrigin ? '*' : origin);
     return reply.code(failures.length ? 400 : 200).type('text/plain').send(failures.length ? `Disallowed CORS ${failures.join(', ')}` : 'OK');
   });
@@ -91,5 +95,6 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
   if (dependencies.support) {
     await app.register(supportRoutes, { support: dependencies.support, operatorToken: settings.operatorToken, demoResetEnabled: settings.demoResetEnabled });
   }
+  if (dependencies.insights) await app.register(insightsRoutes, { prefix: '/api/v1/insights', insights: dependencies.insights, operatorToken: settings.operatorToken });
   return app;
 }

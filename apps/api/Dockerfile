@@ -18,8 +18,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --chown=node:node runtime ./runtime
 COPY migrations ./migrations
 COPY scripts ./scripts
+RUN mkdir -p /data/dsh && chown -R node:node /data/dsh
 USER node
 EXPOSE 8000
 CMD ["node", "dist/server.js"]

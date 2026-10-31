@@ -93,7 +93,7 @@ export function initScenario(root: ParentNode = document): void {
     }
     chat.replaceChildren(...bubbles)
 
-    kicker.textContent = step.kicker
+    kicker.textContent = `${step.kicker} · ілюстрація`
     title.textContent = step.title
     text.textContent = step.text
     details.replaceChildren(...detail(step))
