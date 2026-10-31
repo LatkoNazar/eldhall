@@ -4,6 +4,7 @@ import { Avatar, Badge, Brand, Empty, Icon, Metric, Notice } from '../components
 import { dateTime } from '../lib/api'
 import type { Metrics, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
+import { percent, supportKpis } from '../lib/support-metrics'
 import { CaseWorkspace } from './Inbox'
 import { Actions } from './Actions'
 import { Insights } from './Insights'
@@ -107,6 +108,12 @@ function Analytics({ token }: { token: string }) {
       <Metric icon="spark" label="Виконані дії" value={metrics?.proposals.executed ?? '—'} hint="Виконання, підтверджене сервером" />
       <Metric icon="team" label="Передані оператору" value={metrics?.byStatus.escalated ?? '—'} hint="Звернення з поточним статусом ескалації" />
     </div>
+    {metrics && (() => { const k = supportKpis(metrics); return <section className="card padded" aria-labelledby="support-kpis"><h2 id="support-kpis">Якість підтримки</h2><p className="muted">Поточний стан сховища звернень{metrics.cases ? '' : ' — даних ще немає'}. Не історична аналітика: у demo-режимі дані скидаються після перезапуску.</p><div className="metrics-grid">
+      <Metric icon="check" label="Рівень вирішення" value={percent(k.resolutionRate)} hint={`${k.resolved} з ${k.total} звернень`} />
+      <Metric icon="team" label="Рівень ескалації" value={percent(k.escalationRate)} hint="Частка звернень, переданих оператору" />
+      <Metric icon="spark" label="Успішні / невдалі дії" value={`${k.successfulActions} / ${k.failedActions}`} hint="За станом, підтвердженим сервером; повторні запити не рахуються" />
+      <Metric icon="clock" label="Середній час вирішення" value="N/A" hint="Сервер ще не надає цей показник" />
+    </div></section> })()}
     <div className="two-columns analytics-columns">
       <section className="card padded"><h2>Звернення за статусом</h2><p className="muted">Кількість звернень, одиниць</p>{metrics ? <><div className="bar-chart" aria-hidden="true">{statuses.map(status => <div className="bar-row" key={status}><Badge value={status} /><div className="bar-track"><div style={{ width: `${metrics.cases ? metrics.byStatus[status] / metrics.cases * 100 : 0}%` }} /></div><strong>{metrics.byStatus[status]}</strong></div>)}</div><table><caption className="sr-only">Кількість звернень за поточним статусом</caption><thead><tr><th>Статус</th><th>Звернень</th></tr></thead><tbody>{statuses.map(status => <tr key={status}><td><Badge value={status} /></td><td>{metrics.byStatus[status]}</td></tr>)}</tbody></table></> : <Empty icon="chart" title={data.loading ? 'Завантажуємо показники…' : 'Немає даних'} />}</section>
       <section className="card padded"><h2>Результати дій AI</h2><p className="muted">Погодження та виконання обліковуються окремо.</p>{metrics && totalProposals ? <table><caption className="sr-only">Усі дії за поточним станом</caption><thead><tr><th>Стан</th><th>Дій</th></tr></thead><tbody>{proposalStates.map(status => <tr key={status}><td><Badge value={status} /></td><td>{metrics.proposals[status] ?? 0}</td></tr>)}</tbody></table> : <Empty icon="spark" title="Ще немає зафіксованих дій" />}</section>
