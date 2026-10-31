@@ -4,6 +4,7 @@ import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
 import { dateTime, errorText, request, toolLabels } from '../lib/api'
 import type { ClassificationConfig } from '../lib/api'
 import { useResource } from '../lib/useResource'
+import { registerNavigationGuard } from '../lib/navigation'
 
 interface Business { id: string; name: string; currency: string; slug: string }
 interface Source { id: string; businessId: string; title: string; category: string; content: string; version: number; status: 'draft' | 'published' | 'revoked'; updatedAt: string }
@@ -125,8 +126,9 @@ function useUnsaved(dirty: boolean) {
     if (scopeRef) scopeRef.current = dirty
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    const removeGuard = registerNavigationGuard(() => allowDiscard(true))
     window.addEventListener('beforeunload', warn)
-    return () => { if (scopeRef) scopeRef.current = false; window.removeEventListener('beforeunload', warn) }
+    return () => { removeGuard(); if (scopeRef) scopeRef.current = false; window.removeEventListener('beforeunload', warn) }
   }, [dirty, scopeRef])
 }
 function allowDiscard(dirty: boolean) { return !dirty || window.confirm('Є незбережені зміни. Залишити їх і продовжити?') }

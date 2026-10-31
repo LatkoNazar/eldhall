@@ -1,3 +1,4 @@
+import { AppLink } from '../components/AppLink'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
 import { dateTime, errorText, money, request, toolLabels } from '../lib/api'
@@ -123,7 +124,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
         {proposal.decidedBy && <dl className="facts"><dt>Рішення</dt><dd>{proposal.decidedBy}</dd>{proposal.decidedAt && <><dt>Час рішення</dt><dd>{dateTime(proposal.decidedAt)}</dd></>}</dl>}
       </> : <Notice error>Ця дія більше не доступна. Оновіть список, щоб перевірити стан.</Notice>}
       <section className="actions-timeline"><h3>Журнал дії</h3>{events.length ? <ol className="timeline">{events.map(event => <li key={event.id}><strong>{actionEventLabel(event.type)}</strong><small>{event.actor} · {dateTime(event.createdAt)}</small>{typeof event.data.reason === 'string' && <p>{event.data.reason}</p>}</li>)}</ol> : <p className="muted small">Для цієї дії ще немає доступних подій у журналі.</p>}</section>
-      <a className="actions-case-link" href="/operator">Відкрити вхідні звернення <Icon name="arrow" size={16} /></a>
+      <AppLink className="actions-case-link" href="/operator">Відкрити вхідні звернення <Icon name="arrow" size={16} /></AppLink>
     </div>
   </aside>
 }

@@ -1,3 +1,4 @@
+import { AppLink } from '../components/AppLink'
 import { useEffect, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Notice } from '../components/ui'
 import { MessageThread } from '../components/MessageThread'
@@ -5,6 +6,7 @@ import { ClassificationSummary } from '../components/ClassificationSummary'
 import { dateTime, errorText, intentLabels, money, request, toolLabels } from '../lib/api'
 import type { CaseDetail, CaseStatus, Proposal, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
+import { registerNavigationGuard } from '../lib/navigation'
 
 export function CaseWorkspace({ token, cases, search, actionOnly, onChanged }: { token: string; cases: SupportCase[]; search: string; actionOnly: boolean; onChanged: () => void }) {
   const [linkedCase] = useState(() => new URLSearchParams(window.location.search).get('caseId') ?? '')
@@ -17,7 +19,7 @@ export function CaseWorkspace({ token, cases, search, actionOnly, onChanged }: {
   return <>
     <div className="tabs" aria-label="Фільтр звернень"><button className={!status ? 'active' : ''} onClick={() => setStatus('')}>Усі <span>{cases.length}</span></button>{(['open', 'awaiting_approval', 'escalated', 'resolved'] as const).map(value => <button className={status === value ? 'active' : ''} key={value} onClick={() => setStatus(value)}>{({ open: 'Відкриті', awaiting_approval: 'На погодженні', escalated: 'Оператору', resolved: 'Вирішені' })[value]} <span>{cases.filter(item => item.status === value).length}</span></button>)}</div>
     <div className={`inbox-layout ${actionOnly ? 'action-layout' : ''} ${mobileDetail ? 'mobile-detail-open' : ''}`}>
-      <section className="case-list card" aria-label="Черга звернень"><div className="list-caption"><span>{actionOnly ? 'Звернення та їхні дії' : 'Усі канали'}</span><small>{filtered.length} звернень</small></div>{filtered.length ? filtered.map(item => <button className={`case-item ${item.id === activeId ? 'selected' : ''}`} key={item.id} onClick={() => { setSelected(item.id); setMobileDetail(true) }} aria-pressed={item.id === activeId}><Avatar name={item.customerName} /><span className="case-item-body"><span className="case-item-heading"><strong>{item.customerName}</strong><small>{item.priority}</small></span><span className="case-subject">{item.intent ? intentLabels[item.intent] ?? item.intent : 'Нове звернення'}</span>{item.analysis?.classification && <span className="case-preview">Клас: {item.analysis.classification.label}</span>}<span className="case-preview">{item.analysis?.summary ?? 'Очікує першого повідомлення'}</span><span className="case-item-bottom"><Badge value={item.status} /><time dateTime={item.updatedAt} title={`${dateTime(item.updatedAt)} (Київ)`}>{new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv' }).format(new Date(item.updatedAt))}</time></span></span></button>) : <Empty title={cases.length ? 'Нічого не знайдено' : 'Усе починається з розмови'}>{cases.length ? 'Змініть пошук або фільтр.' : <><a href="/chat" target="_blank" rel="noreferrer">Відкрийте клієнтський чат</a>, щоб створити перше звернення.</>}</Empty>}</section>
+      <section className="case-list card" aria-label="Черга звернень"><div className="list-caption"><span>{actionOnly ? 'Звернення та їхні дії' : 'Усі канали'}</span><small>{filtered.length} звернень</small></div>{filtered.length ? filtered.map(item => <button className={`case-item ${item.id === activeId ? 'selected' : ''}`} key={item.id} onClick={() => { setSelected(item.id); setMobileDetail(true) }} aria-pressed={item.id === activeId}><Avatar name={item.customerName} /><span className="case-item-body"><span className="case-item-heading"><strong>{item.customerName}</strong><small>{item.priority}</small></span><span className="case-subject">{item.intent ? intentLabels[item.intent] ?? item.intent : 'Нове звернення'}</span>{item.analysis?.classification && <span className="case-preview">Клас: {item.analysis.classification.label}</span>}<span className="case-preview">{item.analysis?.summary ?? 'Очікує першого повідомлення'}</span><span className="case-item-bottom"><Badge value={item.status} /><time dateTime={item.updatedAt} title={`${dateTime(item.updatedAt)} (Київ)`}>{new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kyiv' }).format(new Date(item.updatedAt))}</time></span></span></button>) : <Empty title={cases.length ? 'Нічого не знайдено' : 'Усе починається з розмови'}>{cases.length ? 'Змініть пошук або фільтр.' : <><AppLink href="/chat" target="_blank" rel="noreferrer">Відкрийте клієнтський чат</AppLink>, щоб створити перше звернення.</>}</Empty>}</section>
       {activeId ? <CaseView key={activeId} id={activeId} token={token} actionOnly={actionOnly} draft={drafts[activeId] ?? ''} onDraft={value => setDrafts(previous => ({ ...previous, [activeId]: value }))} onBack={() => setMobileDetail(false)} onChanged={onChanged} /> : <section className="card case-placeholder"><Empty icon="spark" title="Місце для наступного рішення">Діалог, дані клієнта та дозволені дії з’являться після вибору звернення.</Empty></section>}
     </div>
   </>
@@ -33,8 +35,9 @@ function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged }: 
   useEffect(() => {
     if (!draft) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    const removeGuard = registerNavigationGuard(() => window.confirm('Є ненадіслана відповідь. Залишити її і продовжити?'))
     window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
+    return () => { removeGuard(); window.removeEventListener('beforeunload', warn) }
   }, [draft])
   async function caseAction(action: string, body?: unknown) {
     if (!detail || busy) return

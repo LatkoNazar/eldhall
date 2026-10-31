@@ -1,3 +1,4 @@
+import { AppLink } from './AppLink'
 import type { ReactNode } from 'react'
 import { caseLabels, proposalLabels } from '../lib/api'
 
@@ -11,7 +12,7 @@ const paths: Record<string, string> = {
   help: 'M9 8a3 3 0 1 1 5 2c-2 1-2 2-2 4 M12 17h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0', file: 'M5 2h9l5 5v15H5Z M14 2v6h5 M8 13h8 M8 17h6', lock: 'M5 10h14v11H5Z M8 10V6a4 4 0 1 1 8 0v4', logout: 'M9 3H3v18h6 M9 12h12 m-5-5 5 5-5 5',
 }
 export function Icon({ name, size = 21 }: { name: string; size?: number }) { return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] ?? paths.spark} /></svg> }
-export function Brand() { return <a className="brand" href="/" aria-label="Eldhall Support — головна"><svg aria-hidden="true" viewBox="0 0 32 40"><path fill="currentColor" d="M18 0c5 12-12 13-10 24 1-6 10-7 14-14 11 10 10 19 2 25-6 5-18 5-21-4C-2 18 16 15 18 0Z"/><path fill="white" d="M23 20C20 31 7 26 9 35c-7-9 6-9 14-15Z"/></svg><span>eldhall<span className="brand-subtitle">SUPPORT</span></span></a> }
+export function Brand() { return <AppLink className="brand" href="/" aria-label="Eldhall Support — головна"><svg aria-hidden="true" viewBox="0 0 32 40"><path fill="currentColor" d="M18 0c5 12-12 13-10 24 1-6 10-7 14-14 11 10 10 19 2 25-6 5-18 5-21-4C-2 18 16 15 18 0Z"/><path fill="white" d="M23 20C20 31 7 26 9 35c-7-9 6-9 14-15Z"/></svg><span>eldhall<span className="brand-subtitle">SUPPORT</span></span></AppLink> }
 export function Badge({ value, children }: { value?: string; children?: ReactNode }) {
   const labels: Record<string, string> = { ...caseLabels, ...proposalLabels, bot: 'AI веде діалог', staff: 'Веде оператор', published: 'Опубліковано', draft: 'Чернетка', revoked: 'Відкликано', fallback: 'Резервні правила', llm: 'Мовна модель', ok: 'Завершено', captured: 'Оплачено', refunded: 'Повернено' }
   return <span className={`badge badge-${value ?? 'neutral'}`}>{children ?? labels[value ?? ''] ?? value}</span>
