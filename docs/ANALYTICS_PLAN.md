@@ -16,6 +16,13 @@
 
 PostHog client options to verify against the current docs at implementation time: `autocapture: false`, `capture_pageview: false`, `disable_session_recording: true`, `persistence: 'memory'`, `person_profiles: 'identified_only'` (and never identify).
 
+
+## Implemented (31.10, branch feat/support-analytics)
+- **Facade:** `packages/analytics` exposes one typed `track(event, props)` plus `currentAnalytics()`. Allowed events and enum-only properties live in `productEvents`; `validateProductEvent` drops any event with unknown keys or values, so free text, names, emails, ids and amounts cannot be sent. Without `PUBLIC_UMAMI_*` the client is a no-op (no script, no request); collector errors are swallowed.
+- **Events wired (Umami provider):** `landing_viewed`, `landing_cta_clicked`, `app_opened` (existing); `demo_started` / `demo_completed` `{scenario: refund|limit}` from the landing walkthrough (once per scenario per page view); `support_case_created` after the server created a case; `approval_granted`, `action_executed`, `action_failed {outcome: failed|unknown}` only from the server-confirmed proposal status (clicks and 409 retries are not counted).
+- **Support KPIs (Analytics page, «Якість підтримки»):** resolution rate, escalation rate, successful/failed actions derived from `GET /api/v1/metrics` (per case / per proposal state). Average resolution time shows **N/A** — the API does not expose resolution timestamps yet. Values reflect the current store; in memory demo mode they reset on restart.
+- **Not done yet:** PostHog adapter, server-side event emission (`case_resolved`, `case_escalated`, resolution time), escalation-reason breakdown, landing→demo funnel report (events exist; needs a configured Umami instance). No live Umami endpoint was verified.
+
 ## Event schema
 | Event | Source | Properties (all non-personal) |
 |---|---|---|

@@ -108,6 +108,7 @@ function Analytics({ token }: { token: string }) {
       <Metric icon="spark" label="Виконані дії" value={metrics?.proposals.executed ?? '—'} hint="Виконання, підтверджене сервером" />
       <Metric icon="team" label="Передані оператору" value={metrics?.byStatus.escalated ?? '—'} hint="Звернення з поточним статусом ескалації" />
     </div>
+    {!metrics && data.loading && <section className="card padded" aria-busy="true"><h2>Якість підтримки</h2><p className="muted">Завантажуємо показники…</p></section>}
     {metrics && (() => { const k = supportKpis(metrics); return <section className="card padded" aria-labelledby="support-kpis"><h2 id="support-kpis">Якість підтримки</h2><p className="muted">Поточний стан сховища звернень{metrics.cases ? '' : ' — даних ще немає'}. Не історична аналітика: у demo-режимі дані скидаються після перезапуску.</p><div className="metrics-grid">
       <Metric icon="check" label="Рівень вирішення" value={percent(k.resolutionRate)} hint={`${k.resolved} з ${k.total} звернень`} />
       <Metric icon="team" label="Рівень ескалації" value={percent(k.escalationRate)} hint="Частка звернень, переданих оператору" />

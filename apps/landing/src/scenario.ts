@@ -42,7 +42,9 @@ function detail(step: Step): Node[] {
 }
 
 /** Wires the interactive walkthrough. Does nothing when the section is absent. */
-export function initScenario(root: ParentNode = document): void {
+export type ScenarioEvent = (event: 'demo_started' | 'demo_completed', scenario: 'refund' | 'limit') => void
+
+export function initScenario(root: ParentNode = document, onEvent: ScenarioEvent = () => {}): void {
   const section = root.querySelector<HTMLElement>('[data-scenario]')
   if (!section) return
   const q = <T extends Element>(selector: string) => section.querySelector<T>(selector)
@@ -61,6 +63,9 @@ export function initScenario(root: ParentNode = document): void {
 
   let scenario: Scenario = SCENARIOS.refund
   let index = 0
+  const seen = new Set<string>()
+  // Each scenario reports start/completion once per page view.
+  const report = (event: 'demo_started' | 'demo_completed') => { const key = `${event}:${scenario.id}`; if (!seen.has(key)) { seen.add(key); onEvent(event, scenario.id as 'refund' | 'limit') } }
 
   const render = (animateLive: boolean) => {
     const step = scenario.steps[index]!
@@ -101,6 +106,8 @@ export function initScenario(root: ParentNode = document): void {
     if (animateLive && live) { live.style.animation = 'none'; void live.offsetWidth; live.style.animation = '' }
 
     prev.disabled = index === 0
+    if (index > 0) report('demo_started')
+    if (index === scenario.steps.length - 1) report('demo_completed')
     next.textContent = index === scenario.steps.length - 1 ? 'Спочатку' : 'Далі'
   }
 

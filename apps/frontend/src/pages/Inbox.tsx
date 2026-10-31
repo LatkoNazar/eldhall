@@ -1,3 +1,4 @@
+import { currentAnalytics } from '@eldhall/analytics'
 import { AppLink } from '../components/AppLink'
 import { useEffect, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Notice } from '../components/ui'
@@ -91,11 +92,19 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
       const latest = await request<CaseDetail>(`/cases/${detail.case.id}`, token)
       const current = latest.proposals.find(item => item.id === proposal.id)
       if (!current || current.argsHash !== proposal.argsHash || current.status !== proposal.status) throw new Error('Стан або аргументи змінилися. Дані оновлено — перегляньте дію ще раз.')
-      await request(`/proposals/${proposal.id}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
+      const result = await request<{ proposal?: { status?: string } }>(`/proposals/${proposal.id}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
+      // Analytics follows the server-confirmed status only; it never blocks the decision.
+      const tool = proposal.tool === 'refund_payment' || proposal.tool === 'escalate_to_human' ? proposal.tool : null
+      const outcome = result?.proposal?.status
+      if (tool && action === 'approve' && outcome === 'approved') currentAnalytics().track('approval_granted', { tool })
+      if (tool && action === 'execute' && outcome === 'executed') currentAnalytics().track('action_executed', { tool })
+      if (tool && action === 'execute' && (outcome === 'failed' || outcome === 'unknown')) currentAnalytics().track('action_failed', { tool, outcome })
       setLockedStatus(proposal.status)
       setNotice(action === 'approve' ? 'Погоджено. Виконання потребує окремої дії.' : action === 'execute' ? 'Сервер підтвердив завершення запиту. Результат — у статусі дії та журналі.' : 'Погодження відхилено.')
       setRejecting(false)
     } catch (cause) {
+      const failed = (cause as { payload?: { proposal?: { status?: string } } })?.payload?.proposal?.status
+      if (action === 'execute' && (failed === 'failed' || failed === 'unknown') && (proposal.tool === 'refund_payment' || proposal.tool === 'escalate_to_human')) currentAnalytics().track('action_failed', { tool: proposal.tool, outcome: failed })
       setError(errorText(cause))
       if (action === 'execute' && !(cause instanceof Error && cause.message.includes('Стан або аргументи'))) setUncertain(true)
     } finally { setBusy(false); onChanged() }

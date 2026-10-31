@@ -1,3 +1,4 @@
+import { currentAnalytics } from '@eldhall/analytics'
 import { AppLink } from '../components/AppLink'
 import { useState } from 'react'
 import { Badge, Brand, Icon, Notice } from '../components/ui'
@@ -16,7 +17,7 @@ export function CustomerChat() {
   async function start(token: string) {
     if (!token.trim() || busy) return
     setBusy(true); setError('')
-    try { const result = await request<{ id: string }>('/chat/cases', token, { method: 'POST', customer: true }); saveSession('support.customer', token); setSession(token); setCaseId(result.id) }
+    try { const result = await request<{ id: string }>('/chat/cases', token, { method: 'POST', customer: true }); saveSession('support.customer', token); setSession(token); setCaseId(result.id); currentAnalytics().track('support_case_created', {}) }
     catch (cause) { setError(errorText(cause)) }
     finally { setBusy(false) }
   }
