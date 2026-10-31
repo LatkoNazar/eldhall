@@ -8,6 +8,7 @@ import { lexicalSentiment, mergeSentiment, priorityFor, toneFor } from './sentim
 import { TOOLS, isToolName } from './tools.js';
 import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
+import { knowledgeRetriever, type KnowledgeRetriever } from '../knowledge/retriever.js';
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -22,6 +23,7 @@ export interface HarnessDeps {
   timeoutMs: number;
   integrations?: BusinessIntegrations;
   classifier?: TicketClassifier;
+  knowledge?: KnowledgeRetriever; // hybrid retrieval over published sources; defaults to the shared in-process index
 }
 
 export function argsHash(caseId: string, tool: string, args: unknown): string {
@@ -100,6 +102,9 @@ export class SupportHarness {
 
     const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published').map(({ id, title, content, version }) => ({ id, title, content, version }));
     const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
+    // Only sources the agent actually retrieved become sourceRefs of the reply, so revoking an
+    // unrelated document no longer hides every assistant message of the business.
+    const retrieved = new Map<string, { id: string; version: number }>();
     const assertActive = async () => {
       if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
       const current = await store.knowledge(customer.businessId);
@@ -116,8 +121,10 @@ export class SupportHarness {
       assertActive, knowledge, skills, classification: settings.classification,
       searchKnowledge: async query => {
         await assertActive();
-        const terms = query.toLocaleLowerCase().split(/\s+/).filter(t => t.length > 2);
-        return knowledge.filter(d => terms.some(t => (d.title + ' ' + d.content).toLocaleLowerCase().includes(t))).slice(0, 5);
+        const hits = await (this.deps.knowledge ?? knowledgeRetriever).search(knowledge, query);
+        for (const hit of hits) retrieved.set(hit.id, { id: hit.id, version: hit.version });
+        await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
+        return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
       },
       customer: { name: customer.name, plan: customer.plan },
       business: { name: business.name, currency: business.currency, policy: business.policy, responseStyle: { language: settings.language, tone: settings.tone } },
@@ -155,7 +162,7 @@ export class SupportHarness {
     const waiting = (await store.proposals(caseId)).some(p => ['pending', 'approved', 'executing'].includes(p.status));
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), knowledge.map(({id,version}) => ({id,version})), {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), [...retrieved.values()], {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {

@@ -50,13 +50,14 @@ These endpoints use the same operator bearer. `?businessId=<uuid>` selects a con
 | POST | `/api/v1/knowledge` | `{title,category,content}` → 201 draft |
 | PATCH | `/api/v1/knowledge/:id` | `{title,category,content,version}` → new draft version; 409 stale |
 | POST | `/api/v1/knowledge/:id/publish` or `/revoke` | `{version}` → new published/revoked version |
+| GET | `/api/v1/knowledge/search?q=&k=&businessId=` | `{query,mode:'hybrid',embedder,tookMs,hits:[{id,title,version,section,content,score,passages}]}` — the agent's retrieval over published sources (operator token) |
 | GET | `/api/v1/skills` | `{skills:SupportSkill[],preset:"support-v1"}` |
 | POST | `/api/v1/skills` | `{name:"custom/name",content,enabled?}` → versioned Markdown skill |
 | GET | `/api/v1/settings` | `SupportSettings` |
 | PATCH | `/api/v1/settings` | `{version,language,tone,requireApproval:true,refundLimitCents,duplicateWindowMinutes,enabledTools,classification?}` → new version; 409 stale; omitted classification is preserved |
 | GET | `/api/v1/team` | Real bootstrap bearer principal and assigned-case count; invite/role changes disabled |
 
-Knowledge retrieval uses bounded lexical search over published sources in the trusted business scope. Draft/revoked documents never enter new model context. Mid-run revocation or policy/skill changes fence final output. Skills cannot enable tools or turn off refund approval. Postgres persists messages, cases, proposals, runs, audit, documents, skills and settings; DSH owns its native session store separately.
+Knowledge retrieval is hybrid (BM25 over UA/EN terms + local hashing embeddings, fused with RRF) over heading-aware passages of published sources in the trusted business scope; a reply's `sourceRefs` list only the sources retrieved during that turn (see `docs/KNOWLEDGE_BASE.md`). Draft/revoked documents never enter new model context. Mid-run revocation or policy/skill changes fence final output. Skills cannot enable tools or turn off refund approval. Postgres persists messages, cases, proposals, runs, audit, documents, skills and settings; DSH owns its native session store separately.
 Demo records are seeded only with `DEMO_RESET_ENABLED=true` (development default; production default false). Clean production setup creates a business and customers through the authenticated administration API; public demo session tokens are not provisioned automatically.
 `SUPPORT_EXECUTION=worker` requires PostgreSQL and the worker process; it is the PostgreSQL default. `SUPPORT_EXECUTION=inline` is an explicit local demo option and the default for the memory store. Run the release migrations (`0002_support`, `0003_support_turns`, and `0004_classification`) before starting API or worker. PostgreSQL startup checks reject a missing support queue or classification schema.
 

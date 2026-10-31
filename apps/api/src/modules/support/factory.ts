@@ -47,7 +47,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations });
   return { harness, store, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
-    knowledgeSearch: 'lexical', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
+    knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,
       credentialsConfigured: classifier ? Boolean(settings.classificationApiKey) : settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey) } } };
 }

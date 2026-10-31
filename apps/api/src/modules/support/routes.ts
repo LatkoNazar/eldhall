@@ -7,11 +7,12 @@ import type { CaseStatus } from './contracts.js';
 import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
+import { knowledgeRetriever } from '../knowledge/retriever.js';
 
 export interface SupportDependencies {
   harness: SupportHarness; store: SupportStore;
   execution?: 'inline' | 'worker';
-  capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical'; approvals: 'separate-execution'; maxToolCalls: number;
+  capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
     classification?: { provider: string; model: string; credentialsConfigured: boolean } };
 }
 interface Options { support: SupportDependencies; operatorToken: string; demoResetEnabled: boolean }
@@ -125,6 +126,12 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       return business.id;
     };
     operator.get('/knowledge', (request, reply) => guard(reply, async () => ({ sources: await store.knowledge(await scope(request.query)), capabilities: { create: true, update: true, publish: true, revoke: true } })));
+    // Same retrieval the agent uses for this business: published sources only, hybrid BM25 + vector ranking.
+    operator.get('/knowledge/search', (request, reply) => guard(reply, async () => {
+      const { q, k, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), businessId: z.string().uuid().optional() }).strict().parse(request.query);
+      const published = (await store.knowledge(await scope(rest))).filter(source => source.status === 'published');
+      return knowledgeRetriever.explain(published, q, { k });
+    }));
     const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000) }).strict();
     operator.post('/knowledge', (request, reply) => guard(reply, async () => {
       const body = documentBody.parse(request.body);
@@ -157,7 +164,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
     operator.get('/metrics', () => store.metrics());
-    operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'lexical', approvals: 'separate-execution' });
+    operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', approvals: 'separate-execution' });
     if (demoResetEnabled) {
       operator.post('/demo/reset', async () => { await store.reset(seedData()); return { status: 'reset' }; });
     }

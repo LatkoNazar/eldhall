@@ -4,6 +4,7 @@ import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
 import { dateTime, errorText, request, toolLabels } from '../lib/api'
 import type { ClassificationConfig } from '../lib/api'
 import { useResource } from '../lib/useResource'
+import { KnowledgeSearchTest } from '../components/KnowledgeSearchTest'
 
 interface Business { id: string; name: string; currency: string; slug: string }
 interface Source { id: string; businessId: string; title: string; category: string; content: string; version: number; status: 'draft' | 'published' | 'revoked'; updatedAt: string }
@@ -44,6 +45,7 @@ function KnowledgePanel({ token, business }: { token: string; business: Business
       {active && resource.data ? <SourceEditor key={`${active.id}-${active.version}`} source={active} capabilities={resource.data.capabilities} token={token} onSaved={message => { setNotice(message); resource.refresh() }} /> : <section className="card"><Empty icon="file" title="Оберіть документ">Текст, статус і версія джерела з’являться тут.</Empty></section>}
     </div>
     <Notice>Лише опубліковані та доступні джерела можуть використовуватися для відповідей. Текст документа не надає дозволів на бізнес-дії.</Notice>
+    <KnowledgeSearchTest key={business.id} token={token} businessId={business.id} />
     {creating && <CreateSource token={token} businessId={business.id} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); setNotice('Документ створено як чернетку.'); resource.refresh() }} />}
   </>
 }
@@ -135,7 +137,7 @@ function roleLabel(role: string) { return ({ staff: 'Оператор', operator
 function RuntimeDetails({ token }: { token: string }) {
   const resource = useResource<{ runtime: string; provider: string; model: string; persistence: string; paymentProvider: string; credentialsConfigured: boolean; knowledgeSearch: string; maxToolCalls: number }>('/capabilities', token, 15000)
   const data = resource.data
-  return <section className="card padded"><h2>Виконання та інтеграції</h2>{data ? <><div className="integration-row"><Icon name="spark" /><div><strong>{data.runtime === 'dsh' ? 'DeepSeek Harness' : 'Детерміновані правила'}</strong><small>{data.provider} · {data.model}</small><small>{data.credentialsConfigured ? 'Серверні облікові дані налаштовано' : 'Ключ моделі не налаштовано'}</small></div><Badge value={data.runtime === 'dsh' ? 'llm' : 'fallback'}>{data.runtime === 'dsh' ? 'DSH' : 'Rules'}</Badge></div><div className="integration-row"><Icon name="book" /><div><strong>Сховище {data.persistence === 'postgres' ? 'PostgreSQL' : 'у пам’яті'}</strong><small>{data.persistence === 'memory' ? 'Дані цього середовища зникають після перезапуску сервера.' : 'Дані зберігаються між перезапусками сервера.'}</small><small>Пошук знань: {data.knowledgeSearch === 'lexical' ? 'лексичний' : data.knowledgeSearch}. Ліміт викликів: {data.maxToolCalls}.</small></div></div></> : <p className="muted">{resource.error || 'Отримуємо фактичну конфігурацію…'}</p>}<div className="integration-row"><Icon name="lock" /><div><strong>Платежі</strong><small>Симульований провайдер. Реальні кошти не переміщуються.</small></div><Badge value="draft">Симуляція</Badge></div><p className="field-hint">API-ключі та секрети не зберігаються в налаштуваннях браузера.</p></section>
+  return <section className="card padded"><h2>Виконання та інтеграції</h2>{data ? <><div className="integration-row"><Icon name="spark" /><div><strong>{data.runtime === 'dsh' ? 'DeepSeek Harness' : 'Детерміновані правила'}</strong><small>{data.provider} · {data.model}</small><small>{data.credentialsConfigured ? 'Серверні облікові дані налаштовано' : 'Ключ моделі не налаштовано'}</small></div><Badge value={data.runtime === 'dsh' ? 'llm' : 'fallback'}>{data.runtime === 'dsh' ? 'DSH' : 'Rules'}</Badge></div><div className="integration-row"><Icon name="book" /><div><strong>Сховище {data.persistence === 'postgres' ? 'PostgreSQL' : 'у пам’яті'}</strong><small>{data.persistence === 'memory' ? 'Дані цього середовища зникають після перезапуску сервера.' : 'Дані зберігаються між перезапусками сервера.'}</small><small>Пошук знань: {data.knowledgeSearch === 'hybrid' ? 'гібридний (ключові слова + вектори)' : data.knowledgeSearch === 'lexical' ? 'лексичний' : data.knowledgeSearch}. Ліміт викликів: {data.maxToolCalls}.</small></div></div></> : <p className="muted">{resource.error || 'Отримуємо фактичну конфігурацію…'}</p>}<div className="integration-row"><Icon name="lock" /><div><strong>Платежі</strong><small>Симульований провайдер. Реальні кошти не переміщуються.</small></div><Badge value="draft">Симуляція</Badge></div><p className="field-hint">API-ключі та секрети не зберігаються в налаштуваннях браузера.</p></section>
 }
 
 function Skills({ token, business }: { token: string; business: Business }) {
