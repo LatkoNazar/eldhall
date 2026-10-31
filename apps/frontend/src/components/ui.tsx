@@ -20,4 +20,4 @@ export function Badge({ value, children }: { value?: string; children?: ReactNod
 export function Empty({ icon = 'inbox', title, children }: { icon?: string; title: string; children?: ReactNode }) { return <div className="empty"><span className="empty-icon"><Icon name={icon} size={28} /></span><h3>{title}</h3>{children && <p>{children}</p>}</div> }
 export function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) { return <div className={`notice ${error ? 'notice-error' : ''}`} role={error ? 'alert' : 'status'}>{children}</div> }
 export function Metric({ label, value, hint, icon = 'chart' }: { label: string; value: ReactNode; hint?: string; icon?: string }) { return <article className="metric card"><span className="metric-icon"><Icon name={icon} /></span><div><p>{label}</p><strong>{value}</strong>{hint && <small>{hint}</small>}</div></article> }
-export function Avatar({ name }: { name: string }) { return <span className="avatar" aria-hidden="true">{name.split(' ').slice(0, 2).map(part => part[0]).join('')}</span> }
+export { Avatar } from './Avatar'
