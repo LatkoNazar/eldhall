@@ -41,6 +41,8 @@ Files not in this table that you think you need → ask WS1 first. A missing end
 ## WS2 — Frontend: customer chat + operator console (priority 4, but it is the demo surface)
 
 ```text
+UPDATE (team decision, replaces the iPhone-frame requirement): build a fully responsive app — no device frame. Desktop is the priority for the operator console and the demo flow; mobile is a responsive customer chat. Verify at 375, 768 and 1440 px (no horizontal scroll, no clipped text, tap targets ≥44 px on mobile). Do not touch apps/landing. Analytics: no new tracking now (see docs/ANALYTICS_PLAN.md); keep initAnalytics as is.
+
 You are WS2 on our hackathon Support Copilot. Read CLAUDE.md, docs/API_CONTRACTS.md, docs/ARCHITECTURE.md and docs/TEAM_PROMPTS.md (ownership table) first. Talk to me in Ukrainian.
 
 Branch: feat/ws2-frontend from origin/integration/support-copilot. Merge-ready by 15:15 Kyiv. Feature freeze 15:30.
@@ -55,8 +57,8 @@ OWNED FILES: apps/frontend/src/** and apps/frontend/index.html (title). Nothing 
 
 BUILD:
 1. src/lib/api.ts — types copied from contracts.ts (CaseStatus, Priority, Sentiment, Analysis, SupportCase, Message, PolicyCheck, Proposal, AuditEvent, AgentRun, Refund, Payment, CaseDetail, Metrics) + fetch helpers with AbortController and runtime guards in the style of src/lib/health.ts. Customer calls send header X-Customer-Session; operator calls send Authorization: Bearer <token> read from sessionStorage. Errors: read {detail}.
-2. App.tsx — pathname switch, no router dependency: "/" → entry with links + a "Demo" split view (phone left, console right) for the screen recording; "/chat" → CustomerChat; "/operator" → OperatorConsole.
-3. src/pages/CustomerChat.tsx — iPhone-style frame (rounded device, status bar, header with businessName from the persona / GET case response), persona picker from GET /api/v1/chat/personas, POST /api/v1/chat/cases, bubbles (customer right, assistant left), composer, typing indicator during POST .../messages (2–10 s), poll GET /api/v1/chat/cases/:id every 2.5 s so operator outcomes appear.
+2. App.tsx — pathname switch, no router dependency: "/" → entry with links to both surfaces; "/chat" → CustomerChat; "/operator" → OperatorConsole. For the recording, chat and console are shown in two normal browser windows (docs/DEMO_VIDEO.md); no combined device mock-up is needed.
+3. src/pages/CustomerChat.tsx — responsive chat (full-width on mobile with the composer pinned to the bottom and safe-area padding; centred column ≤720 px on desktop), header with businessName from the persona / GET case response, persona picker from GET /api/v1/chat/personas, POST /api/v1/chat/cases, bubbles (customer right, assistant left), composer, typing indicator during POST .../messages (2–10 s), poll GET /api/v1/chat/cases/:id every 2.5 s so operator outcomes appear.
 4. src/pages/OperatorConsole.tsx — login (operator name + token → sessionStorage, never bundled). Left: queue GET /api/v1/cases polled every 2.5 s (priority badge, sentiment chip, intent, customer, status, updated). Right: GET /api/v1/cases/:id:
    - conversation;
    - AI analysis: intent, summary, reasoning, source (llm vs fallback — make fallback visible), model, sentiment label, frustration + escalation-risk bars, the signals list, tone;
@@ -65,7 +67,7 @@ BUILD:
    - audit timeline + agent runs (provider, model, status, steps, toolCalls, latencyMs, error);
    - top strip from GET /api/v1/metrics (cases, awaiting approval, P1, refunds issued, avg agent latency, fallback runs) — only real values;
    - small menu with "Reset demo" (POST /api/v1/demo/reset).
-5. Plain CSS, no new UI libraries: neutral palette + one accent, clear hierarchy, readable at 1440×900 in the split view.
+5. Plain CSS, no new UI libraries. Use the Eldhall look already in apps/landing/src/styles.css (Inter, crimson #d7263d accent, light surfaces, thin borders) — copy the tokens, do not import across apps. Operator console: desktop 3-column (queue | case | AI/action panel) at 1440, 2 columns at 768, single column with the queue above the case at 375. Readable at 1920×1080 for the video.
 
 CONSTRAINTS: call the API only via relative /api/... URLs (same-origin proxy; CORS blocks X-Customer-Session cross-origin). React 19, strict TS (erasableSyntaxOnly → no enums/parameter properties; verbatimModuleSyntax → `import type`), eslint --max-warnings 0 with react-hooks v7 (no synchronous setState inside effects; stable deps) and react-refresh (only components exported from .tsx; helpers/types in .ts). Keep initAnalytics in main.tsx; never send chat content to analytics. Keep src/analytics.test.ts green.
 
