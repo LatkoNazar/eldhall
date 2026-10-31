@@ -60,7 +60,8 @@ export const SCENARIOS: Record<'refund' | 'limit', Scenario> = {
       {
         label: 'Результат', kicker: 'Крок 5 · Вирішення', title: 'Стан змінено — клієнт отримує результат',
         text: 'Backend виконує повернення через симульований провайдер, оновлює платіж і кейс та записує кожен крок у журнал. Повторне підтвердження відхиляється.',
-        chat: [{ role: 'assistant', text: 'Повернення 499.00 UAH за дубль SUB-OCT-2026 підтверджено й відправлено (референс SIM-RF-…). Зазвичай кошти з’являються протягом 3–5 робочих днів.' }],
+        // Verbatim MVP reply (harness.ts execute); it is English-only until the agent workstream localises it.
+        chat: [{ role: 'assistant', text: 'Your refund of 499.00 UAH for the duplicate charge SUB-OCT-2026 has been approved and submitted (reference SIM-RF-…). It usually appears on your statement within 3–5 business days.' }],
         tags: [{ label: 'payment: refunded', tone: 'ok' }, { label: 'case: resolved', tone: 'ok' }, { label: 'simulated provider', tone: 'grey' }],
         facts: [{ term: 'Журнал', value: 'received → analyzed → proposed → approved → executed' }, { term: 'Повторний approve', value: '409 · вже виконано' }],
       },

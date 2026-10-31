@@ -38,38 +38,38 @@
           <svg class="brand-flame" aria-hidden="true"><use href="#i-flame" /></svg>
           eldhall
         </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-menu-toggle>
+          <svg class="i" aria-hidden="true"><use href="#i-menu" /></svg><span class="visually-hidden">Меню</span>
+        </button>
         <nav class="site-nav" id="site-nav" aria-label="Розділи сторінки" data-nav>
           <a href="#how">Як це працює</a>
           <a href="#features">Можливості</a>
           <a href="#scenario">Сценарій</a>
           <a href="#trust">Безпека</a>
-          <a class="btn btn-primary nav-cta" data-app-link="header">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+          <a class="btn btn-primary nav-cta" href="#scenario" data-app-link="header">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
         </nav>
-        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-menu-toggle>
-          <svg class="i" aria-hidden="true"><use href="#i-menu" /></svg><span class="visually-hidden">Меню</span>
-        </button>
       </div>
     </header>
 
     <main id="main">
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="container hero-grid">
-          <div class="hero-copy reveal">
+          <div class="hero-copy">
             <p class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> AI Support Copilot · MVP</p>
             <h1 id="hero-title">Підтримка, яка не лише відповідає, а&nbsp;<em>вирішує</em>.</h1>
             <p class="lead">Eldhall розуміє звернення і настрій клієнта, знаходить потрібні дані, перевіряє правила бізнесу та пропонує конкретну дію. Ризиковані операції виконуються лише після підтвердження оператора.</p>
             <div class="cta-row">
-              <a class="btn btn-primary btn-lg" data-app-link="hero">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+              <a class="btn btn-primary btn-lg" href="#scenario" data-app-link="hero">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
               <a class="btn btn-ghost btn-lg" href="#scenario">Подивитися сценарій</a>
             </div>
             <ul class="proof" aria-label="Ключові принципи">
-              <li><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg>Policy guardrails</li>
-              <li><svg class="i" aria-hidden="true"><use href="#i-user" /></svg>Human-in-the-loop</li>
-              <li><svg class="i" aria-hidden="true"><use href="#i-list" /></svg>Audit trail</li>
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg>Policy guardrails</li>
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg>Human-in-the-loop</li>
+              <li lang="en"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg>Audit trail</li>
             </ul>
           </div>
 
-          <figure class="hero-visual reveal">
+          <figure class="hero-visual">
             <div class="console" aria-hidden="true">
               <div class="console-bar">
                 <span class="dots"><i></i><i></i><i></i></span>
@@ -163,12 +163,12 @@
             <h2 id="features-title">Усе, щоб підтримка діяла швидко — і безпечно.</h2>
           </div>
           <div class="features">
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-spark" /></svg></span><h3>Context-aware AI</h3><p>Контекст збирається на сервері: профіль, останні платежі, політика бізнесу та історія розмови.</p></article>
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-bolt" /></svg></span><h3>Action Execution</h3><p>Дії — лише через явний реєстр інструментів із типізованими аргументами. Жодного довільного доступу до бази.</p></article>
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-pulse" /></svg></span><h3>Sentiment Detection</h3><p>Роздратування, грубість і терміновість змінюють пріоритет, тон і ескалацію, але ніколи не авторизують гроші.</p></article>
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg></span><h3>Human-in-the-loop</h3><p>Оператор бачить аналіз, сигнали й перевірки та підтверджує саме ту операцію, яку запропонував AI.</p></article>
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg></span><h3>Policy Guardrails</h3><p>Правила кожного бізнесу задаються окремо: ліміти, вікно дубля, дозволені інструменти.</p></article>
-            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg></span><h3>Case Tracking &amp; Audit</h3><p>Кейс, пропозиції, рішення оператора, запуски моделі й результат дії зберігаються в журналі.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-spark" /></svg></span><h3 lang="en">Context-aware AI</h3><p>Контекст збирається на сервері: профіль, останні платежі, політика бізнесу та історія розмови.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-bolt" /></svg></span><h3 lang="en">Action Execution</h3><p>Дії — лише через явний реєстр інструментів із типізованими аргументами. Жодного довільного доступу до бази.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-pulse" /></svg></span><h3 lang="en">Sentiment Detection</h3><p>Роздратування, грубість і терміновість змінюють пріоритет, тон і ескалацію, але ніколи не авторизують гроші.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg></span><h3 lang="en">Human-in-the-loop</h3><p>Оператор бачить аналіз, сигнали й перевірки та підтверджує саме ту операцію, яку запропонував AI.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg></span><h3 lang="en">Policy Guardrails</h3><p>Правила кожного бізнесу задаються окремо: ліміти, вікно дубля, дозволені інструменти.</p></article>
+            <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg></span><h3 lang="en">Case Tracking &amp; Audit</h3><p>Кейс, пропозиції, рішення оператора, запуски моделі й результат дії зберігаються в журналі.</p></article>
           </div>
         </div>
       </section>
@@ -176,7 +176,7 @@
       <section class="section" id="scenario" aria-labelledby="scenario-title">
         <div class="container">
           <div class="section-head reveal">
-            <p class="eyebrow">Реальний сценарій</p>
+            <p class="eyebrow">Сценарій з MVP</p>
             <h2 id="scenario-title">Подвійне списання: що відбувається всередині.</h2>
             <p class="section-sub">Інтерактивна демонстрація на демонстраційних даних. Пройдіть кроки або перемкніть сценарій.</p>
           </div>
@@ -192,7 +192,7 @@
               <div class="scenario-stage">
                 <div class="phone">
                   <div class="phone-head"><span class="phone-logo"><svg class="i" aria-hidden="true"><use href="#i-flame" /></svg></span><span><b data-scenario-business>NovaPay Fitness</b><small>Підтримка · AI Copilot</small></span></div>
-                  <div class="phone-msgs" data-scenario-chat aria-label="Чат клієнта" aria-live="polite"></div>
+                  <div class="phone-msgs" data-scenario-chat role="log" aria-label="Чат клієнта"></div>
                 </div>
                 <div class="state-card">
                   <div aria-live="polite" class="state-live">
@@ -207,7 +207,7 @@
                   </div>
                 </div>
               </div>
-              <p class="disclaimer"><svg class="i" aria-hidden="true"><use href="#i-lock" /></svg>Демонстраційні дані. У MVP повернення виконує симульований платіжний провайдер: стан змінюється в тестовій базі, реальні кошти не рухаються.</p>
+              <p class="disclaimer"><svg class="i" aria-hidden="true"><use href="#i-lock" /></svg>Демонстраційні дані. У MVP повернення виконує симульований платіжний провайдер: змінюється лише стан демо-середовища, реальні кошти не рухаються.</p>
             </div>
           </div>
         </div>
@@ -222,7 +222,7 @@
           </div>
           <ul class="trust-list">
             <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-lock" /></svg><div><h3>Підтвердження прив'язане до операції</h3><p>Оператор схвалює конкретний платіж і суму. Змінилась операція — схвалення недійсне.</p></div></li>
-            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-repeat" /></svg><div><h3>Без повторного виконання</h3><p>Друге натискання не створить другого повернення: захист і в логіці, і в базі даних.</p></div></li>
+            <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-repeat" /></svg><div><h3>Без повторного виконання</h3><p>Друге натискання не створить другого повернення: схвалення можна використати лише раз, а на один платіж — лише одне повернення.</p></div></li>
             <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-flag" /></svg><div><h3>Чесні результати</h3><p>Якщо провайдер не підтвердив дію, клієнт дізнається саме це — без вигаданого «готово».</p></div></li>
             <li class="reveal"><svg class="i" aria-hidden="true"><use href="#i-card" /></svg><div><h3>Особа — із сесії</h3><p>Номер платежу в тексті повідомлення не відкриває доступ до чужих даних.</p></div></li>
           </ul>
@@ -235,7 +235,7 @@
           <h2 id="final-title">Подивіться, як Eldhall вирішує звернення від початку до кінця.</h2>
           <p>Відкрийте демо: напишіть від імені клієнта і підтвердіть дію як оператор.</p>
           <div class="cta-row cta-center">
-            <a class="btn btn-primary btn-lg" data-app-link="footer">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
+            <a class="btn btn-primary btn-lg" href="#scenario" data-app-link="footer">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
             <a class="btn btn-ghost btn-lg" href="#scenario">Пройти сценарій тут</a>
           </div>
         </div>

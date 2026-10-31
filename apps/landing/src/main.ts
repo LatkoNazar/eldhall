@@ -9,9 +9,9 @@ const href = appLink(import.meta.env.PUBLIC_APP_URL, acquisitionContext())
 
 for (const anchor of document.querySelectorAll<HTMLAnchorElement>('[data-app-link]')) {
   if (!href) {
-    // Without a configured app URL, send visitors to the working walkthrough instead of a dead link.
-    anchor.removeAttribute('aria-disabled')
+    // Without a configured app URL the CTA keeps its working on-page target and says so.
     anchor.href = '#scenario'
+    if (anchor.firstChild?.nodeType === Node.TEXT_NODE) anchor.firstChild.textContent = 'Пройти сценарій '
     continue
   }
   anchor.href = href

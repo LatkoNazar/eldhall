@@ -28,10 +28,9 @@ function detail(step: Step): Node[] {
   }
   for (const check of step.checks ?? []) {
     const row = el('div', `check-row ${check.passed ? 'pass' : 'fail'}`)
-    const body = el('span', undefined, check.label)
-    body.append(el('small', undefined, check.detail))
+    const body = el('span')
+    body.append(el('span', 'visually-hidden', check.passed ? 'Пройдено: ' : 'Не пройдено: '), check.label, el('small', undefined, check.detail))
     row.append(icon(check.passed ? 'i-check' : 'i-x'), body)
-    row.setAttribute('aria-label', `${check.passed ? 'Пройдено' : 'Не пройдено'}: ${check.label}. ${check.detail}`)
     nodes.push(row)
   }
   if (step.facts?.length) {
@@ -75,7 +74,12 @@ export function initScenario(root: ParentNode = document): void {
       button.setAttribute('aria-label', `Крок ${i + 1}: ${item.label}`)
       if (i === index) button.setAttribute('aria-current', 'step')
       if (i < index) button.classList.add('is-done')
-      button.addEventListener('click', () => { index = i; render(true) })
+      button.addEventListener('click', () => {
+        index = i
+        render(true)
+        // The progress list is rebuilt on render; keep keyboard focus on the same step.
+        progress.querySelectorAll('button')[i]?.focus()
+      })
       li.append(button)
       return li
     }))
@@ -84,8 +88,7 @@ export function initScenario(root: ParentNode = document): void {
     const bubbles: Node[] = messages.map(m => el('div', `msg ${m.role === 'customer' ? 'msg-cust' : 'msg-ai'}`, m.text))
     if (step.typing) {
       const typing = el('div', 'msg-typing')
-      typing.setAttribute('aria-label', 'AI аналізує звернення')
-      typing.append(el('i'), el('i'), el('i'))
+      typing.append(el('span', 'visually-hidden', 'AI аналізує звернення'), el('i'), el('i'), el('i'))
       bubbles.push(typing)
     }
     chat.replaceChildren(...bubbles)
@@ -124,7 +127,12 @@ export function initScenario(root: ParentNode = document): void {
       select(tabs[(i + offset + tabs.length) % tabs.length]!, true)
     })
   })
-  prev.addEventListener('click', () => { if (index > 0) { index--; render(true) } })
+  prev.addEventListener('click', () => {
+    if (index === 0) return
+    index--
+    render(true)
+    if (prev.disabled) next.focus()  // a disabled button would drop focus to <body>
+  })
   next.addEventListener('click', () => { index = index === scenario.steps.length - 1 ? 0 : index + 1; render(true) })
 
   render(false)
