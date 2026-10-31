@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Avatar, Badge, Brand, Empty, Icon, Metric, Notice } from '../components/ui'
 import { dateTime } from '../lib/api'
@@ -8,6 +8,7 @@ import { CaseWorkspace } from './Inbox'
 import { Actions } from './Actions'
 import { Insights } from './Insights'
 import { Knowledge, Settings, Team } from './Resources'
+import { AppLink } from '../components/AppLink'
 
 const navigation = [
   { id: 'inbox', label: 'Вхідні', icon: 'inbox', href: '/operator' },
@@ -18,20 +19,38 @@ const navigation = [
   { id: 'settings', label: 'Налаштування', icon: 'settings', href: '/operator/settings' },
 ]
 
-export function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
-  const page = navigation.find(item => item.href === window.location.pathname)?.id ?? 'inbox'
-  const [search, setSearch] = useState('')
+export function Dashboard({ token, location, onLogout }: { token: string; location: string; onLogout: () => void }) {
+  const url = new URL(location, window.location.origin)
+  url.pathname = url.pathname.replace(/\/$/, '') || '/'
+  const routeKey = url.pathname + url.search
+  const page = navigation.find(item => item.href === url.pathname)?.id ?? 'inbox'
+  const [searchState, setSearchState] = useState({ route: routeKey, value: '' })
+  const search = searchState.route === routeKey ? searchState.value : ''
+  const setSearch = (value: string) => setSearchState({ route: routeKey, value })
   const [menuOpen, setMenuOpen] = useState(false)
   const cases = useResource<SupportCase[]>('/cases', token, 4000)
   const metrics = useResource<Metrics>('/metrics', token, 5000)
   const title = navigation.find(item => item.id === page)?.label ?? 'Вхідні'
+  const previousRoute = useRef(routeKey)
+  useEffect(() => {
+    if (previousRoute.current === routeKey) return
+    previousRoute.current = routeKey
+    const frame = window.requestAnimationFrame(() => {
+      const main = document.getElementById('main-content')
+      const target = main?.querySelector<HTMLElement>('h1') ?? main
+      target?.setAttribute('tabindex', '-1')
+      target?.focus({ preventScroll: true })
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [routeKey])
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Перейти до вмісту</a>
     <aside className="sidebar">
       <Brand />
       <button className="mobile-menu" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(value => !value)}>Меню <Icon name="inbox" /></button>
       <nav id="main-nav" className={menuOpen ? 'nav-open' : ''} aria-label="Головна навігація">
-        {navigation.map(item => <a href={item.href} key={item.id} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{metrics.data.cases - metrics.data.byStatus.resolved}</span>}</a>)}
+        {navigation.map(item => <AppLink href={item.href} key={item.id} onClick={() => setMenuOpen(false)} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{metrics.data.cases - metrics.data.byStatus.resolved}</span>}</AppLink>)}
       </nav>
       <div className="sidebar-bottom"><a href="/chat" target="_blank" rel="noreferrer"><Icon name="help" /><span>Клієнтський чат ↗</span></a><div className="sidebar-caption">Підтримка з людським рішенням</div></div>
     </aside>
@@ -41,16 +60,16 @@ export function Dashboard({ token, onLogout }: { token: string; onLogout: () => 
         <div className="operator-profile"><Avatar name="Оператор підтримки" /><span>Оператор<span className="profile-caption">Службовий доступ</span></span><button className="icon-button" aria-label="Вийти з робочого простору" onClick={onLogout}><Icon name="logout" /></button></div>
       </header>
       <main id="main-content" className="page">
-        {page === 'inbox' && <>
+        {page === 'inbox' && <Fragment key={routeKey}>
           <div className="page-heading"><div><h1>Вхідні звернення</h1><p>Кожна розмова — під увагою. Кожне рішення — вчасно.</p></div><button onClick={() => { cases.refresh(); metrics.refresh() }}><Icon name="refresh" />Оновити</button></div>
           {cases.error && <Notice error>{cases.error} {cases.checkedAt && `Останні підтверджені дані: ${dateTime(cases.checkedAt)} (Київ).`} <button className="text-button" onClick={cases.refresh}>Повторити читання</button></Notice>}
           {cases.loading ? <div className="card"><Empty title="Завантажуємо звернення…" /></div> : cases.data && <CaseWorkspace token={token} cases={cases.data} search={search} actionOnly={false} onChanged={() => { cases.refresh(); metrics.refresh() }} />}
-        </>}
-        {page === 'actions' && <Actions token={token} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
-        {page === 'analytics' && <AnalyticsWorkspace token={token} />}
-        {page === 'knowledge' && <Knowledge token={token} />}
-        {page === 'team' && <Team token={token} />}
-        {page === 'settings' && <Settings token={token} />}
+        </Fragment>}
+        {page === 'actions' && <Actions key={routeKey} token={token} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
+        {page === 'analytics' && <AnalyticsWorkspace key={routeKey} token={token} />}
+        {page === 'knowledge' && <Knowledge key={routeKey} token={token} />}
+        {page === 'team' && <Team key={routeKey} token={token} />}
+        {page === 'settings' && <Settings key={routeKey} token={token} />}
       </main>
     </div>
   </div>

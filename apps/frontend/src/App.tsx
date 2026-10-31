@@ -3,12 +3,15 @@ import { Dashboard } from './pages/Dashboard'
 import { CustomerChat } from './pages/CustomerChat'
 import { Brand } from './components/ui'
 import { readSession, saveSession } from './lib/api'
+import { useAppLocation } from './lib/navigation'
+import { AppLink } from './components/AppLink'
 
 export default function App() {
+  const location = useAppLocation()
   const [token, setToken] = useState(() => readSession('support.operator'))
   const [draft, setDraft] = useState('')
-  if (window.location.pathname === '/chat') return <CustomerChat />
-  if (token) return <Dashboard token={token} onLogout={() => { saveSession('support.operator', ''); setToken('') }} />
+  if (new URL(location, window.location.origin).pathname.replace(/\/$/, '') === '/chat') return <CustomerChat />
+  if (token) return <Dashboard token={token} location={location} onLogout={() => { saveSession('support.operator', ''); setToken('') }} />
   return <main className="login-page">
     <div className="login-brand"><Brand /></div>
     <section className="login-card card" aria-labelledby="login-title">
@@ -22,7 +25,7 @@ export default function App() {
         <p className="field-hint">Для власного розгортання використовуйте OPERATOR_TOKEN із серверного .env. Це окремий ключ доступу до робочого простору; ключ Gemini або OpenRouter сюди не підходить.</p>
         <button className="primary full" type="submit">Відкрити робочий простір <span aria-hidden="true">→</span></button>
       </form>
-      <a className="subtle-link" href="/chat">Відкрити клієнтський чат ↗</a>
+      <AppLink className="subtle-link" href="/chat">Відкрити клієнтський чат ↗</AppLink>
     </section>
     <p className="login-footnote">AI пропонує. Людина погоджує. Сервер перевіряє та виконує.</p>
   </main>

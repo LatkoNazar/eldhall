@@ -1,3 +1,4 @@
+import { AppLink } from '../components/AppLink'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
 import { dateTime, errorText, money, request, toolLabels } from '../lib/api'
@@ -92,7 +93,7 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
       <section className="card actions-table-card" ref={tableRegion} tabIndex={-1} aria-label="Список дій AI">
         <div className="tabs actions-tabs" aria-label="Фази дій AI">{(['pending', 'running', 'history'] as const).map(value => <button key={value} className={phase === value ? 'active' : ''} aria-pressed={phase === value} onClick={() => changePhase(value)}>{phaseLabels[value]} <span>{loaded ? counts[value] : '—'}</span></button>)}</div>
         {visible.length ? <div className="table-scroll"><table className="actions-table"><caption className="sr-only">Дії AI: {phaseLabels[phase]}. Кожен рядок — окрема пропозиція.</caption><thead><tr><th scope="col">Клієнт</th><th scope="col">Запропонована дія</th><th scope="col">Сума</th><th scope="col">Статус</th><th scope="col">Час</th></tr></thead><tbody>{visible.map(row => <tr key={row.proposal.id} className={row.proposal.id === selected?.proposal.id ? 'selected-row' : ''}>
-          <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={`Відкрити дію ${toolLabels[row.proposal.tool] ?? row.proposal.tool} для ${row.detail.customer.name}, ${row.proposal.id}`} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
+          <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={`Відкрити дію ${toolLabels[row.proposal.tool] ?? row.proposal.tool} для ${row.detail.customer.name}, ${row.proposal.id}`} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} seed={`${row.detail.customer.businessId}:${row.detail.customer.id}`} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
           <td><strong>{toolLabels[row.proposal.tool] ?? row.proposal.tool}</strong><small>{row.proposal.risk === 'high' ? 'Високий ризик' : 'Низький ризик'}{row.stale ? ' · застарілі дані' : ''}</small></td>
           <td className="action-table-amount">{proposalAmount(row.proposal, row.detail)}</td><td><Badge value={row.proposal.status} /></td><td><time dateTime={row.proposal.createdAt} title={`${dateTime(row.proposal.createdAt)} (Київ)`}>{dateTime(row.proposal.createdAt)}</time></td>
         </tr>)}</tbody></table></div> : <Empty icon="spark" title={!loaded ? 'Завантажуємо дії…' : resource.failed ? 'Частину дій не вдалося завантажити' : query ? 'Дій за цим запитом не знайдено' : phase === 'pending' ? 'Немає дій, що очікують рішення' : phase === 'running' ? 'Зараз жодна дія не виконується' : 'Історія дій поки порожня'}>{loaded && !query && !resource.failed ? 'Звернення без запропонованих дій до цього списку не потрапляють.' : 'Змініть пошук або оновіть дані.'}</Empty>}
@@ -110,7 +111,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
   const proposal = detail.proposals.find(item => item.id === row.proposal.id)
   const events = detail.audit.filter(event => event.data.proposalId === row.proposal.id).slice().sort((left, right) => left.createdAt.localeCompare(right.createdAt))
   return <aside className="card actions-inspector" aria-label="Деталі обраної дії">
-    <div className="actions-inspector-header"><div className="customer-heading"><Avatar name={detail.customer.name} /><div><h2>{detail.customer.name}</h2><span className="muted small">{detail.customer.email}</span><small>Дія #{row.proposal.id.slice(0, 8)}</small></div></div><button className="icon-button" aria-label="Закрити деталі дії" onClick={onClose}><Icon name="close" /></button></div>
+    <div className="actions-inspector-header"><div className="customer-heading"><Avatar name={detail.customer.name} seed={`${detail.customer.businessId}:${detail.customer.id}`} /><div><h2>{detail.customer.name}</h2><span className="muted small">{detail.customer.email}</span><small>Дія #{row.proposal.id.slice(0, 8)}</small></div></div><button className="icon-button" aria-label="Закрити деталі дії" onClick={onClose}><Icon name="close" /></button></div>
     <div className="actions-inspector-label">Деталі дії</div>
     <div className="actions-inspector-body">
       {resource.error && <Notice error>Дані можуть бути застарілими. {resource.error}<button onClick={resource.refresh}>Оновити</button></Notice>}
@@ -123,7 +124,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
         {proposal.decidedBy && <dl className="facts"><dt>Рішення</dt><dd>{proposal.decidedBy}</dd>{proposal.decidedAt && <><dt>Час рішення</dt><dd>{dateTime(proposal.decidedAt)}</dd></>}</dl>}
       </> : <Notice error>Ця дія більше не доступна. Оновіть список, щоб перевірити стан.</Notice>}
       <section className="actions-timeline"><h3>Журнал дії</h3>{events.length ? <ol className="timeline">{events.map(event => <li key={event.id}><strong>{actionEventLabel(event.type)}</strong><small>{event.actor} · {dateTime(event.createdAt)}</small>{typeof event.data.reason === 'string' && <p>{event.data.reason}</p>}</li>)}</ol> : <p className="muted small">Для цієї дії ще немає доступних подій у журналі.</p>}</section>
-      <a className="actions-case-link" href="/operator">Відкрити вхідні звернення <Icon name="arrow" size={16} /></a>
+      <AppLink className="actions-case-link" href="/operator">Відкрити вхідні звернення <Icon name="arrow" size={16} /></AppLink>
     </div>
   </aside>
 }
