@@ -35,6 +35,21 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
   // Customer channel: identity comes only from the X-Customer-Session header, never from message text.
   await app.register(async chat => {
     const session = (headers: Record<string, unknown>) => typeof headers['x-customer-session'] === 'string' ? headers['x-customer-session'] : undefined;
+    // ponytail: per-process memory fixed window; multiple API instances need a shared store (e.g. Redis).
+    const windows = new Map<string, { count: number; resetAt: number }>();
+    const hit = (key: string, max: number, now: number) => {
+      let w = windows.get(key);
+      if (!w || w.resetAt <= now) windows.set(key, w = { count: 0, resetAt: now + 60_000 });
+      return ++w.count > max ? Math.ceil((w.resetAt - now) / 1000) : 0;
+    };
+    chat.addHook('onRequest', async (request, reply) => {
+      if (request.method !== 'POST') return;
+      const now = Date.now();
+      if (windows.size > 10_000) for (const [k, w] of windows) if (w.resetAt <= now) windows.delete(k);
+      const sid = session(request.headers);
+      const retry = Math.max(hit(`ip:${request.ip}`, 60, now), sid ? hit(`s:${sid}`, 20, now) : 0);
+      if (retry) return reply.code(429).header('Retry-After', String(retry)).send({ detail: 'Too many requests' });
+    });
     chat.post('/cases', (request, reply) => guard(reply, async () => {
       const created = await harness.openCase(session(request.headers));
       return reply.code(201).send({ id: created.id, status: created.status });

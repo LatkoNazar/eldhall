@@ -30,7 +30,7 @@ export function argsHash(caseId: string, tool: string, args: unknown): string {
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
 
-const CLAIMS_SUCCESS = /(refund(?:ed)?\b.{0,40}\b(?:complete|completed|processed|issued|sent|done|successful)|\b(?:we|i)(?:'ve| have)?\s+refunded|money.{0,30}(?:returned|sent|refunded)|кошти.{0,30}(?:повернено|повернули|відправлено)|(?:ми|я)\s+повернул|повернення\s+(?:виконано|оформлено|завершено|успішне))/i;
+const CLAIMS_SUCCESS = /(refund(?:ed)?\b.{0,40}\b(?:complete|completed|processed|issued|sent|done|successful)|\b(?:we|i)(?:'ve| have)?\s+refunded|money.{0,30}(?:returned|sent|refunded)|кошти.{0,30}(?:повернено|повернули|відправлено)|(?:ми|я)\s+повернул|повернення\s+(?:виконано|оформлено|завершено|успішне)|back on your card|already back|\b(?:we|i)(?:'ve| have)?\s+cancell?ed\b.{0,30}subscription|subscription\s+(?:has been|was|is)\s+cancell?ed|вже на вашій картці|гроші\s+повернуто|скасува(?:в|ла|ли)\s+(?:вашу\s+)?підписку|підписк[уа]\s+скасовано)/i;
 
 export class SupportHarness {
   constructor(private readonly deps: HarnessDeps) {}
@@ -216,20 +216,24 @@ export class SupportHarness {
     } finally { clearTimeout(timer); if (classifierWatch) clearInterval(classifierWatch); }
   }
 
-  private async policyContext(caseId: string, customer: Customer): Promise<PolicyContext> {
+  private async policyContext(customer: Customer): Promise<PolicyContext> {
     const { store } = this.deps;
+    // Customer-wide: a second case must not open a parallel proposal for the same payment.
+    // ponytail: scans all cases; add a store query by customerId if case volume grows.
+    const cases = (await store.listCases()).filter(c => c.customerId === customer.id);
+    const proposals = (await Promise.all(cases.map(c => store.proposals(c.id)))).flat();
     return {
       business: (await store.business(customer.businessId))!,
       customer,
       payments: await store.payments(customer.id, 50),
       refunds: await store.refunds(customer.id),
-      openProposals: (await store.proposals(caseId)).filter(p => ['pending', 'approved', 'executing', 'unknown'].includes(p.status)),
+      openProposals: proposals.filter(p => ['pending', 'approved', 'executing', 'unknown'].includes(p.status)),
     };
   }
 
   private async propose(caseId: string, customer: Customer, tool: string, args: Record<string, unknown>, lease: TurnLease): Promise<Proposal> {
     const { store } = this.deps;
-    const policy = evaluatePolicy(tool, args, await this.policyContext(caseId, customer));
+    const policy = evaluatePolicy(tool, args, await this.policyContext(customer));
     const proposal = await store.createProposal({
       caseId, tool, args, argsHash: argsHash(caseId, tool, args),
       risk: isToolName(tool) ? TOOLS[tool].risk : 'high',
@@ -281,7 +285,7 @@ export class SupportHarness {
     const { store, provider } = this.deps;
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
-    const ctx = await this.policyContext(proposal.caseId, customer);
+    const ctx = await this.policyContext(customer);
     ctx.openProposals = ctx.openProposals.filter(p => p.id !== proposal.id);
     const policy = evaluatePolicy(proposal.tool, proposal.args, ctx);
     const finish = async (status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, caseStatus: SupportCase['status'], message: string | null) => {
@@ -332,6 +336,12 @@ export class SupportHarness {
     // Financial outcomes come only from verified execution, never generated prose.
     if (!proposal && ['duplicate_charge', 'refund_request'].includes(decision.intent)) {
       return lead + (uk ? 'Я не можу підтвердити автоматичне повернення. Підкажіть дату та суму списання — за потреби підключимо спеціаліста.' : "I cannot confirm an automatic refund. Please tell me the date and amount of the charge so a specialist can review it.");
+    }
+    if (!proposal && decision.intent === 'cancel_subscription') {
+      return lead + (uk ? 'Я не можу скасувати підписку автоматично. Спеціаліст розгляне ваш запит і відповість тут.' : 'I cannot cancel the subscription automatically. A specialist will review your request and reply here.');
+    }
+    if (!proposal && decision.intent === 'billing_question') {
+      return lead + (uk ? 'Дякую за питання щодо оплати. Підкажіть дату та суму списання — я перевірю, а за потреби підключу спеціаліста.' : 'Thanks for your billing question. Please tell me the date and amount of the charge so I can check it; a specialist will join if needed.');
     }
     if (!decision.reply || CLAIMS_SUCCESS.test(decision.reply)) {
       return lead + (uk ? 'Дякую! Я перевіряю ваше звернення, спеціаліст підключиться за потреби.' : "Thanks! I'm looking into this and a specialist will join if needed.");

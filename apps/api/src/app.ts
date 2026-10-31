@@ -19,6 +19,8 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     logger: logging ? { redact: ['req.headers.authorization'], serializers: { err: () => ({ type: 'Error', message: 'Internal error', stack: '' }) } } : false,
     ajv: { customOptions: { removeAdditional: false, coerceTypes: false, useDefaults: true } },
     bodyLimit: 1048576,
+    // One hop: Caddy sets X-Forwarded-For; without this every customer shares Caddy's IP in the chat rate limit.
+    trustProxy: (_address: string, hop: number) => hop === 0,
   });
   app.addHook('onRequest', async (request, reply) => {
     if (!hostAllowed(request.headers.host, settings.allowedHosts)) {
