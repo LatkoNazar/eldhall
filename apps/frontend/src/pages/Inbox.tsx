@@ -96,9 +96,11 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
       // Analytics follows the server-confirmed status only; it never blocks the decision.
       const tool = proposal.tool === 'refund_payment' || proposal.tool === 'escalate_to_human' ? proposal.tool : null
       const outcome = result?.proposal?.status
-      if (tool && action === 'approve' && outcome === 'approved') currentAnalytics().track('approval_granted', { tool })
-      if (tool && action === 'execute' && outcome === 'executed') currentAnalytics().track('action_executed', { tool })
-      if (tool && action === 'execute' && (outcome === 'failed' || outcome === 'unknown')) currentAnalytics().track('action_failed', { tool, outcome })
+      try {
+        if (tool && action === 'approve' && outcome === 'approved') currentAnalytics().track('approval_granted', { tool })
+        if (tool && action === 'execute' && outcome === 'executed') currentAnalytics().track('action_executed', { tool })
+        if (tool && action === 'execute' && (outcome === 'failed' || outcome === 'unknown')) currentAnalytics().track('action_failed', { tool, outcome })
+      } catch { /* analytics must never change the decision outcome */ }
       setLockedStatus(proposal.status)
       setNotice(action === 'approve' ? 'Погоджено. Виконання потребує окремої дії.' : action === 'execute' ? 'Сервер підтвердив завершення запиту. Результат — у статусі дії та журналі.' : 'Погодження відхилено.')
       setRejecting(false)
