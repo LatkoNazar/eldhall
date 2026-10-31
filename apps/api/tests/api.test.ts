@@ -50,13 +50,13 @@ test('HTTP contract, strict validation, authorization, not found and queue failu
 test('liveness, readiness redaction, host filtering and CORS', async () => {
   const app = await createApp(settingsFrom({ CORS_ORIGINS: '["https://ui.example.com"]' }), {
     store: new MemoryStore(), dispatch: async () => undefined,
-    checks: { postgres: async () => undefined, redis: async () => { throw new Error('secret-password'); }, rabbitmq: async () => undefined },
+    checks: { postgres: async () => undefined, redis: async () => { throw new Error('secret-password'); } },
   });
   try {
     assert.deepEqual((await app.inject({ url: '/health/live' })).json(), { status: 'ok' });
     const ready = await app.inject({ url: '/health/ready' });
     assert.equal(ready.statusCode, 503);
-    assert.deepEqual(ready.json(), { status: 'unavailable', dependencies: { postgres: 'ok', redis: 'unavailable', rabbitmq: 'ok' } });
+    assert.deepEqual(ready.json(), { status: 'unavailable', dependencies: { postgres: 'ok', redis: 'unavailable' } });
     assert.equal(ready.body.includes('secret-password'), false);
     assert.equal((await app.inject({ url: '/health/live', headers: { host: 'untrusted.example' } })).statusCode, 400);
     const origin = await app.inject({ url: '/health/live', headers: { origin: 'https://ui.example.com' } });
@@ -74,8 +74,8 @@ test('liveness, readiness redaction, host filtering and CORS', async () => {
 });
 
 test('healthy readiness and production docs disabled', async () => {
-  const app = await createApp(settingsFrom({ ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), RABBITMQ_PASSWORD: 'q'.repeat(32), API_TOKEN: 't'.repeat(32) }), {
-    store: new MemoryStore(), dispatch: async () => undefined, checks: { postgres: async () => 1, redis: async () => 'PONG', rabbitmq: async () => undefined },
+  const app = await createApp(settingsFrom({ ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32) }), {
+    store: new MemoryStore(), dispatch: async () => undefined, checks: { postgres: async () => 1, redis: async () => 'PONG' },
   });
   try {
     assert.equal((await app.inject({ url: '/health/ready' })).statusCode, 200);

@@ -47,10 +47,6 @@ services:
   redis:
     ports:
       - "127.0.0.1:${REDIS_LOCAL_PORT:-6379}:6379"
-  rabbitmq:
-    ports:
-      - "127.0.0.1:${RABBITMQ_LOCAL_PORT:-5672}:5672"
-      - "127.0.0.1:${RABBITMQ_MANAGEMENT_LOCAL_PORT:-15672}:15672"
   api:
     build:
       target: development

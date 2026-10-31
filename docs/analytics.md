@@ -1,7 +1,7 @@
 # Лендинг, застосунок та Umami
 
 `apps/landing` — статичний TypeScript/Vite лендинг; `apps/frontend` — React-застосунок;
-`apps/api` — Node.js/TypeScript API та окремий RabbitMQ worker у цій гілці (`main` зберігає Python/Celery). `packages/analytics` — спільний браузерний
+`apps/api` — Node.js/TypeScript API та окремий BullMQ worker у цій гілці (`main` зберігає Python/Celery). `packages/analytics` — спільний браузерний
 SDK без окремого сервера. Umami 3.4.1 і `umami-db` PostgreSQL 17.11 входять до Compose.
 Аналітика не є залежністю API/readiness і не повинна блокувати роботу лендингу або застосунку.
 
@@ -81,7 +81,7 @@ SDK переносить тільки `utm_source`, `utm_medium`, `utm_campaign`
 
 Оновлюючи вже запущений проєкт, додайте лише нові Umami-ключі й порти до наявного `.env`
 через приватний редактор або менеджер секретів. Не підміняйте старі credentials PostgreSQL,
-Redis, RabbitMQ або `API_TOKEN` новим згенерованим файлом. На volume з уже ініціалізованою
+Redis або `API_TOKEN` новим згенерованим файлом. На volume з уже ініціалізованою
 базою зміна env-пароля сама по собі не змінює пароль користувача PostgreSQL.
 
 ## Публічні домени

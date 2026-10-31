@@ -27,7 +27,7 @@ async function request(path, body) {
 
 async function main() {
   const ready = await request('/health/ready');
-  for (const name of ['postgres', 'redis', 'rabbitmq']) {
+  for (const name of ['postgres', 'redis']) {
     if (ready.dependencies[name] !== 'ok') throw new Error(`Dependency ${name} is unavailable`);
   }
   for (const [operation, text, expected] of [
@@ -45,6 +45,6 @@ async function main() {
     }
     if (result?.status !== 'succeeded' || result.result !== expected) throw new Error('Unexpected background job result');
   }
-  console.log('Smoke OK: API, PostgreSQL, RabbitMQ, Node worker and Redis readiness');
+  console.log('Smoke OK: API, PostgreSQL, BullMQ worker and Redis readiness');
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : 'Smoke failed'); process.exitCode = 1; });

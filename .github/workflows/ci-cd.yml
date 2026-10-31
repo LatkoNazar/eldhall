@@ -46,10 +46,14 @@ jobs:
             apps/api/package-lock.json
             apps/frontend/package-lock.json
             apps/landing/package-lock.json
+      - name: Install locked web dependencies
+        # Frontend integration tests import the real landing module.
+        run: |
+          npm --prefix apps/frontend ci
+          npm --prefix apps/landing ci
       - name: Check and build frontend
         working-directory: apps/frontend
         run: |
-          npm ci
           npm run lint
           npm run typecheck
           npm run test
@@ -57,7 +61,6 @@ jobs:
       - name: Check and build landing
         working-directory: apps/landing
         run: |
-          npm ci
           npm run lint
           npm run typecheck
           npm run build
@@ -84,7 +87,7 @@ jobs:
           docker build -f apps/landing/Dockerfile --target production --tag "$LANDING_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
       - name: Start dependencies and migrate
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis rabbitmq umami-db umami
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis umami-db umami
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
       - name: Start application and exercise real background job
         run: |

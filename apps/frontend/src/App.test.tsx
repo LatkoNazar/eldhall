@@ -5,7 +5,7 @@ import App from './App'
 
 const healthy = {
   status: 'ok',
-  dependencies: { postgres: 'ok', redis: 'ok', rabbitmq: 'ok' },
+  dependencies: { postgres: 'ok', redis: 'ok' },
 }
 
 function response(body: unknown = healthy, status = 200) {
@@ -18,7 +18,7 @@ describe('backend connection', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Перевіряємо підключення' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Перевіряємо…' })).toBeDisabled()
-    expect(screen.getAllByText('Перевірка…')).toHaveLength(3)
+    expect(screen.getAllByText('Перевірка…')).toHaveLength(2)
   })
 
   it('checks the same-origin endpoint and displays successful dependencies', async () => {
@@ -27,7 +27,8 @@ describe('backend connection', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Усе працює' })).toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/health/ready', expect.objectContaining({ signal: expect.any(AbortSignal), cache: 'no-store' }))
-    expect(screen.getAllByText('Доступний')).toHaveLength(3)
+    expect(screen.getAllByText('Доступний')).toHaveLength(2)
+    expect(screen.queryByText('RabbitMQ')).not.toBeInTheDocument()
     expect(screen.getByText(/Оновлено о/)).toBeInTheDocument()
   })
 
@@ -48,11 +49,12 @@ describe('backend connection', () => {
     expect(await screen.findByRole('heading', { name: 'Частина сервісів недоступна' })).toBeInTheDocument()
     const redis = screen.getByText('Redis').closest('li')!
     expect(within(redis).getByText('Недоступний')).toBeInTheDocument()
-    expect(screen.getAllByText('Доступний')).toHaveLength(2)
+    expect(screen.getAllByText('Доступний')).toHaveLength(1)
   })
 
   it.each([
     ['invalid JSON shape', () => response({ status: 'ok' })],
+    ['missing Redis dependency', () => response({ status: 'ok', dependencies: { postgres: 'ok' } })],
     ['HTTP failure', () => response({ detail: 'Error' }, 500)],
     ['HTML instead of API JSON', () => new Response('<html></html>')],
   ])('shows a connection error for %s', async (_name, result) => {

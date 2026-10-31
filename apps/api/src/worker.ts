@@ -1,74 +1,62 @@
 import { hostname } from 'node:os';
+import { createNodeRedisClient, Worker } from 'bullmq';
 import { getSettings } from './core/config.js';
-import { JOB_QUEUE, publishConfirmed } from './core/queue.js';
-import { processMessage } from './core/worker-runtime.js';
-import { closeWorkerResources, openWorkerResources, retryWorkerStartup } from './core/worker-startup.js';
+import { createPool } from './core/database.js';
+import { createWorkerRedis, jobOptions, workerHeartbeatKey, type JobMessage } from './core/queue.js';
 import { PostgresJobStore } from './modules/jobs/repository.js';
+import { persistQueueFailure, processJob } from './modules/jobs/processor.js';
 
 async function main() {
   const settings = getSettings();
-  const resources = await retryWorkerStartup(() => openWorkerResources(settings));
-  const { pool, cache, resultCache, connection, channel } = resources;
+  const pool = createPool(settings);
   const store = new PostgresJobStore(pool);
-  const key = `node-worker:${hostname()}`;
-  const inflight = new Set<Promise<void>>();
+  const redis = createWorkerRedis(settings);
+  const options = jobOptions(settings);
+  const worker = new Worker<JobMessage, string | null>(settings.bullmqQueue, job => processJob(job, store), {
+    connection: createNodeRedisClient(redis), prefix: settings.bullmqPrefix,
+    concurrency: settings.workerConcurrency, autorun: false,
+    removeOnComplete: options.removeOnComplete,
+    removeOnFail: options.removeOnFail,
+  });
+  const key = workerHeartbeatKey(settings, hostname());
   let closing = false;
-  let consumerTag: string | undefined;
-  let timer: NodeJS.Timeout | undefined;
   let heartbeatRunning = false;
-  let brokerReady = true;
+  const timer = setInterval(() => void heartbeat(), 10000);
+  const finalizers = new Set<Promise<void>>();
+  worker.on('error', () => console.warn('BullMQ worker unavailable; waiting for recovery'));
+  worker.on('failed', job => {
+    if (!job) return;
+    const finalizer = persistQueueFailure(job, store)
+      .catch(() => console.warn('SQL failure state unavailable; a later job read will reconcile retained queue state'))
+      .finally(() => finalizers.delete(finalizer));
+    finalizers.add(finalizer);
+  });
+  worker.on('stalled', id => console.warn(`BullMQ recovered stalled job ${id}`));
 
-  const close = async (failed = false) => {
+  async function heartbeat() {
+    if (closing || heartbeatRunning || !redis.isReady || !worker.isRunning()) return;
+    heartbeatRunning = true;
+    try {
+      await pool.query('SELECT 1');
+      await redis.withAbortSignal(AbortSignal.timeout(3000)).set(key, String(Date.now()), { EX: 40 });
+    } catch { console.warn('Worker heartbeat unavailable'); }
+    finally { heartbeatRunning = false; }
+  }
+  const close = async () => {
     if (closing) return;
     closing = true;
-    if (failed) process.exitCode = 1;
-    if (timer) clearInterval(timer);
-    if (consumerTag) await channel.cancel(consumerTag).catch(() => undefined);
-    let shutdownTimeout: NodeJS.Timeout | undefined;
-    await Promise.race([
-      Promise.allSettled([...inflight]),
-      new Promise<void>(resolve => { shutdownTimeout = setTimeout(resolve, 25000); }),
-    ]);
-    if (shutdownTimeout) clearTimeout(shutdownTimeout);
-    if (cache.isReady) await cache.del(key).catch(() => undefined);
-    await closeWorkerResources(resources);
+    clearInterval(timer);
+    await worker.close();
+    await Promise.allSettled([...finalizers]);
+    if (redis.isReady) await redis.withAbortSignal(AbortSignal.timeout(3000)).del(key).catch(() => undefined);
+    if (redis.isOpen) redis.destroy();
+    await pool.end();
   };
-  const fail = () => { brokerReady = false; void close(true); };
-  connection.on('close', () => { if (!closing) fail(); });
-  channel.on('error', fail);
-  channel.on('close', () => { if (!closing) fail(); });
-  cache.on('error', fail);
-  resultCache.on('error', fail);
-  process.on('SIGINT', () => void close());
-  process.on('SIGTERM', () => void close());
-
-  try {
-    const consumer = await channel.consume(JOB_QUEUE, message => {
-      if (!message) { fail(); return; }
-      const work = processMessage(message, {
-        store, channel,
-        publish: (payload, attempt) => publishConfirmed(channel, payload, attempt),
-        onRetry: (id, attempt) => console.warn(`Background job retry confirmed: ${id} attempt=${attempt}`),
-        cacheResult: async (id, result) => { await resultCache.withAbortSignal(AbortSignal.timeout(3000)).set(`node-task:${id}`, JSON.stringify({ status: 'SUCCESS', result }), { EX: 3600 }); },
-      }).catch(() => { if (!closing) fail(); }).finally(() => { inflight.delete(work); });
-      inflight.add(work);
-    }, { noAck: false });
-    consumerTag = consumer.consumerTag;
-    const heartbeat = async () => {
-      if (closing || heartbeatRunning || !brokerReady) return;
-      heartbeatRunning = true;
-      try {
-        await pool.query('SELECT 1');
-        await cache.withAbortSignal(AbortSignal.timeout(3000)).set(key, String(Date.now()), { EX: 40 });
-      } catch { fail(); }
-      finally { heartbeatRunning = false; }
-    };
-    await heartbeat();
-    if (!closing) timer = setInterval(() => void heartbeat(), 10000);
-    console.log(`Node worker consuming ${JOB_QUEUE}`);
-  } catch {
-    await close(true);
-    throw new Error('Worker startup failed; verify configuration and dependencies');
-  }
+  process.on('SIGINT', () => { void close().catch(() => { process.exitCode = 1; }); });
+  process.on('SIGTERM', () => { void close().catch(() => { process.exitCode = 1; }); });
+  void worker.run().catch(() => { process.exitCode = 1; void close().catch(() => console.error('Worker cleanup unavailable')); });
+  await worker.waitUntilReady();
+  await heartbeat();
+  console.log(`BullMQ worker consuming ${settings.bullmqQueue}`);
 }
 main().catch(() => { console.error('Worker stopped; verify configuration and dependencies'); process.exitCode = 1; });

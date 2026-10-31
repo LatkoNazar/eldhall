@@ -12,11 +12,14 @@ export interface Settings {
   redisHost: string;
   redisPort: number;
   redisPassword: string;
-  rabbitmqHost: string;
-  rabbitmqPort: number;
-  rabbitmqUser: string;
-  rabbitmqPassword: string;
-  rabbitmqVhost: string;
+  bullmqDb: number;
+  bullmqPrefix: string;
+  bullmqQueue: string;
+  bullmqAttempts: number;
+  bullmqBackoffMs: number;
+  bullmqRetentionCount: number;
+  bullmqCompletedRetentionSeconds: number;
+  bullmqFailedRetentionSeconds: number;
   apiToken: string;
   allowedHosts: string[];
   corsOrigins: string[];
@@ -72,18 +75,25 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     redisHost: value('REDIS_HOST', 'redis'),
     redisPort: integer('REDIS_PORT', '6379'),
     redisPassword: value('REDIS_PASSWORD', 'development-only'),
-    rabbitmqHost: value('RABBITMQ_HOST', 'rabbitmq'),
-    rabbitmqPort: integer('RABBITMQ_PORT', '5672'),
-    rabbitmqUser: value('RABBITMQ_USER', 'app'),
-    rabbitmqPassword: value('RABBITMQ_PASSWORD', 'development-only'),
-    rabbitmqVhost: value('RABBITMQ_VHOST', 'app'),
+    bullmqDb: integer('BULLMQ_DB', '2', 15),
+    bullmqPrefix: value('BULLMQ_PREFIX', 'node-bullmq'),
+    bullmqQueue: value('BULLMQ_QUEUE', 'jobs-transform-v1'),
+    bullmqAttempts: integer('BULLMQ_ATTEMPTS', '4', 10),
+    bullmqBackoffMs: integer('BULLMQ_BACKOFF_MS', '1000', 60000),
+    bullmqRetentionCount: integer('BULLMQ_RETENTION_COUNT', '1000', 100000),
+    bullmqCompletedRetentionSeconds: integer('BULLMQ_COMPLETED_RETENTION_SECONDS', '3600', 31536000),
+    bullmqFailedRetentionSeconds: integer('BULLMQ_FAILED_RETENTION_SECONDS', '86400', 31536000),
     apiToken: value('API_TOKEN', ''),
     allowedHosts: array('ALLOWED_HOSTS', '["localhost","127.0.0.1","testserver"]'),
     corsOrigins: array('CORS_ORIGINS', '[]'),
-    workerConcurrency: integer('WORKER_CONCURRENCY', value('CELERY_CONCURRENCY', '2'), 64),
+    workerConcurrency: integer('WORKER_CONCURRENCY', '2', 64),
   };
+  if (settings.bullmqDb < 2) throw new Error('BULLMQ_DB must isolate the queue from legacy Redis DB0/DB1');
+  for (const [name, configured] of [['BULLMQ_PREFIX', settings.bullmqPrefix], ['BULLMQ_QUEUE', settings.bullmqQueue]]) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(configured!)) throw new Error(`${name} must contain 1..64 letters, digits, hyphens or underscores`);
+  }
   if (settings.environment === 'production') {
-    if ([settings.postgresPassword, settings.redisPassword, settings.rabbitmqPassword].some(secret => secret.length < 16 || secret === 'development-only')) {
+    if ([settings.postgresPassword, settings.redisPassword].some(secret => secret.length < 16 || secret === 'development-only')) {
       throw new Error('Production service passwords must contain at least 16 characters');
     }
     if (settings.apiToken.length < 32) throw new Error('Production API_TOKEN must contain at least 32 characters');

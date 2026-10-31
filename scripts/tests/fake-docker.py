@@ -28,12 +28,7 @@ if args and args[0] == "compose":
         if value in {"config", "up", "run", "exec", "ps", "logs", "stop", "rm"}
     )
     composition = Path(args[args.index("-f") + 1])
-    services = ["postgres", "redis", "rabbitmq", "api", "worker", "migrate"]
-    if re.search(r"^  frontend:", composition.read_text(), re.MULTILINE):
-        services.append("frontend")
-    for service in ("landing", "umami-db", "umami"):
-        if re.search(rf"^  {service}:", composition.read_text(), re.MULTILINE):
-            services.append(service)
+    services = re.findall(r"^  ([a-z][a-z0-9-]*):", composition.read_text(), re.MULTILINE)
     if any(value.endswith("compose.caddy.yaml") for value in args):
         services.append("caddy")
 with Path(os.environ["FAKE_DOCKER_LOG"]).open("a") as handle:
@@ -55,6 +50,9 @@ fail = (
     if os.environ.get("FAKE_FAIL_IMAGE", os.environ.get("APP_IMAGE")) == os.environ.get("APP_IMAGE")
     else None
 )
+if command == "up" and "rabbitmq" in args and "rabbitmq" not in services:
+    print("RabbitMQ is absent from this release", file=sys.stderr)
+    sys.exit(2)
 if command == "config":
     if fail == "config":
         sys.exit(1)

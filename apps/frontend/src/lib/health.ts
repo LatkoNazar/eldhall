@@ -1,7 +1,6 @@
 export const serviceNames = {
   postgres: 'PostgreSQL',
   redis: 'Redis',
-  rabbitmq: 'RabbitMQ',
 } as const
 
 export type Service = keyof typeof serviceNames

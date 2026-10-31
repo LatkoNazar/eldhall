@@ -37,12 +37,12 @@ class EnvironmentGenerationTests(unittest.TestCase):
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual(values["PROJECT_NAME"], name)
                 self.assertNotIn("COMPOSE_PROJECT_NAME", values)
+                self.assertFalse(any(key.startswith(("RABBITMQ_", "CELERY_")) for key in values))
                 self.assertEqual(values["ENVIRONMENT"], "production")
                 self.assertEqual(json.loads(values["ALLOWED_HOSTS"])[0], "api.example.com")
                 for key in (
                     "POSTGRES_PASSWORD",
                     "REDIS_PASSWORD",
-                    "RABBITMQ_PASSWORD",
                     "API_TOKEN",
                     "UMAMI_POSTGRES_PASSWORD",
                     "UMAMI_APP_SECRET",
@@ -87,6 +87,15 @@ class EnvironmentGenerationTests(unittest.TestCase):
             self.assertEqual(values["FRONTEND_PORT"], "18001")
             self.assertEqual(values["LANDING_PORT"], "18002")
             self.assertEqual(values["UMAMI_PORT"], "18003")
+            self.assertEqual(values["WORKER_CONCURRENCY"], "2")
+            self.assertEqual(values["BULLMQ_DB"], "2")
+            self.assertEqual(values["BULLMQ_PREFIX"], "node-bullmq")
+            self.assertEqual(values["BULLMQ_QUEUE"], "jobs-transform-v1")
+            self.assertEqual(values["BULLMQ_ATTEMPTS"], "4")
+            self.assertEqual(values["BULLMQ_BACKOFF_MS"], "1000")
+            self.assertEqual(values["BULLMQ_RETENTION_COUNT"], "1000")
+            self.assertEqual(values["BULLMQ_COMPLETED_RETENTION_SECONDS"], "3600")
+            self.assertEqual(values["BULLMQ_FAILED_RETENTION_SECONDS"], "86400")
             self.assertEqual(values["PUBLIC_APP_URL"], "http://localhost:18001")
             self.assertEqual(values["PUBLIC_UMAMI_WEBSITE_ID"], "")
             self.assertNotIn("DOMAIN", values)
@@ -94,7 +103,6 @@ class EnvironmentGenerationTests(unittest.TestCase):
             for key in (
                 "POSTGRES_PASSWORD",
                 "REDIS_PASSWORD",
-                "RABBITMQ_PASSWORD",
                 "API_TOKEN",
                 "UMAMI_POSTGRES_PASSWORD",
                 "UMAMI_APP_SECRET",

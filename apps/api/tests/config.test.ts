@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { environmentFiles, loadEnvironment, settingsFrom } from '../src/core/config.js';
-import { brokerOptions } from '../src/core/queue.js';
+import { createWorkerRedis, jobOptions } from '../src/core/queue.js';
 import { hostAllowed, tokenMatches } from '../src/core/auth.js';
 
 test('environment discovery and precedence from root, package and standalone', () => {
@@ -28,7 +28,7 @@ test('environment discovery and precedence from root, package and standalone', (
 test('production requires strong credentials, token and explicit hosts without echoing secrets', () => {
   const production = { ENVIRONMENT: 'production' };
   assert.throws(() => settingsFrom(production), /passwords/);
-  const credentials = { ...production, POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), RABBITMQ_PASSWORD: 'q'.repeat(32) };
+  const credentials = { ...production, POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32) };
   assert.throws(() => settingsFrom(credentials), /API_TOKEN/);
   assert.throws(() => settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["*"]' }), /ALLOWED_HOSTS/);
   assert.throws(() => settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '[]' }), /ALLOWED_HOSTS/);
@@ -38,14 +38,20 @@ test('production requires strong credentials, token and explicit hosts without e
   }
 });
 
-test('AMQP options retain credentials and compensate the library virtual-host unescape', () => {
+test('Redis queue uses isolated storage, resilient worker options and bounded retention', () => {
   const password = 'a:@/+#%? $password';
-  const settings = settingsFrom({ POSTGRES_PASSWORD: password, REDIS_PASSWORD: password, RABBITMQ_PASSWORD: password, RABBITMQ_USER: 'user@name', RABBITMQ_VHOST: 'my/vhost' });
+  const settings = settingsFrom({ POSTGRES_PASSWORD: password, REDIS_PASSWORD: password });
   assert.equal(settings.postgresPassword, password);
   assert.equal(settings.redisPassword, password);
-  assert.deepEqual(brokerOptions(settings), { protocol: 'amqp', hostname: 'rabbitmq', port: 5672, username: 'user@name', password, vhost: 'my%2Fvhost', heartbeat: 15 });
-  const literalPercent = brokerOptions(settingsFrom({ RABBITMQ_VHOST: 'tenant%2Fprod' }));
-  assert.equal(decodeURIComponent(literalPercent.vhost), 'tenant%2Fprod');
+  assert.equal(settings.bullmqDb, 2);
+  assert.equal(settings.bullmqPrefix, 'node-bullmq');
+  const worker = createWorkerRedis(settings);
+  assert.equal(worker.options?.password, password);
+  assert.equal(worker.options?.database, 2);
+  assert.equal(worker.options?.disableOfflineQueue, false);
+  assert.equal(typeof worker.options?.socket?.reconnectStrategy, 'function');
+  assert.deepEqual(jobOptions(settings), { attempts: 4, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: { age: 3600, count: 1000 }, removeOnFail: { age: 86400, count: 1000 } });
+  for (const env of [{ BULLMQ_DB: '1' }, { BULLMQ_DB: '16' }, { BULLMQ_PREFIX: 'bad:prefix' }, { BULLMQ_QUEUE: '' }, { BULLMQ_RETENTION_COUNT: '0' }, { BULLMQ_ATTEMPTS: '11' }, { BULLMQ_COMPLETED_RETENTION_SECONDS: '0' }]) assert.throws(() => settingsFrom(env));
 });
 
 test('Bearer parser rejects missing scheme, Basic, wrong token and extra whitespace', () => {

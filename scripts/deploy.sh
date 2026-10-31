@@ -95,7 +95,7 @@ rollback_on_error() {
   exit "$result"
 }
 trap rollback_on_error ERR
-"${compose[@]}" up -d --wait --wait-timeout 180 postgres redis rabbitmq
+start_dependencies "$services" "${compose[@]}"
 if [[ -n "$previous" && -f "$previous/compose.yaml" ]]; then
   backup="$root/backups/pre-$sha-$(date -u +%Y%m%dT%H%M%SZ).dump"
   "${compose[@]}" exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"

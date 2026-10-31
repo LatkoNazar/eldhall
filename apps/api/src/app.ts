@@ -5,11 +5,11 @@ import swaggerUi from '@fastify/swagger-ui';
 import type { Settings } from './core/config.js';
 import { hostAllowed, tokenMatches } from './core/auth.js';
 import type { JobStore } from './modules/jobs/repository.js';
-import { jobCreateSchema, jobReadSchema, type JobCreate } from './modules/jobs/schema.js';
+import { jobCreateSchema, jobReadSchema, type JobCreate, type Job } from './modules/jobs/schema.js';
 import { createJob, QueueUnavailable } from './modules/jobs/service.js';
 import { readiness, type Checks } from './modules/system/health.js';
 
-export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks }
+export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks; readJob?: (id: string) => Promise<Job | null> }
 
 export async function createApp(settings: Settings, dependencies: AppDependencies, logging = false) {
   const app = Fastify({
@@ -82,7 +82,7 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     jobs.get<{ Params: { jobId: string } }>('/:jobId', {
       schema: { params: { type: 'object', required: ['jobId'], properties: { jobId: { type: 'string', format: 'uuid' } } }, response: { 200: jobReadSchema } },
     }, async (request, reply) => {
-      const job = await dependencies.store.find(request.params.jobId);
+      const job = await (dependencies.readJob ?? dependencies.store.find.bind(dependencies.store))(request.params.jobId);
       if (!job) return reply.code(404).send({ detail: 'Job not found' });
       return job;
     });

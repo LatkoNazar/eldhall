@@ -20,7 +20,7 @@ the real MVP may have grown beyond this starter screen.
 ## Current browser surface
 
 React/Vite renders the Starter page at `/`; there is no frontend router or business CRUD yet.
-The visible state card calls `GET /health/ready` and shows PostgreSQL, Redis and RabbitMQ.
+The visible state card calls `GET /health/ready` and shows exactly PostgreSQL and Redis on the BullMQ Node variant.
 It displays `Усе працює`, a degraded dependency state, or `Не вдалося підключитися`.
 The actual refresh button is `Перевірити ще раз`, disabled as `Перевіряємо…` while loading.
 For Playwright, prefer `getByRole('button', { name: 'Перевірити ще раз' })` and headings
@@ -46,7 +46,7 @@ stack when available; verify its origin and current branch first.
 
 The commands below describe the Node variant; recheck the current README and Compose
 services on every invocation. The demo workflow is language-agnostic. Never consume
-existing Celery queue messages with the Node worker; drain and stop the prior stack
+existing Celery or historical Node AMQP messages with the BullMQ worker; drain and stop the prior stack
 before switching implementations against an existing database.
 Docker Compose requires v2.24+ according to that README. From the repository root, for a
 fresh local setup only, copy `.env.example` if `.env` does not already exist. Preserve the
@@ -55,7 +55,7 @@ existing project name and credentials; do not regenerate an established environm
 ```powershell
 if (-not (Test-Path -LiteralPath '.env')) { Copy-Item -LiteralPath '.env.example' -Destination '.env' }
 docker compose -f compose.yaml -f compose.dev.yaml build
-docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis rabbitmq umami-db umami
+docker compose -f compose.yaml -f compose.dev.yaml up -d --wait postgres redis umami-db umami
 docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate
 docker compose -f compose.yaml -f compose.dev.yaml up -d --wait api worker frontend landing
 ```

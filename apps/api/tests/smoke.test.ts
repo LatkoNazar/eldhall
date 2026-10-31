@@ -11,7 +11,7 @@ test('standalone production smoke honors an explicit Host and runtime token over
   const app = await createApp(settingsFrom({ API_TOKEN: 'test-token', ALLOWED_HOSTS: '["smoke.example"]' }), {
     store,
     dispatch: async id => { await executeJob(store, id); },
-    checks: { postgres: async () => undefined, redis: async () => undefined, rabbitmq: async () => undefined },
+    checks: { postgres: async () => undefined, redis: async () => undefined },
   });
   try {
     const address = await app.listen({ host: '127.0.0.1', port: 0 });

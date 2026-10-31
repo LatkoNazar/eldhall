@@ -35,3 +35,17 @@ export async function executeJob(store: JobStore, jobId: string): Promise<string
   await store.succeeded(jobId, result);
   return result;
 }
+
+export async function readJob(store: JobStore, jobId: string, queueFailed: (id: string) => Promise<boolean>): Promise<Job | null> {
+  const job = await store.find(jobId);
+  if (!job || job.status === 'succeeded' || job.status === 'failed') return job;
+  // Recover a missed terminal SQL update after PG downtime from retained BullMQ
+  // state; PostgreSQL results remain readable while Redis is unavailable.
+  let failed: boolean;
+  try { failed = await queueFailed(jobId); } catch { return job; }
+  if (failed) {
+    await store.failed(jobId, 'Background job failed after retries');
+    return store.find(jobId);
+  }
+  return job;
+}

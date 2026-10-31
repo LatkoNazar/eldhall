@@ -36,40 +36,66 @@ SQL runner створює або перевіряє схему ревізії `0
 відхиляє. Це обмежений контракт поточної starter-схеми. Майбутні зміни моделей
 потребують узгоджених міграцій і окремих перевірок переходу в обидва боки.
 
-## Власна черга Node
+## BullMQ на наявному Redis
 
-Node використовує RabbitMQ queue `jobs.transform.node.v1` та JSON envelope
-`{ "version": 1, "jobId": "<UUID>" }`. Черга durable, повідомлення persistent,
-publisher чекає підтвердження брокера. Worker працює з manual ACK після SQL-результату
-та запису результату в Redis. `WORKER_CONCURRENCY` задає prefetch, типово `2`;
-`CELERY_CONCURRENCY` приймається лише як сумісна назва налаштування, якщо нова не задана.
+Node API та worker використовують BullMQ і той самий Redis-сервіс. Додаткового
+брокера в поточному Compose немає; readiness перевіряє рівно PostgreSQL та Redis.
+Worker має окремий healthcheck за heartbeat `${BULLMQ_PREFIX}:workers:<hostname>`
+у виділеній BullMQ DB (типово DB2).
 
-Для тимчасових помилок worker робить до трьох повторних публікацій із backoff і
-лічильником `x-attempt`. Попереднє повідомлення підтверджується після підтвердженого
-replacement. Некоректний envelope, відсутній job або непідтримувана операція отримує
-NACK без requeue. Після вичерпання повторів незавершений job позначається failed,
-повідомлення також відхиляється без requeue. Окремий dead-letter storage не налаштовано.
+| Налаштування | Типове значення | Призначення |
+| --- | --- | --- |
+| `BULLMQ_DB` | `2` | Виділена logical DB; дозволено 2–15 |
+| `BULLMQ_PREFIX` | `node-bullmq` | Простір ключів черги й worker |
+| `BULLMQ_QUEUE` | `jobs-transform-v1` | Назва BullMQ-черги |
+| `WORKER_CONCURRENCY` | `2` | Паралельні обробники worker |
+| `BULLMQ_ATTEMPTS` | `4` | Перша спроба та до трьох повторів |
+| `BULLMQ_BACKOFF_MS` | `1000` | Початкова затримка exponential backoff |
+| `BULLMQ_RETENTION_COUNT` | `1000` | Ліміт збережених completed/failed jobs |
+| `BULLMQ_COMPLETED_RETENTION_SECONDS` | `3600` | Вік збережених completed jobs |
+| `BULLMQ_FAILED_RETENTION_SECONDS` | `86400` | Вік збережених failed jobs |
 
-Redis DB0 містить `node-worker:<hostname>` heartbeat, DB1 — `node-task:<id>` result.
-Node не читає й не перезаписує Celery result keys. Durable delivery не усуває проміжок
-між SQL commit job і публікацією: transactional outbox тут ще немає. Після аварії в цей
-проміжок job може залишитись queued. Критичні фічі потребують явного outbox та
-ідемпотентності; успішний smoke перевіряє звичайний шлях виконання.
+BullMQ зберігає власний стан виконання та `returnvalue` у своїй DB; окремої
+самописної result-mirror у DB1 немає. PostgreSQL залишається джерелом job-відповідей
+API. Retention BullMQ обмежує Redis-історію; SQL rows від цього не видаляються.
+DB0 і історична result DB1 ізольовані від BullMQ.
+
+Worker використовує reconnect і механізми повторів BullMQ. Producer не буферизує
+HTTP-подання під час втрати Redis; наступний запит підключається заново після відновлення.
+Якщо terminal failed state не записався в SQL через недоступність PostgreSQL, наступний
+`GET /api/v1/jobs/{id}` може узгодити його зі збереженим failed job у BullMQ. Цей механізм
+обмежений наявністю failed metadata: після її очищення за retention він не відновить
+пропущений terminal SQL-статус. Збережені SQL-результати залишаються джерелом API-відповіді.
+
+Redis налаштовано з AOF, `appendfsync everysec` та `maxmemory-policy noeviction` за
+[production guide BullMQ](https://docs.bullmq.io/guide/going-to-production).
+Після аварійної втрати Redis можливе зникнення останніх ще не синхронізованих записів;
+ця конфігурація не є гарантією нульової втрати. Не вмикай eviction для queue keys.
+
+BullMQ керує повторами й відновленням stalled jobs. Обробка може повторитися, тому
+прикладні дії мають бути ідемпотентними. Між SQL commit job і додаванням у BullMQ немає
+transactional outbox: аварія в цей проміжок може залишити SQL job queued без елемента
+черги. Збережені SQL rows самі по собі не відновлюють втрачену Redis-чергу. Критичні
+фічі потребують явного outbox та recovery-процесу; smoke перевіряє звичайний шлях.
 
 ## Перехід на існуючу БД
 
 1. Припини прийом нових задач попереднім API. Дочекайся завершення queued/running jobs
-   та спорожнення його черги; перевір реальні job-стани й broker, а не тільки readiness.
+   та спорожнення його черги; перевір реальні job-стани й стан черги, а не тільки readiness.
 2. Збережи резервну копію. Зупини попередній Compose-стек зі збереженням volumes.
-   Не виконуй `down --volumes`; не підміняй запущений Celery worker Node-процесом.
+   Не виконуй `down --volumes`. Для Python/Celery або старого Node/AMQP спочатку заверши
+   їхню роботу: BullMQ не читає їхніх повідомлень і не переносить їх автоматично.
 3. Вибери повну гілку, збережи ідентичність і credentials існуючої БД. Перебудуй
    узгоджені образи API/frontend/landing та запусти залежності й міграцію за README.
 4. Якщо міграція відхилила схему, зупини перехід та узгодь сумісність. За успіху запусти
-   API й worker і виконай Node smoke через реальний frontend proxy.
+   API й worker і виконай Node smoke через реальний frontend proxy. Старі RabbitMQ
+   volumes та дані залиш збереженими; видалення сервісу з поточного Compose їх не видаляє.
+   Збережи приватні credentials старого стека для використання архівних Compose-файлів.
 
 Для повернення на Python також спочатку заверши задачі Node й зупини його стек.
 Release/rollback scripts **цієї Node-гілки** перевіряють HTTP-працездатність і
-вибирають runtime цільового релізу, включно з історичним Python. Скрипти на Python
+вибирають runtime та залежності цільового релізу, включно з історичними Python/AMQP.
+RabbitMQ запускається лише за його наявності в архівному Compose. Скрипти на Python
 `main` залишаються Python-only: їхнє автоматичне відновлення після невдалого деплою
 не підтримує Node-реліз як попередній runtime. Визначення runtime також не виконує
 queue-drain або перетворення повідомлень. Перехід між backend-варіантами плануй як

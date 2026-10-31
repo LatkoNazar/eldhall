@@ -44,9 +44,9 @@ class ReleaseIsolationTests(unittest.TestCase):
         release = root / "releases" / sha
         api_scripts = release / ("apps/backend/scripts" if legacy else "apps/api/scripts")
         api_scripts.mkdir(parents=True)
-        services = ["postgres", "redis", "rabbitmq", "api", "worker", "migrate", "frontend"]
+        services = ["postgres", "redis", "api", "worker", "migrate", "frontend"]
         if legacy:
-            services = ["api", "worker"]
+            services = ["postgres", "redis", "rabbitmq", "api", "worker", "migrate"]
         if landing:
             services.append("landing")
         if analytics:
@@ -220,7 +220,9 @@ class ReleaseIsolationTests(unittest.TestCase):
         self.assertFalse(self.log.exists())
 
     def make_legacy(self, release):
-        (release / "compose.yaml").write_text("services:\n  api: {}\n  worker: {}\n")
+        (release / "compose.yaml").write_text(
+            "services:\n  postgres: {}\n  redis: {}\n  rabbitmq: {}\n  api: {}\n  worker: {}\n  migrate: {}\n"
+        )
         (release / "compose.prod.yaml").write_text("services: {}\n")
         historical = release / "apps/backend/scripts"
         historical.mkdir(parents=True, exist_ok=True)
@@ -231,6 +233,10 @@ class ReleaseIsolationTests(unittest.TestCase):
     def test_node_upgrade_and_rollback_select_each_release_runtime(self):
         root = self.project("alpha", landing=True)
         python_release = root / "releases" / SHA1
+        composition = python_release / "compose.yaml"
+        composition.write_text(
+            composition.read_text().replace("  redis: {}\n", "  redis: {}\n  rabbitmq: {}\n")
+        )
         (python_release / "apps/api/scripts/smoke.mjs").unlink()
         shutil.copy(
             SCRIPTS / "tests/fixtures/python-api-smoke.py",
@@ -245,6 +251,35 @@ class ReleaseIsolationTests(unittest.TestCase):
             if "exec" in call["args"] and "api" in call["args"]
         ]
         self.assertEqual(runtimes, ["python"] * 3 + ["node"] * 3 + ["python"] * 3)
+        for call in self.calls():
+            if "up" in call["args"] and "postgres" in call["args"]:
+                self.assertEqual(
+                    "rabbitmq" in call["args"],
+                    call["composition"].endswith(SHA1 + "/compose.yaml"),
+                )
+
+    def test_bullmq_deploy_and_amqp_node_rollback_select_archived_dependencies(self):
+        root = self.project("alpha")
+        historical = root / "releases" / SHA1
+        composition = historical / "compose.yaml"
+        composition.write_text(
+            composition.read_text().replace("  redis: {}\n", "  redis: {}\n  rabbitmq: {}\n")
+        )
+        shutil.copy(
+            SCRIPTS / "tests/fixtures/node-amqp-smoke.mjs",
+            historical / "apps/api/scripts/smoke.mjs",
+        )
+        self.deploy(root, SHA1, "alpha")
+        self.deploy(root, SHA2, "alpha")
+        self.assertEqual(self.run_script("rollback.sh", root).returncode, 0)
+        dependency_calls = [
+            call for call in self.calls() if "up" in call["args"] and "postgres" in call["args"]
+        ]
+        self.assertTrue(dependency_calls)
+        for call in dependency_calls:
+            is_historical = call["composition"].endswith(SHA1 + "/compose.yaml")
+            self.assertEqual("rabbitmq" in call["args"], is_historical)
+        self.assertEqual((root / "current").resolve().name, SHA1)
 
     def test_legacy_upgrade_and_rollback_restores_proxy_then_removes_only_frontend(self):
         root = self.project("alpha")

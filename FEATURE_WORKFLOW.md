@@ -79,12 +79,12 @@ npm --prefix apps/api test
 npm --prefix apps/api run build
 ```
 
-Для frontend з директорії `apps/frontend` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm test` і `npm run build`.
+Для frontend з директорії `apps/frontend` виконай `npm ci`, `npm --prefix ../landing ci`, `npm run lint`, `npm run typecheck`, `npm test` і `npm run build`. Залежності обох вебзастосунків потрібні до frontend typecheck/test, бо integration-тест імпортує справжній landing-модуль.
 Frontend-набір також перевіряє `packages/analytics`; для landing з `apps/landing` виконай `npm ci`, `npm run lint`, `npm run typecheck`, `npm run build`. Обидва Dockerfile вебзастосунків збираються з кореневого context, щоб включити спільний пакет.
 
 У кожному worktree `PROJECT_NAME` задає локальну ідентичність застосунку; за замовчуванням шаблон використовує `starter`.
 За паралельного запуску Compose виділи кожному worktree унікальний `PROJECT_NAME` або локальний override `COMPOSE_PROJECT_NAME`, а також власні `APP_IMAGE`, `FRONTEND_IMAGE`, `LANDING_IMAGE` і host-порти:
-`API_LOCAL_PORT`, `FRONTEND_LOCAL_PORT`, `LANDING_LOCAL_PORT`, `UMAMI_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`, `RABBITMQ_LOCAL_PORT`, `RABBITMQ_MANAGEMENT_LOCAL_PORT`; для production-подібного запуску — `APP_PORT`, `FRONTEND_PORT`, `LANDING_PORT`, `UMAMI_PORT`.
+`API_LOCAL_PORT`, `FRONTEND_LOCAL_PORT`, `LANDING_LOCAL_PORT`, `UMAMI_LOCAL_PORT`, `POSTGRES_LOCAL_PORT`, `REDIS_LOCAL_PORT`; для production-подібного запуску — `APP_PORT`, `FRONTEND_PORT`, `LANDING_PORT`, `UMAMI_PORT`.
 Самого окремого project name недостатньо: порти та тег образу також можуть конфліктувати.
 `COMPOSE_PROJECT_NAME` використовуй для локальної ізоляції; production-ім'я визначає `PROJECT_NAME` і має збігатися з однойменною GitHub Variable.
 Використовуй ці значення послідовно для build/up/run/exec/down; дані мають бути локальними для цього проєкту.
@@ -119,7 +119,7 @@ git merge --no-ff $featureBranch
 Get-Content -Raw apps/api/scripts/smoke.mjs | docker compose -f compose.yaml -f compose.dev.yaml exec -T api node --input-type=module -
 ```
 
-Smoke доводить наявний шлях API → RabbitMQ → Node worker → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle, `PUBLIC_*` або `VITE_*`. Production smoke виконується Node усередині trusted API-контейнера; Python потрібен хостовим операційним тестам і підтримці історичних Python-релізів.
+Smoke доводить наявний шлях API → BullMQ/Redis → Node worker → PostgreSQL та readiness залежностей. Після змін frontend/proxy додатково перевір цей шлях через frontend, використовуючи `SMOKE_BASE_URL=http://frontend:8080` і `SMOKE_HOST=localhost` у trusted API-контейнері для production-образу, а також `/`, SPA deep link, відсутній `/assets/*` і відсутній `/api/*`. Vite dev proxy перевіряй окремо від production Caddy. Не передавай `API_TOKEN` у browser bundle, `PUBLIC_*` або `VITE_*`. Production smoke виконується Node усередині trusted API-контейнера; Python потрібен хостовим операційним тестам і підтримці історичних Python-релізів.
 Окремо перевір нові API/фонові сценарії, їхні помилки й права доступу; додай відповідні перевірки за потреби.
 Не позначай блоковані або невиконані перевірки як успішні.
 

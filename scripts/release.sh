@@ -77,6 +77,19 @@ start_analytics() {
   fi
 }
 
+start_dependencies() {
+  local services=$1 dependency
+  shift
+  local dependencies=()
+  # Archived Python/AMQP releases declare rabbitmq; current BullMQ releases do not.
+  for dependency in postgres redis rabbitmq; do
+    if has_service "$services" "$dependency"; then dependencies+=("$dependency"); fi
+  done
+  if (( ${#dependencies[@]} )); then
+    "$@" up -d --wait --wait-timeout 180 "${dependencies[@]}" || return
+  fi
+}
+
 start_application() {
   local release=$1 services=$2 smoke extension
   shift 2
@@ -84,6 +97,7 @@ start_application() {
   extension=${smoke##*.}
   local runner=(python -)
   if [[ "$extension" == mjs ]]; then runner=(node --input-type=module -); fi
+  start_dependencies "$services" "$@" || return
   local application=(api worker)
   if has_service "$services" frontend; then application+=(frontend); fi
   if has_service "$services" landing; then application+=(landing); fi
