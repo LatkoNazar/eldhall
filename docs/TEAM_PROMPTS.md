@@ -1,4 +1,16 @@
-# Team prompts (copy-ready for Claude Code)
+# Historical team prompts — superseded
+
+> **Archive, not active instructions.** The colleague work plan below records the earlier `integration/support-copilot` baseline. Workstream ownership, deadlines, branch/push/deploy directions, file freezes and missing-feature statements are superseded. Do not copy these prompts into current implementation work.
+>
+> Current authority: [implementation/start](implementation.md), [API contracts](API_CONTRACTS.md), [implemented architecture](ARCHITECTURE.md), [runtime/configuration](integrations-runtime.md), [verification status](STATUS.md). Native DSH, queued persistent turns, dashboard and headless configuration are now implemented.
+>
+> Historical API/safety directions below are **not current behavior**: approval never executes a refund; approve and execute are separate. Persistent message submission is queued HTTP 202. PostgreSQL verification must use a real database and must not be reported as passing when skipped. Customer sessions support explicitly configured cross-origin clients. Removed `ai-model.ts`/`llm-spike.ts` paths and Oracle/CI deployment claims belong to the old plan.
+
+The remainder is preserved as historical context, including original examples and assignments.
+
+---
+
+## Archived baseline and schedule
 
 **Baseline:** latest `origin/integration/support-copilot` (CI runs on draft PR LatkoNazar/comp-prep#3). Always cut your branch AFTER the commit that contains this version of the file. Everyone branches from it:
 ```bash

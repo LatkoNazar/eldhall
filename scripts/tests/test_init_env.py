@@ -44,13 +44,16 @@ class EnvironmentGenerationTests(unittest.TestCase):
                     "POSTGRES_PASSWORD",
                     "REDIS_PASSWORD",
                     "API_TOKEN",
+                    "OPERATOR_TOKEN",
                     "UMAMI_POSTGRES_PASSWORD",
                     "UMAMI_APP_SECRET",
                 ):
-                    self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
-                    self.assertNotIn(values[key], result.stdout + result.stderr)
+                    self.assertTrue(bool(re.fullmatch("[a-f0-9]{64}", values[key])), f"{key} must be an independently generated 64-character hex secret")
+                    self.assertTrue(values[key] not in result.stdout + result.stderr, f"{key} must not be displayed")
+                self.assertTrue(values["OPERATOR_TOKEN"] != values["API_TOKEN"], "Operator and legacy API credentials must be independent")
                 generated.append(values)
-            self.assertNotEqual(generated[0]["API_TOKEN"], generated[1]["API_TOKEN"])
+            for key in ("API_TOKEN", "OPERATOR_TOKEN"):
+                self.assertTrue(generated[0][key] != generated[1][key], f"{key} must differ between projects")
 
     def test_invalid_or_missing_names_never_create_an_env_file(self):
         invalid = (None, "", "UPPER", "with_space", "-leading", "trailing-", "two--parts", "a" * 64)
@@ -104,11 +107,12 @@ class EnvironmentGenerationTests(unittest.TestCase):
                 "POSTGRES_PASSWORD",
                 "REDIS_PASSWORD",
                 "API_TOKEN",
+                "OPERATOR_TOKEN",
                 "UMAMI_POSTGRES_PASSWORD",
                 "UMAMI_APP_SECRET",
             ):
-                self.assertRegex(values[key], re.compile("^[a-f0-9]{64}$"))
-                self.assertNotIn(values[key], result.stdout + result.stderr)
+                self.assertTrue(bool(re.fullmatch("[a-f0-9]{64}", values[key])), f"{key} must be a non-example 64-character hex secret")
+                self.assertTrue(values[key] not in result.stdout + result.stderr, f"{key} must not be displayed")
 
     def test_domain_and_email_must_be_paired_before_creating_any_file(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,18 +1,34 @@
 import { z } from 'zod';
 import type { Business, Payment } from '../support/contracts.js';
 import { duplicateCandidate } from './policy.js';
+import type { ClassificationConfig } from './classification.js';
 
 // Controlled context: built by the harness from backend state, never from customer-supplied ids.
 export interface AgentContext {
+  conversationId: string;
+  runId: string;
+  runtimeAttempt?: number;
+  turnJobId?: string;
+  businessId: string;
+  ownershipVersion: number;
+  assertActive: () => Promise<void>;
+  knowledge: { id: string; title: string; content: string; version: number }[];
+  skills: { id: string; name: string; content: string; revision: number }[];
+  searchKnowledge: (query: string) => Promise<{ id: string; title: string; content: string; version: number }[]>;
+  businessTools?: { integrationId: string; name: string; description: string; inputSchema: Record<string, unknown> }[];
+  callBusinessTool?: (integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
   customer: { name: string; plan: string };
-  business: Pick<Business, 'name' | 'currency' | 'policy'>;
+  business: Pick<Business, 'name' | 'currency' | 'policy'> & { responseStyle?: { language: string; tone: string } };
   payments: Payment[];
   history: { role: string; body: string }[];
   message: string;
   allowedTools: string[];
+  classification?: ClassificationConfig | null;
 }
 
 export const decisionSchema = z.object({
+  // Independently normalized against the current business taxonomy by the backend.
+  classification: z.unknown().optional(),
   intent: z.enum(['duplicate_charge', 'refund_request', 'billing_question', 'cancel_subscription', 'complaint', 'other']),
   summary: z.string().max(400).describe('One-sentence summary of the customer problem for the operator'),
   reasoning: z.string().max(800).describe('Short justification grounded in the payments you looked up'),
@@ -58,6 +74,11 @@ export class RulesModel implements AgentModel {
     const text = ctx.message;
     const uk = ukrainian(text);
     const base = { sentiment: { label: 'calm' as const, urgency: 'low' as const } };
+    const sources = await ctx.searchKnowledge(text);
+    if (sources.length && !has(text, /twice|double|duplicate|двічі|подвійн|refund|поверн|cancel|скасу/)) {
+      const source = sources[0]!;
+      return out({ ...base, intent: 'other', summary: source.title, reasoning: 'Answer grounded in a published business document.', reply: source.content.slice(0, 1000) + '\n\n[' + source.title + '] (джерело ' + source.id + ', версія ' + source.version + ')', action: null });
+    }
     if (has(text, /twice|double|duplicate|two times|двічі|подвійн|дубл|два рази|двічі/)) {
       const twin = duplicateCandidate(ctx.payments, ctx.business.policy.duplicateWindowMinutes);
       if (!twin) return out({ ...base, intent: 'duplicate_charge', summary: 'Customer reports a duplicate charge; no duplicate found.', reasoning: 'No two identical captured payments within the duplicate window.', reply: uk ? 'Я не бачу двох однакових списань у вашій історії. Підкажіть, будь ласка, дату та суму списання?' : "I can't find two identical charges on your account. Could you tell me the date and amount of the charge?", action: null });

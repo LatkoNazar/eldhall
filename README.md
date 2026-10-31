@@ -1,20 +1,49 @@
 # Support Copilot
 
-AI-копілот підтримки, який не лише відповідає, а **безпечно виконує дії**: розуміє намір і настрій клієнта, перевіряє реальні дані та політику бізнесу, пропонує конкретну дію, просить підтвердження людини й виконує її через backend із повним аудитом. Підтримує різні бізнеси через per-business policy та реєстр tools.
+API-агент підтримки на TypeScript/Node.js: DeepSeek Harness виконує model/tool loop, а backend перевіряє дані, політики, approval та виконання. PostgreSQL зберігає звернення, повідомлення, дії й аудит; Redis/BullMQ доставляє фонові запуски. Dashboard і клієнтський `/chat` — опційні web-клієнти, API працює без них.
 
-**MVP (працює):** сценарій «подвійне списання» — tool call `lookup_payments`, детермінований policy engine, refund лише після approval (прив'язаний до `argsHash`), захист від повторного виконання, чесна обробка збоїв, sentiment → пріоритет/тон/ескалація, audit trail, fallback без LLM.
-**Симульовано:** платіжний провайдер (`SIM-RF-*`), реальні гроші не рухаються. **Roadmap:** реальні провайдери, SSO/RBAC, нові канали, RAG.
+**MVP:** подвійне списання → перевірена пропозиція → окремі **Approve** та **Execute**. Повторне виконання блокується; невизначений результат потребує звірки. Оператор може перебрати діалог, відповісти й явно повернути його боту. Є versioned KB, prose-skills, settings та налаштовані read-only MCP tools.
 
-## Швидкий старт (без Docker)
-```bash
-cp .env.example .env
-cd apps/api && npm ci && npm test
-npm run dev                                                # API :8000, in-memory store; .env sets OPERATOR_TOKEN
-cd apps/frontend && npm ci && npm run dev                  # http://localhost:5173/chat і /operator
+**Межі:** платіжний провайдер симульований (`SIM-RF-*`), реальні гроші не рухаються. Пошук KB — лексичний; staff auth — один серверний bearer, без OAuth, запрошень і повного RBAC. Ліцензію ще не обрано. Документи з пропозиціями нижче не є списком реалізованих можливостей.
+
+## Швидкий старт: native API + worker
+
+Потрібні Node.js **24.15+ у межах 24.x**, доступні PostgreSQL 17 та Redis 7 із credentials із `.env`. Запускай із кореня репозиторію; існуючий `.env` збережи.
+
+```powershell
+if (-not (Test-Path -LiteralPath '.env')) { Copy-Item .env.example .env }
 ```
-LLM: у `.env` задай `LLM_PROVIDER=openai|google|anthropic` і відповідний ключ; без ключа працює детермінований `rules`-режим (позначається як fallback).
 
-Документація: [архітектура](docs/ARCHITECTURE.md) · [API](docs/API_CONTRACTS.md) · [PRD і тест-план](docs/PRD.md) · [статус](docs/STATUS.md) · [командні промпти](docs/TEAM_PROMPTS.md) · [демо](docs/DEMO_SCRIPT.md). Ліцензія: обирається командою.
+У приватному `.env` задай `POSTGRES_HOST=127.0.0.1`, `REDIS_HOST=127.0.0.1`, фактичні порти/credentials та такі значення:
+
+```dotenv
+SUPPORT_STORE=postgres
+SUPPORT_EXECUTION=worker
+DEMO_RESET_ENABLED=false
+AGENT_RUNTIME=dsh
+LLM_PROVIDER=google
+LLM_MODEL=gemini-3.5-flash-lite
+LLM_TIMEOUT_MS=60000
+# GEMINI_API_KEY=<your server-side key>
+```
+
+```powershell
+npm --prefix apps/api ci
+npm --prefix apps/api run build
+npm --prefix apps/api run migrate
+npm --prefix apps/api start
+# Інший термінал, той самий корінь репозиторію:
+npm --prefix apps/api run worker
+```
+
+API: `http://localhost:8000`; readiness: `/health/ready`. Створи бізнес і customer session через [headless bootstrap](docs/implementation.md#headless-bootstrap). Ключ Gemini лишається на сервері. Явний offline demo: `LLM_PROVIDER=rules`, `AGENT_RUNTIME=rules`, `DEMO_RESET_ENABLED=true`; memory demo додатково використовує `SUPPORT_STORE=memory`, `SUPPORT_EXECUTION=inline` і скидається після restart.
+
+Опційний UI: `npm --prefix apps/frontend ci`, `npm --prefix apps/frontend run dev`; відкрий `http://localhost:5173/operator` з `OPERATOR_TOKEN` або `/chat` з наданою customer session. UI використовує same-origin proxy; незалежному клієнту можна надати explicit `CORS_ORIGINS`.
+
+[Поточна реалізація, bootstrap і self-host](docs/implementation.md) · [API](docs/API_CONTRACTS.md) · [JSON config / MCP / skills / guards](docs/integrations-runtime.md) · [світлий дизайн 0.2](docs/design-system.md) · [бізнес-модель](docs/business-model.md).
+Попередні матеріали: [архітектура](docs/ARCHITECTURE.md) · [архітектурна пропозиція](docs/architecture-review.md) · [PRD і тест-план](docs/PRD.md) · [статус baseline](docs/STATUS.md) · [командні промпти](docs/TEAM_PROMPTS.md) · [демо baseline](docs/DEMO_SCRIPT.md).
+
+Окремий support-стек: `docker compose --env-file .env -f deploy/support.compose.yaml up -d --build --wait`; додай `--profile ui` перед `up`, якщо потрібний dashboard. Production secrets і приватні loopback-порти описані в [інструкції](docs/implementation.md#self-host-compose). Решта README зберігає інструкції базового шаблону, landing та Umami; для support MVP користуйся розділом вище й поточною інструкцією.
 
 ---
 

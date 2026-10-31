@@ -84,6 +84,40 @@ test('healthy readiness and production docs disabled', async () => {
   } finally { await app.close(); }
 });
 
+test('configured external clients can send customer sessions and PATCH; unconfigured preflights are denied', async () => {
+  const origin = 'https://widget.example.com';
+  const app = await createApp(settingsFrom({ CORS_ORIGINS: JSON.stringify([origin]) }), { store: new MemoryStore(), dispatch: async () => undefined, checks: {} });
+  const preflight = (overrides: Record<string, string> = {}) => app.inject({
+    method: 'OPTIONS', url: '/api/v1/chat/cases',
+    headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'Content-Type, X-Customer-Session', ...overrides },
+  });
+  try {
+    const customer = await preflight();
+    assert.equal(customer.statusCode, 200);
+    assert.equal(customer.headers['access-control-allow-origin'], origin);
+    assert.equal(customer.headers['access-control-allow-credentials'], undefined);
+    assert.match(String(customer.headers['access-control-allow-headers']), /X-Customer-Session/);
+    assert.match(String(customer.headers.vary), /Origin/);
+    const patch = await app.inject({
+      method: 'OPTIONS', url: '/api/v1/settings',
+      headers: { origin, 'access-control-request-method': 'PATCH', 'access-control-request-headers': 'authorization,content-type' },
+    });
+    assert.equal(patch.statusCode, 200);
+    assert.equal(patch.headers['access-control-allow-methods'], 'GET, POST, PATCH');
+    for (const [headers, failure] of [
+      [{ origin: 'https://unconfigured.example' }, 'origin'],
+      [{ 'access-control-request-method': 'DELETE' }, 'method'],
+      [{ 'access-control-request-headers': 'x-customer-session,x-unconfigured' }, 'headers'],
+    ] as const) {
+      const denied = await preflight(headers);
+      assert.equal(denied.statusCode, 400, denied.body);
+      assert.equal(denied.body, `Disallowed CORS ${failure}`);
+      assert.equal(denied.headers['access-control-allow-credentials'], undefined);
+      if (failure === 'origin') assert.equal(denied.headers['access-control-allow-origin'], undefined);
+    }
+  } finally { await app.close(); }
+});
+
 test('explicit wildcard CORS origins preserve the Python allow-all contract without credentials', async () => {
   const app = await createApp(settingsFrom({ CORS_ORIGINS: '["*"]' }), { store: new MemoryStore(), dispatch: async () => undefined, checks: {} });
   try {
