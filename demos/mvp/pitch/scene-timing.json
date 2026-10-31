@@ -1,0 +1,269 @@
+{
+  "id": "eldhall-pitch",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "duration": 44,
+  "overlap": 0.4,
+  "capture": {
+    "width": 1600,
+    "height": 900,
+    "note": "Real MVP recordings at 1600x900 CSS px (16:9), produced by scripts/capture.mjs"
+  },
+  "window": {
+    "x": 200,
+    "y": 40,
+    "width": 1520,
+    "titlebar": 46,
+    "scale": 0.95,
+    "viewportHeight": 855
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "type": "title",
+      "duration": 4,
+      "start": 0
+    },
+    {
+      "id": "request",
+      "type": "capture",
+      "duration": 6,
+      "url": "app.eldhall · /chat",
+      "slot": "assets/capture/request.mp4",
+      "shows": "Chat (desktop): persona Olena sends 'Ви списали з мене двічі за жовтень!!! Негайно поверніть'; AI reply appears",
+      "focus": [
+        {
+          "at": 1.2,
+          "to": 5.4,
+          "rect": [
+            300,
+            380,
+            1000,
+            460
+          ],
+          "scale": 1.18
+        }
+      ],
+      "highlights": [
+        {
+          "at": 2.6,
+          "dur": 2.4,
+          "rect": [
+            320,
+            760,
+            960,
+            90
+          ]
+        }
+      ],
+      "start": 4,
+      "real": false
+    },
+    {
+      "id": "triage",
+      "type": "capture",
+      "duration": 6,
+      "url": "app.eldhall · /operator",
+      "slot": "assets/capture/triage.mp4",
+      "shows": "Operator console: new case at the top of the queue with P1 and a 'frustrated' chip; operator opens it",
+      "focus": [
+        {
+          "at": 0.8,
+          "to": 5.2,
+          "rect": [
+            0,
+            80,
+            520,
+            360
+          ],
+          "scale": 1.45
+        }
+      ],
+      "highlights": [
+        {
+          "at": 1.4,
+          "dur": 2.6,
+          "rect": [
+            16,
+            100,
+            488,
+            96
+          ]
+        }
+      ],
+      "start": 10,
+      "real": false
+    },
+    {
+      "id": "policy",
+      "type": "capture",
+      "duration": 7,
+      "url": "app.eldhall · /operator",
+      "slot": "assets/capture/policy.mp4",
+      "shows": "Case detail: AI analysis (intent, sentiment signals, source, tool calls) and the policy checklist, all checks passed",
+      "focus": [
+        {
+          "at": 0.6,
+          "to": 3.3,
+          "rect": [
+            1040,
+            90,
+            540,
+            360
+          ],
+          "scale": 1.5
+        },
+        {
+          "at": 3.5,
+          "to": 6.4,
+          "rect": [
+            1040,
+            440,
+            540,
+            300
+          ],
+          "scale": 1.55
+        }
+      ],
+      "highlights": [
+        {
+          "at": 1.2,
+          "dur": 1.9,
+          "rect": [
+            1056,
+            250,
+            508,
+            120
+          ]
+        },
+        {
+          "at": 4,
+          "dur": 2.2,
+          "rect": [
+            1056,
+            470,
+            508,
+            200
+          ]
+        }
+      ],
+      "start": 16,
+      "real": false
+    },
+    {
+      "id": "approve",
+      "type": "capture",
+      "duration": 6,
+      "url": "app.eldhall · /operator",
+      "slot": "assets/capture/approve.mp4",
+      "shows": "Real click on Approve for refund_payment 499.00 UAH -> proposal executed, payment refunded, case resolved",
+      "focus": [
+        {
+          "at": 0.4,
+          "to": 5.4,
+          "rect": [
+            1040,
+            660,
+            540,
+            200
+          ],
+          "scale": 1.6
+        }
+      ],
+      "highlights": [
+        {
+          "at": 0.9,
+          "dur": 1.5,
+          "rect": [
+            1400,
+            770,
+            160,
+            56
+          ],
+          "kind": "action"
+        }
+      ],
+      "start": 23,
+      "real": false
+    },
+    {
+      "id": "result",
+      "type": "capture",
+      "duration": 5,
+      "url": "app.eldhall · /chat",
+      "slot": "assets/capture/result.mp4",
+      "shows": "Chat: the customer receives the confirmation with reference SIM-RF-… (simulated provider)",
+      "focus": [
+        {
+          "at": 0.6,
+          "to": 4.4,
+          "rect": [
+            300,
+            420,
+            1000,
+            420
+          ],
+          "scale": 1.2
+        }
+      ],
+      "highlights": [
+        {
+          "at": 1.2,
+          "dur": 2.8,
+          "rect": [
+            320,
+            700,
+            900,
+            110
+          ]
+        }
+      ],
+      "start": 29,
+      "real": false
+    },
+    {
+      "id": "safety",
+      "type": "capture",
+      "duration": 6,
+      "url": "app.eldhall · /operator",
+      "slot": "assets/capture/safety.mp4",
+      "shows": "Ivan (abusive, annual plan 3 999 UAH): refund_payment denied by within_refund_limit, case escalated, no refund",
+      "focus": [
+        {
+          "at": 0.6,
+          "to": 5.4,
+          "rect": [
+            1040,
+            300,
+            540,
+            420
+          ],
+          "scale": 1.45
+        }
+      ],
+      "highlights": [
+        {
+          "at": 1.4,
+          "dur": 3,
+          "rect": [
+            1056,
+            520,
+            508,
+            70
+          ],
+          "kind": "deny"
+        }
+      ],
+      "start": 34,
+      "real": false
+    },
+    {
+      "id": "outro",
+      "type": "title",
+      "duration": 4,
+      "start": 40
+    }
+  ],
+  "draft": true
+}

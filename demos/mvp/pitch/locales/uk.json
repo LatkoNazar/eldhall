@@ -1,0 +1,19 @@
+{
+  "brand": "eldhall",
+  "introKicker": "AI Support Copilot",
+  "introTitleA": "Підтримка, яка не лише відповідає, а ",
+  "introTitleB": "вирішує",
+  "introSubtitle": "Розуміє звернення · перевіряє правила · діє з підтвердженням людини",
+  "request": "Клієнтка пише: «Мене списали двічі»",
+  "triage": "AI знайшов обидва платежі й підняв пріоритет",
+  "policy": "Правила перевіряє policy engine. Настрій не авторизує гроші",
+  "approve": "Людина підтверджує саме цю операцію",
+  "result": "Повернення виконано · симульований провайдер",
+  "safety": "Ліміт перевищено → відмова й ескалація людині",
+  "outroTitleA": "AI пропонує. Правила перевіряють. ",
+  "outroTitleB": "Людина вирішує.",
+  "outroSubtitle": "Eldhall Support Copilot · PolyTech Code Fest × SKELAR",
+  "disclaimer": "Демо-дані · симульований платіжний провайдер",
+  "placeholder": "PLACEHOLDER — очікує реальний запис MVP",
+  "draftBadge": "ЧЕРНЕТКА · тимчасові кадри"
+}

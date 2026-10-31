@@ -1,0 +1,30 @@
+{
+  "_comment": "Locators for the real MVP UI (WS2). Regex strings are case-insensitive. Adjust here after the UI lands; no code change needed.",
+  "appUrl": "http://localhost:5173",
+  "apiUrl": "http://localhost:5173",
+  "channel": "chrome",
+  "chat": {
+    "path": "/chat",
+    "persona": { "role": "button", "name": "Olena" },
+    "input": { "role": "textbox" },
+    "send": { "role": "button", "name": "Надіслати|Send" },
+    "message": "Ви списали з мене двічі за жовтень!!! Негайно поверніть",
+    "reply": "підготував повернення|prepared a refund",
+    "confirmation": "SIM-RF-"
+  },
+  "operator": {
+    "path": "/operator",
+    "loginName": { "label": "ім.я|name" },
+    "loginToken": { "label": "token|токен" },
+    "loginSubmit": { "role": "button", "name": "Увійти|Sign in|Log in|Login" },
+    "operatorName": "Anna",
+    "queueItem": "Olena|Олена",
+    "ivanItem": "Ivan|Іван",
+    "analysis": "Аналіз|Analysis",
+    "policy": "Policy|Правила|Перевірки",
+    "approve": { "role": "button", "name": "Approve|Підтвердити" },
+    "executed": "executed|виконано",
+    "denied": "denied|відхилено|within_refund_limit|ліміт"
+  },
+  "ivanMessage": "Ви, ідіоти, двічі списали за річний план!!!"
+}
