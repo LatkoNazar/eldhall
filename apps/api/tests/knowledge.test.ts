@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +10,10 @@ import { settingsFrom } from '../src/core/config.js';
 import { SupportHarness } from '../src/modules/agent/harness.js';
 import { RulesModel, ScriptedModel, type AgentDecision, type AgentModel } from '../src/modules/agent/model.js';
 import { KnowledgeRetriever, type KnowledgeDoc } from '../src/modules/knowledge/retriever.js';
+import { createEmbedder, HashingEmbedder, RemoteEmbedder } from '../src/modules/knowledge/embeddings.js';
+import { configureKnowledge } from '../src/modules/knowledge/runtime.js';
+import { PgVectorStore } from '../src/modules/knowledge/vector-store.js';
+import { migrateSupport } from '../src/modules/support/migrations.js';
 import { parseFrontmatter, parseSkill, readSkillTree, stableId, toSupportConfig } from '../src/modules/knowledge/skill-md.js';
 import { chunkMarkdown, terms } from '../src/modules/knowledge/text.js';
 import { supportConfigSchema } from '../src/integrations/config.js';
@@ -191,7 +197,107 @@ test('SKILL.md packs parse into knowledge sources and skills accepted by the sup
   assert.equal(imported.knowledge.length, 1, 'other businesses are skipped');
   assert.deepEqual(imported.skills.map(s => s.name).sort(), ['novapay-fitness/assistant-settings', 'universal/refund-request']);
   assert.equal(imported.knowledge[0]!.id, stableId(nova.id, 'knowledge', 'novapay-refund-policy'));
-  assert.match(imported.knowledge[0]!.content, /Джерело: https:\/\/help\.novapay-fitness\.test\/refunds$/);
+  assert.equal(imported.knowledge[0]!.sourceUrl, 'https://help.novapay-fitness.test/refunds');
+  assert.equal(imported.knowledge[0]!.audience, 'customer');
   const parsed = supportConfigSchema.parse({ version: 1, businesses: [{ id: nova.id, slug: nova.slug, name: nova.name, currency: nova.currency, policy: nova.policy }], ...imported });
   assert.equal(parsed.knowledge[0]!.version, 2);
+});
+
+// ---------- v2: access, embedders, imports, history, pgvector ----------
+
+test('audience and plan filters: internal sources never reach the customer agent; plan-specific sources only that plan', async () => {
+  const retriever = new KnowledgeRetriever();
+  const scoped: KnowledgeDoc[] = [
+    ...docs,
+    { id: 'playbook', title: 'Escalation playbook', content: 'Refund twice charged: escalate refunds above the limit to the senior agent.', version: 1, audience: 'internal' },
+    { id: 'annual', title: 'Annual plan terms', content: 'Annual plan refund: any refund of the annual plan is reviewed by a manager within 1 business day.', version: 1, plans: ['Annual'] },
+  ];
+  const customer = (await retriever.search(scoped, 'refund annual plan', { plan: 'Premium monthly' })).map(h => h.id);
+  assert.ok(!customer.includes('playbook') && !customer.includes('annual'));
+  assert.ok((await retriever.search(scoped, 'refund annual plan', { plan: 'Annual' })).some(h => h.id === 'annual'));
+  assert.ok((await retriever.search(scoped, 'escalate refunds senior agent', { audience: 'any' })).some(h => h.id === 'playbook'));
+});
+
+test('a failing embedding model degrades to lexical search instead of failing the turn', async () => {
+  const broken = { id: 'openai:broken:768', provider: 'openai' as const, model: 'broken', dimensions: 768, minSimilarity: 0.3, embed: async () => { throw new Error('down'); } };
+  const result = await new KnowledgeRetriever(broken).explain(docs, 'charged twice');
+  assert.equal(result.mode, 'lexical');
+  assert.equal(result.hits[0]?.id, 'refunds');
+  assert.ok(result.hits[0]!.passages.every(p => p.vectorRank === null));
+});
+
+test('hosted embedders call OpenAI and Google with 768 dimensions and normalise the vectors', async () => {
+  const calls: { url: string; body: Record<string, unknown>; headers: Record<string, string> }[] = [];
+  const fake = (async (url: string, init: RequestInit) => {
+    calls.push({ url, body: JSON.parse(String(init.body)), headers: init.headers as Record<string, string> });
+    const vector = Array.from({ length: 768 }, (_, i) => (i === 0 ? 3 : i === 1 ? 4 : 0));
+    const body = url.includes('openai') ? { data: [{ index: 0, embedding: vector }] } : { embeddings: [{ values: vector }] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
+  const openai = new RemoteEmbedder('openai', 'text-embedding-3-small', 'sk-test', fake);
+  const [vector] = await openai.embed(['hello'], 'document');
+  assert.equal(openai.id, 'openai:text-embedding-3-small:768');
+  assert.ok(Math.abs(vector![0]! - 0.6) < 1e-9 && Math.abs(vector![1]! - 0.8) < 1e-9);
+  assert.equal(calls[0]!.body.dimensions, 768);
+  assert.equal(calls[0]!.headers.Authorization, 'Bearer sk-test');
+  await new RemoteEmbedder('google', 'gemini-embedding-001', 'g-test', fake).embed(['q'], 'query');
+  assert.match(calls[1]!.url, /gemini-embedding-001:batchEmbedContents$/);
+  assert.deepEqual((calls[1]!.body.requests as { taskType: string; outputDimensionality: number }[])[0], { model: 'models/gemini-embedding-001', content: { parts: [{ text: 'q' }] }, taskType: 'RETRIEVAL_QUERY', outputDimensionality: 768 });
+  assert.throws(() => createEmbedder('openai', '', ''), /needs an API key/);
+});
+
+test('operator routes: drafts from upload and allow-listed URL, version history, audience-aware search, index and reindex', async () => {
+  const h = setup();
+  const businessId = (await h.store.businessesList())[0]!.id;
+  configureKnowledge({ retriever: new KnowledgeRetriever(), urlAllowlist: ['help.novapay-fitness.test'], fetcher: async url => ({ url: url.toString(), contentType: 'text/html', body: '<html><title>Години роботи</title><body><main><h1>Години роботи</h1><p>Зал працює з 6:00 до 23:00.</p><script>alert(1)</script></main></body></html>' }) });
+  const app = await createApp(settingsFrom({ API_TOKEN: 't', OPERATOR_TOKEN: 'operator-token' }), { store: {} as never, dispatch: async () => undefined, checks: {}, support: { harness: h.harness, store: h.store } });
+  const headers = { host: 'testserver', authorization: 'Bearer operator-token' };
+  try {
+    const upload = await app.inject({ method: 'POST', url: `/api/v1/knowledge/upload?businessId=${businessId}`, headers, payload: { filename: 'refunds.md', contentBase64: Buffer.from(REFUNDS).toString('base64'), category: 'Billing' } });
+    assert.equal(upload.statusCode, 201, upload.body);
+    assert.deepEqual([upload.json().title, upload.json().status, upload.json().audience], ['Політика повернень', 'draft', 'customer']);
+    assert.equal((await app.inject({ method: 'POST', url: `/api/v1/knowledge/upload?businessId=${businessId}`, headers, payload: { filename: 'x.pdf', contentBase64: 'AAAA', category: 'Billing' } })).statusCode, 415);
+    const page = await app.inject({ method: 'POST', url: `/api/v1/knowledge/import-url?businessId=${businessId}`, headers, payload: { url: 'https://help.novapay-fitness.test/hours', category: 'Support' } });
+    assert.equal(page.statusCode, 201, page.body);
+    assert.equal(page.json().sourceUrl, 'https://help.novapay-fitness.test/hours');
+    assert.doesNotMatch(page.json().content, /alert/);
+    assert.equal((await app.inject({ method: 'POST', url: `/api/v1/knowledge/import-url?businessId=${businessId}`, headers, payload: { url: 'https://evil.example/x', category: 'Support' } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: `/api/v1/knowledge/import-url?businessId=${businessId}`, headers, payload: { url: 'http://169.254.169.254/latest', category: 'Support' } })).statusCode, 422);
+
+    const internal = await app.inject({ method: 'POST', url: `/api/v1/knowledge?businessId=${businessId}`, headers, payload: { title: 'Ескалація', category: 'Internal', content: 'Повернення понад ліміт двічі списали — ескалація старшому спеціалісту.', audience: 'internal' } });
+    for (const doc of [upload.json(), internal.json()]) assert.equal((await app.inject({ method: 'POST', url: `/api/v1/knowledge/${doc.id}/publish?businessId=${businessId}`, headers, payload: { version: 1 } })).statusCode, 200);
+    const customerView = (await app.inject({ url: `/api/v1/knowledge/search?businessId=${businessId}&q=${encodeURIComponent('списали двічі')}`, headers })).json();
+    assert.ok(!customerView.hits.some((hit: { id: string }) => hit.id === internal.json().id));
+    const staffView = (await app.inject({ url: `/api/v1/knowledge/search?businessId=${businessId}&audience=any&q=${encodeURIComponent('списали двічі ескалація')}`, headers })).json();
+    assert.ok(staffView.hits.some((hit: { id: string }) => hit.id === internal.json().id));
+
+    const versions = (await app.inject({ url: `/api/v1/knowledge/${upload.json().id}/versions?businessId=${businessId}`, headers })).json().versions;
+    assert.deepEqual(versions.map((v: { version: number; status: string }) => [v.version, v.status]), [[2, 'published'], [1, 'draft']]);
+    const index = (await app.inject({ url: `/api/v1/knowledge/index?businessId=${businessId}`, headers })).json();
+    assert.deepEqual([index.vectorStore, index.embedder.id, index.published, index.urlImport], ['memory', 'local:hashing-v1:768', 2, true]);
+    const reindexed = (await app.inject({ method: 'POST', url: `/api/v1/knowledge/reindex?businessId=${businessId}`, headers, payload: {} })).json();
+    assert.equal(reindexed.documents, 2);
+  } finally { await app.close(); configureKnowledge({ retriever: new KnowledgeRetriever(), urlAllowlist: [] }); }
+});
+
+test('pgvector: vectors persist per version and HNSW search feeds the same ranking', { skip: !process.env.TEST_POSTGRES_HOST }, async () => {
+  const connection = { host: process.env.TEST_POSTGRES_HOST, port: Number(process.env.TEST_POSTGRES_PORT ?? 5432), database: process.env.TEST_POSTGRES_DB, user: process.env.TEST_POSTGRES_USER, password: process.env.TEST_POSTGRES_PASSWORD };
+  const schema = 'kb_test_' + randomUUID().replaceAll('-', '');
+  const admin = new pg.Pool(connection);
+  await admin.query('CREATE SCHEMA ' + schema);
+  const pool = new pg.Pool({ ...connection, options: '-c search_path=' + schema });
+  try {
+    await migrateSupport(pool);
+    const vectors = await PgVectorStore.connect(pool);
+    assert.ok(vectors, 'migration created support_knowledge_chunks');
+    const businessId = seedData().businesses[0]!.id;
+    const scoped = docs.map(d => ({ ...d, id: randomUUID(), businessId }));
+    const retriever = new KnowledgeRetriever(new HashingEmbedder(), vectors);
+    const hits = await retriever.search(scoped, 'I was charged twice');
+    assert.equal(hits[0]?.title, 'Політика повернень');
+    assert.ok(hits[0]!.passages[0]!.vectorRank !== null);
+    assert.ok((await vectors!.stats('local:hashing-v1:768')).chunks >= 5);
+    const fresh = new KnowledgeRetriever(new HashingEmbedder(), vectors);
+    assert.equal((await fresh.search(scoped, 'I was charged twice'))[0]?.title, 'Політика повернень', 'vectors are loaded from Postgres after a restart');
+  } finally { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); }
 });

@@ -11,18 +11,21 @@ const result = {
 }
 
 it('asks the operator search route with the business scope and shows ranked passages', async () => {
-  const fetch = vi.fn(async () => new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  const index = { embedder: { id: 'local:hashing-v1:768' }, vectorStore: 'pgvector', chunks: 42, staleChunks: 0, published: 3, urlImport: true }
+  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? index : result), { status: 200, headers: { 'Content-Type': 'application/json' } }))
   vi.stubGlobal('fetch', fetch)
   const user = userEvent.setup()
   render(<KnowledgeSearchTest token="op-token" businessId={businessId} />)
   expect(screen.getByRole('button', { name: 'Перевірити' })).toBeDisabled()
+  expect(await screen.findByText('Індекс: PostgreSQL + pgvector')).toBeInTheDocument()
   await user.type(screen.getByLabelText('Питання клієнта'), 'списали двічі')
+  await user.type(screen.getByLabelText('Тариф клієнта'), 'Annual')
   await user.click(screen.getByRole('button', { name: 'Перевірити' }))
   expect(await screen.findByText('Знайдено джерел: 1', { exact: false })).toBeInTheDocument()
   expect(screen.getByText('Політика повернень › Подвійне списання')).toBeInTheDocument()
   expect(screen.getByText('вектор: 1 (0.49)')).toBeInTheDocument()
-  const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
-  expect(url).toBe(`/api/v1/knowledge/search?businessId=${businessId}&q=${encodeURIComponent('списали двічі')}&k=5`)
+  const [url, init] = fetch.mock.calls.find(([path]) => String(path).includes('/knowledge/search')) as unknown as [string, RequestInit]
+  expect(url).toBe(`/api/v1/knowledge/search?businessId=${businessId}&q=${encodeURIComponent('списали двічі')}&k=5&audience=customer&plan=Annual`)
   expect(new Headers(init.headers).get('Authorization')).toBe('Bearer op-token')
 })
 

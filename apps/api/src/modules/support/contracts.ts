@@ -62,6 +62,11 @@ export interface AcceptedTurn { case: SupportCase; message: Message; job: Suppor
 export interface KnowledgeSource {
   id: string; businessId: string; title: string; category: string; content: string; version: number;
   status: 'draft' | 'published' | 'revoked'; updatedAt: string;
+  /** 'internal' sources are for staff and never reach the customer-facing agent. Default 'customer'. */
+  audience?: 'customer' | 'internal';
+  /** Empty or missing: every plan. Otherwise only customers on one of these plans. */
+  plans?: string[];
+  sourceUrl?: string | null;
 }
 export interface SupportSkill { id: string; businessId: string; name: string; content: string; revision: number; enabled: boolean; updatedAt: string }
 export interface SupportSettings {

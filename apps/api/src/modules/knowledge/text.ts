@@ -13,6 +13,28 @@ export function normalizeText(raw: string): string {
     .split('\n').map(line => line.replace(/\s+$/u, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', laquo: '«', raquo: '»', hellip: '…' };
+
+/** Readable markdown from an HTML page: headings, paragraphs and list items survive; scripts, styles and chrome do not. */
+export function htmlToMarkdown(html: string): string {
+  const main = /<main[\s\S]*?<\/main>/i.exec(html)?.[0] ?? /<article[\s\S]*?<\/article>/i.exec(html)?.[0] ?? /<body[\s\S]*?<\/body>/i.exec(html)?.[0] ?? html;
+  const text = main
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|noscript|template|svg|iframe|nav|header|footer|form|aside)\b[\s\S]*?<\/\1>/gi, '')
+    .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => `\n\n${'#'.repeat(Math.min(Number(level) + 1, 4))} ${inner}\n\n`)
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|section|ul|ol|table|tr|li|blockquote)>/gi, '\n\n')
+    .replace(/<\/t[dh]>/gi, ' | ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
+      if (code.startsWith('#x')) return String.fromCodePoint(Number.parseInt(code.slice(2), 16));
+      if (code.startsWith('#')) return String.fromCodePoint(Number(code.slice(1)));
+      return ENTITIES[code.toLowerCase()] ?? entity;
+    });
+  return normalizeText(text.split('\n').map(line => line.replace(/[ \u00A0]{2,}/g, ' ').trim()).join('\n'));
+}
+
 export interface ChunkDraft { ord: number; headingPath: string; body: string; contentHash: string; terms: string[] }
 
 const MAX_CHARS = 900;

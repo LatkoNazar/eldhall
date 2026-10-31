@@ -1,19 +1,25 @@
 import { createHash } from 'node:crypto';
 import { chunkMarkdown, terms } from './text.js';
 import { cosine, HashingEmbedder, type Embedder } from './embeddings.js';
+import type { VectorStore } from './vector-store.js';
 
 /**
  * Universal knowledge retrieval over the published support_knowledge rows.
  *
  * The support store stays the single source of truth (versions, publish/revoke, business scope,
- * sourceRefs validation). This module only turns the published snapshot of one turn into ranked
- * passages: heading-aware chunks -> BM25 (UA/EN terms) + cosine over local embeddings -> Reciprocal
- * Rank Fusion -> at most two passages per document. The index is an in-process cache keyed by
- * (id, version, content hash), so a publish or revoke is picked up on the next turn without a
- * reindex job, and no vector database is needed for the MVP.
+ * sourceRefs validation). This module turns the published snapshot of one turn into ranked passages:
+ * heading-aware chunks -> BM25 (UA/EN terms) + cosine over embeddings -> Reciprocal Rank Fusion ->
+ * at most two passages per document, filtered by audience and customer plan.
+ *
+ * Vectors: local hashing embedder by default, or OpenAI/Google (KB_EMBEDDINGS_PROVIDER). With the
+ * Postgres store and pgvector available they persist in support_knowledge_chunks (HNSW search);
+ * otherwise they live in an in-process cache keyed by (id, version, content hash). If the embedding
+ * model fails, search degrades to lexical-only instead of failing the turn.
  */
 
-export interface KnowledgeDoc { id: string; title: string; content: string; version: number; category?: string }
+export type KnowledgeAudience = 'customer' | 'internal';
+export interface KnowledgeDoc { id: string; title: string; content: string; version: number; category?: string; businessId?: string; audience?: KnowledgeAudience; plans?: string[]; sourceUrl?: string | null }
+export interface KnowledgeSearchOptions { k?: number; perDocument?: number; /** 'customer' hides internal documents (default for the agent). */ audience?: 'customer' | 'any'; /** Only documents for all plans or for this plan. */ plan?: string }
 
 export interface KnowledgePassage { section: string; text: string; score: number; lexicalRank: number | null; vectorRank: number | null; similarity: number | null }
 
@@ -23,42 +29,52 @@ export interface KnowledgeHit {
   title: string;
   version: number;
   category?: string;
+  audience: KnowledgeAudience;
+  sourceUrl: string | null;
   content: string;
   section: string;
   score: number;
   passages: KnowledgePassage[];
 }
 
-export interface KnowledgeSearchResult { query: string; mode: 'hybrid'; embedder: string; tookMs: number; hits: KnowledgeHit[] }
+export interface KnowledgeSearchResult { query: string; mode: 'hybrid' | 'lexical'; embedder: string; tookMs: number; hits: KnowledgeHit[] }
+export interface KnowledgeIndexStatus { embedder: { id: string; provider: string; model: string; dimensions: number }; vectorStore: 'pgvector' | 'memory'; cachedDocuments: number; chunks: number | null; staleChunks: number | null }
 
-interface IndexedChunk { docId: string; ord: number; section: string; body: string; terms: string[]; vector: number[] }
+interface IndexedChunk { docId: string; ord: number; section: string; body: string; terms: string[]; vector: number[] | null }
 
 export const RRF_K = 60;
-const MAX_CACHED_DOCS = 5000;
 export const MIN_RELATIVE_SCORE = 0.6;
+const MAX_CACHED_DOCS = 5000;
 
 export class KnowledgeRetriever {
-  readonly mode = 'hybrid' as const;
   private readonly cache = new Map<string, IndexedChunk[]>();
 
-  constructor(readonly embedder: Embedder = new HashingEmbedder()) {}
+  constructor(readonly embedder: Embedder = new HashingEmbedder(), readonly vectors: VectorStore | null = null, private readonly log: (message: string) => void = () => undefined) {}
 
   /** Documents ranked by their best passage. k = number of documents (the harness and DSH read up to 5). */
-  async search(docs: readonly KnowledgeDoc[], query: string, options: { k?: number; perDocument?: number } = {}): Promise<KnowledgeHit[]> {
+  async search(docs: readonly KnowledgeDoc[], query: string, options: KnowledgeSearchOptions = {}): Promise<KnowledgeHit[]> {
     return (await this.explain(docs, query, options)).hits;
   }
 
-  async explain(docs: readonly KnowledgeDoc[], query: string, { k = 5, perDocument = 2 }: { k?: number; perDocument?: number } = {}): Promise<KnowledgeSearchResult> {
+  async explain(all: readonly KnowledgeDoc[], query: string, { k = 5, perDocument = 2, audience = 'customer', plan }: KnowledgeSearchOptions = {}): Promise<KnowledgeSearchResult> {
     const started = Date.now();
-    const done = (hits: KnowledgeHit[]): KnowledgeSearchResult => ({ query, mode: this.mode, embedder: this.embedder.id, tookMs: Date.now() - started, hits });
+    let mode: KnowledgeSearchResult['mode'] = 'hybrid';
+    const done = (hits: KnowledgeHit[]): KnowledgeSearchResult => ({ query, mode, embedder: this.embedder.id, tookMs: Date.now() - started, hits });
+    const docs = all.filter(doc => (audience === 'any' || (doc.audience ?? 'customer') === 'customer') && (!doc.plans?.length || (plan !== undefined && doc.plans.includes(plan))));
     const queryTerms = terms(query);
     if (!queryTerms.length || !docs.length) return done([]);
     const byId = new Map(docs.map(doc => [doc.id, doc]));
     const chunks = (await Promise.all(docs.map(doc => this.indexed(doc)))).flat();
 
     const lexical = bm25(chunks, queryTerms);
-    const [queryVector] = await this.embedder.embed([query], 'query');
-    const vector = chunks.map(chunk => ({ chunk, similarity: cosine(queryVector!, chunk.vector) })).sort((a, b) => b.similarity - a.similarity).slice(0, 50);
+    let vector: { chunk: IndexedChunk; similarity: number }[] = [];
+    try {
+      const [queryVector] = await this.embedder.embed([query], 'query');
+      vector = await this.nearest(docs, chunks, queryVector!);
+    } catch (error) {
+      mode = 'lexical';
+      this.log(`knowledge: query embedding failed, lexical only (${error instanceof Error ? error.message : 'error'})`);
+    }
     const fused = fuse(lexical, vector, this.embedder.minSimilarity);
     // Tail cut: when a passage is confirmed by both signals, single-signal stragglers far below it are
     // noise ("місяць" matches every pricing page). Keeps the model context and sourceRefs tight.
@@ -74,38 +90,83 @@ export class KnowledgeRetriever {
         continue;
       }
       if (hits.size >= k) continue;
-      hits.set(doc.id, { id: doc.id, title: doc.title, version: doc.version, ...(doc.category ? { category: doc.category } : {}), content: '', section: passage.section, score: passage.score, passages: [passage] });
+      hits.set(doc.id, { id: doc.id, title: doc.title, version: doc.version, ...(doc.category ? { category: doc.category } : {}), audience: doc.audience ?? 'customer', sourceUrl: doc.sourceUrl ?? null, content: '', section: passage.section, score: passage.score, passages: [passage] });
     }
     for (const hit of hits.values()) {
-      // Keep the document order of the passages so the text reads naturally.
-      const ordered = [...hit.passages].sort((a, b) => order(chunks, hit.id, a) - order(chunks, hit.id, b));
+      const ord = (p: KnowledgePassage) => chunks.find(c => c.docId === hit.id && c.body === p.text)?.ord ?? 0;
+      const ordered = [...hit.passages].sort((a, b) => ord(a) - ord(b));
       hit.content = ordered.map(p => (ordered.length > 1 ? `${p.section}\n${p.text}` : p.text)).join('\n\n');
     }
     return done([...hits.values()]);
   }
 
+  /** Re-embeds the given published documents with the current embedder and drops vectors of other embedders. */
+  async reindex(docs: readonly KnowledgeDoc[]): Promise<{ documents: number; chunks: number; embedder: string }> {
+    for (const doc of docs) for (const key of [...this.cache.keys()]) if (key.startsWith(`${doc.id}:`)) this.cache.delete(key);
+    await this.vectors?.clear(this.embedder.id);
+    let chunks = 0;
+    for (const doc of docs) chunks += (await this.indexed(doc, true)).length;
+    return { documents: docs.length, chunks, embedder: this.embedder.id };
+  }
+
+  async status(): Promise<KnowledgeIndexStatus> {
+    const stats = this.vectors ? await this.vectors.stats(this.embedder.id) : null;
+    return {
+      embedder: { id: this.embedder.id, provider: this.embedder.provider, model: this.embedder.model, dimensions: this.embedder.dimensions },
+      vectorStore: this.vectors ? 'pgvector' : 'memory', cachedDocuments: this.cache.size,
+      chunks: stats?.chunks ?? [...this.cache.values()].reduce((sum, list) => sum + list.length, 0), staleChunks: stats?.staleChunks ?? 0,
+    };
+  }
+
   /** Number of cached document versions (for diagnostics and tests). */
   get cachedDocuments(): number { return this.cache.size; }
 
-  private async indexed(doc: KnowledgeDoc): Promise<IndexedChunk[]> {
-    const key = `${doc.id}:${doc.version}:${createHash('sha256').update(`${doc.title}\n${doc.content}`).digest('hex')}`;
+  private async nearest(docs: KnowledgeDoc[], chunks: IndexedChunk[], query: number[]): Promise<{ chunk: IndexedChunk; similarity: number }[]> {
+    if (this.vectors && chunks.every(chunk => chunk.vector)) {
+      const byKey = new Map(chunks.map(chunk => [`${chunk.docId}:${chunk.ord}`, chunk]));
+      const rows = await this.vectors.nearest(docs.map(d => ({ id: d.id, version: d.version })), this.embedder.id, query, 50);
+      const found = rows.flatMap(row => { const chunk = byKey.get(`${row.knowledgeId}:${row.ord}`); return chunk ? [{ chunk, similarity: row.similarity }] : []; });
+      if (found.length || !chunks.length) return found;
+    }
+    return chunks.filter(chunk => chunk.vector).map(chunk => ({ chunk, similarity: cosine(query, chunk.vector!) })).sort((a, b) => b.similarity - a.similarity).slice(0, 50);
+  }
+
+  private async indexed(doc: KnowledgeDoc, force = false): Promise<IndexedChunk[]> {
+    const hash = createHash('sha256').update(`${doc.title}\n${doc.content}`).digest('hex');
+    const key = `${doc.id}:${doc.version}:${hash}`;
     const cached = this.cache.get(key);
-    if (cached) return cached;
+    if (cached && !force) return cached;
     const drafts = chunkMarkdown(doc.title, doc.content);
-    const vectors = await this.embedder.embed(drafts.map(d => `${d.headingPath}\n${d.body}`), 'document');
-    const chunks = drafts.map((d, i) => ({ docId: doc.id, ord: d.ord, section: d.headingPath, body: d.body, terms: d.terms, vector: vectors[i]! }));
-    for (const old of this.cache.keys()) if (old.startsWith(`${doc.id}:`)) this.cache.delete(old);
+    const base = drafts.map(d => ({ docId: doc.id, ord: d.ord, section: d.headingPath, body: d.body, terms: d.terms }));
+    let vectors: (number[] | null)[] | null = null;
+    if (this.vectors && !force) {
+      try {
+        const stored = await this.vectors.load(doc.id, doc.version, this.embedder.id, hash);
+        if (stored && stored.length === base.length) vectors = stored.map(s => s.vector);
+      } catch (error) { this.log(`knowledge: vector load failed (${error instanceof Error ? error.message : 'error'})`); }
+    }
+    let complete = true;
+    if (!vectors) {
+      try {
+        vectors = await this.embedder.embed(drafts.map(d => `${d.headingPath}\n${d.body}`), 'document');
+        if (this.vectors && doc.businessId) {
+          await this.vectors.save(doc.id, doc.businessId, doc.version, this.embedder.id, hash, base.map((c, i) => ({ ord: c.ord, section: c.section, body: c.body, contentHash: hash, vector: vectors![i]! })))
+            .catch(error => this.log(`knowledge: vector save failed (${error instanceof Error ? error.message : 'error'})`));
+        }
+      } catch (error) {
+        // The embedding model is unavailable: index lexically now, retry the vectors next turn.
+        complete = false;
+        vectors = base.map(() => null);
+        this.log(`knowledge: document embedding failed (${error instanceof Error ? error.message : 'error'})`);
+      }
+    }
+    const chunks = base.map((c, i) => ({ ...c, vector: vectors![i] ?? null }));
+    if (!complete) return chunks;
+    for (const old of [...this.cache.keys()]) if (old.startsWith(`${doc.id}:`)) this.cache.delete(old);
     if (this.cache.size >= MAX_CACHED_DOCS) this.cache.delete(this.cache.keys().next().value!);
     this.cache.set(key, chunks);
     return chunks;
   }
-}
-
-/** Process-wide instance shared by the harness and the operator search route, so both see one cache. */
-export const knowledgeRetriever = new KnowledgeRetriever();
-
-function order(chunks: IndexedChunk[], docId: string, passage: KnowledgePassage): number {
-  return chunks.find(c => c.docId === docId && c.body === passage.text)?.ord ?? 0;
 }
 
 const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;

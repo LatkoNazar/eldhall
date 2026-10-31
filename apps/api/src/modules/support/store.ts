@@ -60,6 +60,8 @@ export interface SupportStore {
   metrics(): Promise<Metrics>;
   knowledge(businessId: string): Promise<KnowledgeSource[]>;
   saveKnowledge(source: KnowledgeSource, expectedVersion?: number): Promise<KnowledgeSource>;
+  /** Every saved version of one source, newest first. */
+  knowledgeVersions(businessId: string, id: string): Promise<KnowledgeSource[]>;
   skills(businessId: string): Promise<SupportSkill[]>;
   saveSkill(skill: SupportSkill): Promise<SupportSkill>;
   settings(businessId: string): Promise<SupportSettings>;
@@ -81,6 +83,7 @@ export class MemorySupportStore implements SupportStore {
   private turns = new Map<string, TurnLease & { startedAt: number }>();
   private executionPayments = new Map<string, string>();
   private knowledgeRows = new Map<string, KnowledgeSource>();
+  private knowledgeHistory: KnowledgeSource[] = [];
   private skillRows = new Map<string, SupportSkill>();
   private settingRows = new Map<string, StoredSettings>();
   private turnJobs = new Map<string, SupportTurnJob>();
@@ -92,7 +95,7 @@ export class MemorySupportStore implements SupportStore {
     this.paymentRows = new Map(seed.payments.map(p => [p.id, copy(p)]));
     this.cases.clear(); this.messageRows = []; this.proposalRows.clear();
     this.refundRows = []; this.auditRows = []; this.runRows = [];
-    this.turns.clear(); this.executionPayments.clear(); this.knowledgeRows.clear(); this.skillRows.clear(); this.settingRows.clear();
+    this.turns.clear(); this.executionPayments.clear(); this.knowledgeRows.clear(); this.knowledgeHistory = []; this.skillRows.clear(); this.settingRows.clear();
     this.turnJobs.clear(); this.clientMessages.clear();
   }
   async seedIfEmpty(seed: SeedData) { if (!this.businesses.size) await this.reset(seed); }
@@ -312,8 +315,12 @@ export class MemorySupportStore implements SupportStore {
   async saveKnowledge(source:KnowledgeSource,expectedVersion?:number) {
     const old=this.knowledgeRows.get(source.id);
     if (expectedVersion!==undefined && (!old || old.version!==expectedVersion || old.businessId!==source.businessId)) throw new VersionConflict('Document version changed');
-    this.knowledgeRows.set(source.id,copy(source)); return copy(source);
+    const row:KnowledgeSource={...source,audience:source.audience??old?.audience??'customer',plans:source.plans??old?.plans??[],sourceUrl:source.sourceUrl??old?.sourceUrl??null};
+    this.knowledgeRows.set(source.id,copy(row));
+    if (!this.knowledgeHistory.some(h=>h.id===row.id&&h.version===row.version)) this.knowledgeHistory.push(copy(row));
+    return copy(row);
   }
+  async knowledgeVersions(businessId:string,id:string) { return copy(this.knowledgeHistory.filter(h=>h.businessId===businessId&&h.id===id).sort((a,b)=>b.version-a.version)); }
   async skills(businessId:string) { return copy([...this.skillRows.values()].filter(x=>x.businessId===businessId)); }
   async saveSkill(skill:SupportSkill) { this.skillRows.set(skill.id,copy(skill)); return copy(skill); }
   async settings(businessId:string):Promise<SupportSettings> {

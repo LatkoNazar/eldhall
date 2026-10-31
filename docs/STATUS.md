@@ -23,7 +23,7 @@ Runtime, MCP and PostgreSQL counts describe their respective suites; do not add 
 ## Boundaries and remaining decisions
 
 - Payment effects are **SIMULATED**, identified by `SIM-RF-*`; no real money moves.
-- Knowledge retrieval is hybrid in-process (BM25 + local hashing embeddings, RRF) over published sources; hosted embedding models and pgvector are not used (no new infra). See `docs/KNOWLEDGE_BASE.md`.
+- Knowledge retrieval is hybrid (BM25 + embeddings, RRF) with audience/plan scoping; embeddings are local by default or OpenAI/Google, stored in pgvector when the extension is present (`compose.knowledge.yaml`), otherwise in memory. See `docs/KNOWLEDGE_BASE.md`.
 - One configured operator bearer maps to the bootstrap staff principal; customers use opaque session bearers. OAuth/SSO, invitations and full RBAC are not implemented.
 - MCP supports configured reads only. Skills grant no executable code or permissions. The upstream server must enforce customer/business ownership.
 - No Oracle/managed-cloud deployment or Docker container execution is claimed. Local integration commits do not establish remote CI or publication success.

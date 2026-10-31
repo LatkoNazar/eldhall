@@ -8,7 +8,7 @@ import { join, relative, sep } from 'node:path';
  *   universal/<procedure>/SKILL.md   -> support skills   (how to handle a kind of request, any business)
  *   <business>/<fact-sheet>/SKILL.md -> support knowledge (the business's published facts, versioned)
  *
- * Frontmatter: name, description, metadata.{layer, business, title, category, version, status, updated, source}.
+ * Frontmatter: name, description, metadata.{layer, business, title, category, version, status, updated, source, audience, plans}.
  * Ids are derived from business id + layer + name, so re-importing updates the same rows and the
  * config bootstrap only applies a higher version/revision.
  */
@@ -25,10 +25,12 @@ export interface SkillFile {
   status: 'published' | 'draft';
   updated: string | null;
   source: string | null;
+  audience: 'customer' | 'internal';
+  plans: string[];
   body: string;
 }
 
-export interface ImportedKnowledge { id: string; businessId: string; title: string; category: string; content: string; version: number; status: 'draft' | 'published' | 'revoked'; updatedAt: string }
+export interface ImportedKnowledge { id: string; businessId: string; title: string; category: string; content: string; version: number; status: 'draft' | 'published' | 'revoked'; updatedAt: string; audience: 'customer' | 'internal'; plans: string[]; sourceUrl: string | null }
 export interface ImportedSkill { id: string; businessId: string; name: string; content: string; revision: number; enabled: boolean; updatedAt: string }
 
 /** Small YAML subset used by SKILL.md: `key: value`, one nested map level, quoted scalars, `>`/`|` blocks. */
@@ -73,6 +75,8 @@ export function parseSkill(path: string, text: string): SkillFile {
     category: str(meta.category) ?? (layer === 'universal' ? 'Procedure' : 'general'),
     version, status: (str(meta.status) ?? 'published').toLowerCase() === 'draft' ? 'draft' : 'published',
     updated: str(meta.updated), source: str(meta.source), body,
+    audience: str(meta.audience)?.toLowerCase() === 'internal' ? 'internal' : 'customer',
+    plans: (str(meta.plans) ?? '').replace(/^\[|\]$/g, '').split(',').map(p => p.trim().replace(/^["']|["']$/g, '')).filter(Boolean),
   };
 }
 
@@ -114,8 +118,8 @@ export function toSupportConfig(skills: SkillFile[], businessId: string, busines
       continue;
     }
     if (skill.business !== businessSlug && !skill.path.startsWith(`${businessSlug}/`)) continue;
-    const source = skill.source ? `\n\nДжерело: ${skill.source}` : '';
-    knowledge.push({ id: stableId(businessId, 'knowledge', skill.name), businessId, title: skill.title.slice(0, 200), category: skill.category.slice(0, 100), content: `${skill.body}${source}`.slice(0, 50_000), version: skill.version, status: skill.status, updatedAt });
+    const sourceUrl = skill.source && /^https?:\/\//.test(skill.source) ? skill.source : null;
+    knowledge.push({ id: stableId(businessId, 'knowledge', skill.name), businessId, title: skill.title.slice(0, 200), category: skill.category.slice(0, 100), content: skill.body.slice(0, 50_000), version: skill.version, status: skill.status, updatedAt, audience: skill.audience, plans: skill.plans, sourceUrl });
   }
   return { knowledge, skills: procedures };
 }

@@ -1,0 +1,9 @@
+# Opt-in overlay: PostgreSQL with the pgvector extension, so passage vectors persist in
+# support_knowledge_chunks (HNSW) instead of process memory.
+#   docker compose -f compose.yaml -f compose.knowledge.yaml up -d
+# pgvector/pgvector:0.8.0-pg17 is the official postgres:17 (Debian) image plus the extension, so an
+# existing PostgreSQL 17 data volume keeps working. Migration 0006 creates the table only when the
+# extension is available; without this overlay the knowledge base still works with in-memory vectors.
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17

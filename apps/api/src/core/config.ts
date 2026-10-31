@@ -43,6 +43,10 @@ export interface Settings {
   classificationModel: string;
   classificationApiKey: string;
   classificationTimeoutMs: number;
+  knowledgeEmbeddingsProvider: 'local' | 'openai' | 'google';
+  knowledgeEmbeddingsModel: string;
+  knowledgeEmbeddingsApiKey: string;
+  knowledgeUrlAllowlist: string[];
 }
 
 export function environmentFiles(cwd = process.cwd()): string[] {
@@ -127,11 +131,16 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     classificationModel: value('CLASSIFICATION_MODEL', '').trim(),
     classificationApiKey: value('OPENROUTER_API_KEY', ''),
     classificationTimeoutMs: integer('CLASSIFICATION_TIMEOUT_MS', '10000', 120000),
+    knowledgeEmbeddingsProvider: value('KB_EMBEDDINGS_PROVIDER', 'local') as Settings['knowledgeEmbeddingsProvider'],
+    knowledgeEmbeddingsModel: value('KB_EMBEDDINGS_MODEL', '').trim(),
+    knowledgeEmbeddingsApiKey: value('KB_EMBEDDINGS_PROVIDER', 'local') === 'openai' ? value('OPENAI_API_KEY', '') : value('KB_EMBEDDINGS_PROVIDER', 'local') === 'google' ? value('GEMINI_API_KEY', value('GOOGLE_GENERATIVE_AI_API_KEY', '')) : '',
+    knowledgeUrlAllowlist: array('KB_URL_ALLOWLIST', '[]'),
   };
   if (!['memory', 'postgres'].includes(settings.supportStore)) throw new Error('SUPPORT_STORE must be memory or postgres');
   if (!['openai', 'google', 'anthropic', 'local', 'rules'].includes(settings.llmProvider)) throw new Error('LLM_PROVIDER must be openai, google, anthropic, local or rules');
   if (!['dsh', 'rules'].includes(settings.agentRuntime)) throw new Error('AGENT_RUNTIME must be dsh or rules');
   if (!['inline', 'worker'].includes(settings.supportExecution)) throw new Error('SUPPORT_EXECUTION must be inline or worker');
+  if (!['local', 'openai', 'google'].includes(settings.knowledgeEmbeddingsProvider)) throw new Error('KB_EMBEDDINGS_PROVIDER must be local, openai or google');
   if (!['agent', 'openrouter'].includes(settings.classificationProvider)) throw new Error('CLASSIFICATION_PROVIDER must be agent or openrouter');
   if (settings.classificationProvider === 'openrouter' && !settings.classificationModel) throw new Error('OpenRouter classification requires an explicit CLASSIFICATION_MODEL');
   if (settings.agentRuntime === 'dsh' && settings.llmProvider === 'rules') throw new Error('DSH requires a model provider');

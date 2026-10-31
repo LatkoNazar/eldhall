@@ -7,7 +7,7 @@ import type { CaseStatus } from './contracts.js';
 import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
-import { knowledgeRetriever } from '../knowledge/retriever.js';
+import { importFromFile, importFromUrl, KnowledgeImportError, knowledgeRuntime } from '../knowledge/runtime.js';
 
 export interface SupportDependencies {
   harness: SupportHarness; store: SupportStore;
@@ -126,13 +126,46 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       return business.id;
     };
     operator.get('/knowledge', (request, reply) => guard(reply, async () => ({ sources: await store.knowledge(await scope(request.query)), capabilities: { create: true, update: true, publish: true, revoke: true } })));
-    // Same retrieval the agent uses for this business: published sources only, hybrid BM25 + vector ranking.
+    // Same retrieval the agent uses for this business: published sources, hybrid BM25 + vector ranking,
+    // audience/plan filters as for a customer (audience=any also shows internal sources to staff).
     operator.get('/knowledge/search', (request, reply) => guard(reply, async () => {
-      const { q, k, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), businessId: z.string().uuid().optional() }).strict().parse(request.query);
+      const { q, k, audience, plan, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), audience: z.enum(['customer', 'any']).default('customer'), plan: z.string().trim().min(1).max(80).optional(), businessId: z.string().uuid().optional() }).strict().parse(request.query);
       const published = (await store.knowledge(await scope(rest))).filter(source => source.status === 'published');
-      return knowledgeRetriever.explain(published, q, { k });
+      return knowledgeRuntime.retriever.explain(published, q, { k, audience, plan });
     }));
-    const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000) }).strict();
+    operator.get('/knowledge/index', (request, reply) => guard(reply, async () => {
+      const sources = await store.knowledge(await scope(request.query));
+      return { ...await knowledgeRuntime.retriever.status(), mode: 'hybrid', urlImport: knowledgeRuntime.urlAllowlist.length > 0, documents: sources.length, published: sources.filter(s => s.status === 'published').length, drafts: sources.filter(s => s.status === 'draft').length };
+    }));
+    operator.post('/knowledge/reindex', (request, reply) => guard(reply, async () => {
+      const published = (await store.knowledge(await scope(request.query))).filter(source => source.status === 'published');
+      return knowledgeRuntime.retriever.reindex(published);
+    }));
+    operator.get<{ Params: { id: string } }>('/knowledge/:id/versions', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
+      const versions = await store.knowledgeVersions(await scope(request.query), request.params.id);
+      if (!versions.length) throw new HarnessError(404, 'Document not found');
+      return { versions };
+    }));
+    const access = { audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().trim().min(1).max(80)).max(20).optional() };
+    const importBody = z.object({ category: z.string().trim().min(1).max(80), title: z.string().trim().min(1).max(200).optional(), ...access });
+    const imported = async (businessId: string, run: () => Promise<{ title: string; content: string; sourceUrl: string | null }>, fields: { category: string; audience?: 'customer' | 'internal'; plans?: string[] }) => {
+      let document;
+      try { document = await run(); } catch (error) {
+        if (error instanceof KnowledgeImportError) throw new HarnessError(error.status, error.message);
+        throw error;
+      }
+      return store.saveKnowledge({ ...document, content: document.content.slice(0, 100000), category: fields.category, audience: fields.audience ?? 'customer', plans: fields.plans ?? [], id: randomUUID(), businessId, version: 1, status: 'draft', updatedAt: new Date().toISOString() });
+    };
+    // Imports always create drafts: nothing reaches the AI before an operator publishes it.
+    operator.post('/knowledge/import-url', (request, reply) => guard(reply, async () => {
+      const body = importBody.extend({ url: z.string().trim().min(1).max(2000) }).strict().parse(request.body);
+      return reply.code(201).send(await imported(await scope(request.query), () => importFromUrl(body.url, body.title), body));
+    }));
+    operator.post('/knowledge/upload', (request, reply) => guard(reply, async () => {
+      const body = importBody.extend({ filename: z.string().trim().min(1).max(200), contentBase64: z.string().min(1).max(800_000) }).strict().parse(request.body);
+      return reply.code(201).send(await imported(await scope(request.query), async () => importFromFile(body.filename, body.contentBase64, body.title), body));
+    }));
+    const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000), ...access }).strict();
     operator.post('/knowledge', (request, reply) => guard(reply, async () => {
       const body = documentBody.parse(request.body);
       return reply.code(201).send(await store.saveKnowledge({ ...body, id: randomUUID(), businessId: await scope(request.query), version: 1, status: 'draft', updatedAt: new Date().toISOString() }));

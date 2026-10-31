@@ -8,7 +8,8 @@ import { lexicalSentiment, mergeSentiment, priorityFor, toneFor } from './sentim
 import { TOOLS, isToolName } from './tools.js';
 import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
-import { knowledgeRetriever, type KnowledgeRetriever } from '../knowledge/retriever.js';
+import type { KnowledgeRetriever } from '../knowledge/retriever.js';
+import { knowledgeRuntime } from '../knowledge/runtime.js';
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -100,7 +101,7 @@ export class SupportHarness {
       await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
     }
 
-    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published').map(({ id, title, content, version }) => ({ id, title, content, version }));
+    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published').map(({ id, businessId, title, category, content, version, audience, plans, sourceUrl }) => ({ id, businessId, title, category, content, version, audience, plans, sourceUrl }));
     const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
     // Only sources the agent actually retrieved become sourceRefs of the reply, so revoking an
     // unrelated document no longer hides every assistant message of the business.
@@ -121,7 +122,7 @@ export class SupportHarness {
       assertActive, knowledge, skills, classification: settings.classification,
       searchKnowledge: async query => {
         await assertActive();
-        const hits = await (this.deps.knowledge ?? knowledgeRetriever).search(knowledge, query);
+        const hits = await (this.deps.knowledge ?? knowledgeRuntime.retriever).search(knowledge, query, { audience: 'customer', plan: customer.plan });
         for (const hit of hits) retrieved.set(hit.id, { id: hit.id, version: hit.version });
         await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
         return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
