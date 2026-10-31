@@ -44,6 +44,7 @@
         <nav class="site-nav" id="site-nav" aria-label="Розділи сторінки" data-nav>
           <a href="#how">Як це працює</a>
           <a href="#features">Можливості</a>
+          <a href="#product">Продукт</a>
           <a href="#scenario">Сценарій</a>
           <a href="#trust">Безпека</a>
           <a class="btn btn-primary nav-cta" href="#scenario" data-app-link="header">Відкрити демо <svg class="i" aria-hidden="true"><use href="#i-arrow" /></svg></a>
@@ -55,7 +56,7 @@
       <section class="hero" id="top" aria-labelledby="hero-title">
         <div class="container hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> AI Support Copilot · MVP</p>
+            <p class="eyebrow">AI Support Copilot · MVP</p>
             <h1 id="hero-title">Підтримка, яка не лише відповідає, а&nbsp;<em>вирішує</em>.</h1>
             <p class="lead">Eldhall розуміє звернення і настрій клієнта, знаходить потрібні дані, перевіряє правила бізнесу та пропонує конкретну дію. Ризиковані операції виконуються лише після підтвердження оператора.</p>
             <div class="cta-row">
@@ -69,49 +70,13 @@
             </ul>
           </div>
 
-          <figure class="hero-visual">
-            <div class="console" aria-hidden="true">
-              <div class="console-bar">
-                <span class="dots"><i></i><i></i><i></i></span>
-                <span class="console-title">Eldhall · Operator console</span>
-                <span class="tag tag-grey">demo data</span>
-              </div>
-              <div class="console-body">
-                <div class="case-head">
-                  <div>
-                    <p class="case-id">Case · NovaPay Fitness</p>
-                    <p class="case-title">Подвійне списання за жовтень</p>
-                  </div>
-                  <span class="tag tag-accent"><span class="dot"></span>P1</span>
-                </div>
-                <div class="chips">
-                  <span class="tag tag-warn">frustrated</span>
-                  <span class="tag tag-info">duplicate_charge</span>
-                  <span class="tag tag-grey">lookup_payments → submit_decision</span>
-                </div>
-                <div class="bubble bubble-cust">Ви списали з мене двічі за жовтень!!! Негайно поверніть</div>
-                <div class="policy">
-                  <p class="policy-title"><svg class="i"><use href="#i-shield" /></svg>Policy check</p>
-                  <ul>
-                    <li><svg class="i ok"><use href="#i-check" /></svg>Платіж належить клієнту</li>
-                    <li><svg class="i ok"><use href="#i-check" /></svg>Ідентичне списання за 40 с</li>
-                    <li><svg class="i ok"><use href="#i-check" /></svg>У межах ліміту повернення</li>
-                  </ul>
-                </div>
-                <div class="action">
-                  <div>
-                    <p class="action-label">Proposed action · high risk</p>
-                    <p class="action-title">refund_payment · 499.00 UAH</p>
-                  </div>
-                  <span class="fake-btn">Approve</span>
-                </div>
-              </div>
+          <figure class="hero-shot">
+            <div class="browser">
+              <div class="browser-bar" aria-hidden="true"><span class="lights"><i></i><i></i><i></i></span><span class="browser-url">app.eldhall · /operator</span></div>
+              <img src="/screens/inbox.webp" width="2000" height="1250" alt="Реальний екран «Вхідні звернення» Eldhall: кейс Olena Kovalenko «Подвійне списання» зі статусом «Очікує погодження», відповідь AI-помічника, панель AI-копілота з короткою суттю та платежами клієнта." fetchpriority="high" />
             </div>
-            <div class="float-chip" aria-hidden="true">
-              <span class="float-ic"><svg class="i"><use href="#i-check" /></svg></span>
-              <span><b>Повернення підтверджено</b><small>SIM-RF-… · симульований провайдер</small></span>
-            </div>
-            <figcaption class="visually-hidden">Приклад консолі оператора з демонстраційними даними: кейс подвійного списання з пріоритетом P1, перевіркою правил і запропонованим поверненням 499 гривень, яке очікує підтвердження.</figcaption>
+            <img class="hero-chat" src="/screens/chat.webp" width="1600" height="1000" alt="Реальний клієнтський чат Eldhall із повідомленням про подвійне списання та відповіддю AI." loading="lazy" />
+            <figcaption>Справжній інтерфейс MVP на демо-даних. Платежі симульовані.</figcaption>
           </figure>
         </div>
       </section>
@@ -169,6 +134,20 @@
             <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-user" /></svg></span><h3 lang="en">Human-in-the-loop</h3><p>Оператор бачить аналіз, сигнали й перевірки та підтверджує саме ту операцію, яку запропонував AI.</p></article>
             <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-shield" /></svg></span><h3 lang="en">Policy Guardrails</h3><p>Правила кожного бізнесу задаються окремо: ліміти, вікно дубля, дозволені інструменти.</p></article>
             <article class="feature reveal"><span class="feature-i"><svg class="i" aria-hidden="true"><use href="#i-list" /></svg></span><h3 lang="en">Case Tracking &amp; Audit</h3><p>Кейс, пропозиції, рішення оператора, запуски моделі й результат дії зберігаються в журналі.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="product" aria-labelledby="product-title">
+        <div class="container">
+          <div class="section-head reveal">
+            <p class="eyebrow">Реальні екрани</p>
+            <h2 id="product-title">Рішення приймає людина. Виконує — сервер.</h2>
+            <p class="section-sub">Знімки робочого простору оператора з поточного MVP на синтетичних даних.</p>
+          </div>
+          <div class="shots">
+            <figure class="shot reveal"><div class="shot-img shot-tall"><img src="/screens/approved.webp" width="900" height="2942" loading="lazy" alt="Картка дії refund_payment після погодження: усі перевірки політики пройдено, напис «Погодження отримано. Наступний крок виконає дію через сервер» і окрема кнопка «Виконати погоджену дію»." /></div><figcaption><strong>Approve ≠ виконання.</strong> Після погодження повернення ще немає — гроші рухає лише окремий Execute після повторної перевірки.</figcaption></figure>
+            <figure class="shot reveal"><div class="shot-img"><img src="/screens/analytics.webp" width="1600" height="1000" loading="lazy" alt="Сторінка «Аналітика підтримки»: вирішені звернення, виконані дії, передані оператору, розподіл звернень за статусом." /></div><figcaption><strong>Аналітика підтримки.</strong> Показники з поточного стану системи: вирішення, ескалації, результати дій. Демо-дані; історичні тренди ще не збираються.</figcaption></figure>
           </div>
         </div>
       </section>
