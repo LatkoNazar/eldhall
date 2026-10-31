@@ -1,4 +1,24 @@
-# Основа для змагання
+# Support Copilot
+
+AI-копілот підтримки, який не лише відповідає, а **безпечно виконує дії**: розуміє намір і настрій клієнта, перевіряє реальні дані та політику бізнесу, пропонує конкретну дію, просить підтвердження людини й виконує її через backend із повним аудитом. Підтримує різні бізнеси через per-business policy та реєстр tools.
+
+**MVP (працює):** сценарій «подвійне списання» — tool call `lookup_payments`, детермінований policy engine, refund лише після approval (прив'язаний до `argsHash`), захист від повторного виконання, чесна обробка збоїв, sentiment → пріоритет/тон/ескалація, audit trail, fallback без LLM.
+**Симульовано:** платіжний провайдер (`SIM-RF-*`), реальні гроші не рухаються. **Roadmap:** реальні провайдери, SSO/RBAC, нові канали, RAG.
+
+## Швидкий старт (без Docker)
+```bash
+cp .env.example .env
+cd apps/api && npm ci && npm test
+OPERATOR_TOKEN=development-operator-token npm run dev     # API :8000, in-memory store
+cd apps/frontend && npm ci && npm run dev                  # http://localhost:5173/chat і /operator
+```
+LLM: у `.env` задай `LLM_PROVIDER=openai|google|anthropic` і відповідний ключ; без ключа працює детермінований `rules`-режим (позначається як fallback).
+
+Документація: [архітектура](docs/ARCHITECTURE.md) · [API](docs/API_CONTRACTS.md) · [PRD і тест-план](docs/PRD.md) · [статус](docs/STATUS.md) · [командні промпти](docs/TEAM_PROMPTS.md) · [демо](docs/DEMO_SCRIPT.md). Ліцензія: обирається командою.
+
+---
+
+## Основа для змагання (starter)
 
 React, TypeScript, Vite, Node.js/Fastify, PostgreSQL та BullMQ на Redis в одному репозиторії. `apps/api` містить Node.js/TypeScript API й worker, `apps/frontend` — застосунок, `apps/landing` — окремий статичний лендинг на TypeScript. Umami збирає маркетингові події у власну PostgreSQL-базу. Frontend і landing мають окремі production-образи. Docker Compose призначений для одного Linux VPS; CI перевіряє вебзбірки, реальну фонову задачу та аналітику перед деплоєм.
 
