@@ -1,5 +1,7 @@
 # Pitch deliverables
 
+> **Historical draft.** The PPTX/PDF and generator were supplied at the earlier team checkpoint and have not been regenerated or verified against the current implementation. They retain team/video/evaluation placeholders and may depict the old one-click flow. Current behavior is **Approve (consent only) → separate Execute → simulated refund**. Conversation/tool work uses DSH with Gemini; optional ticket classification uses the separate OpenRouter Decisions model. Use [current status](../../docs/STATUS.md), [architecture](../../docs/ARCHITECTURE.md), and [demo script](../../docs/DEMO_SCRIPT.md) as the source of truth. Do not present draft metrics, license, video or deployment claims as measured results.
+
 | File | What |
 |---|---|
 | `Eldhall-Pitch.pptx` | 9-slide deck in the Eldhall style, with speaker notes on every slide |

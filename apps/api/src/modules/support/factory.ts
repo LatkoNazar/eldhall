@@ -1,27 +1,53 @@
 import type pg from 'pg';
-import type { Settings } from '../../core/config.js';
-import { AiSdkModel } from '../agent/ai-model.js';
+import { loadEnvironment, type Settings } from '../../core/config.js';
+import { loadSupportConfig } from '../../integrations/config.js';
+import { bootstrapSupportConfig } from '../../integrations/bootstrap.js';
+import { createBusinessIntegrations } from '../../integrations/mcp.js';
+import { DshSupportModel } from '../../runtime/dsh-model.js';
 import { SupportHarness } from '../agent/harness.js';
 import { RulesModel } from '../agent/model.js';
+import { OpenRouterTicketClassifier } from '../agent/openrouter-classifier.js';
 import { SimulatedPaymentProvider } from './payment-provider.js';
 import type { SupportDependencies } from './routes.js';
 import { seedData } from './seed.js';
 import { MemorySupportStore, type SupportStore } from './store.js';
+import { PostgresSupportStore } from './postgres-store.js';
+import { isExampleToken } from '../../core/auth.js';
 
 export async function createSupport(settings: Settings, pool: pg.Pool): Promise<SupportDependencies> {
-  if (settings.environment === 'production' && settings.operatorToken.length < 24) {
-    throw new Error('Production OPERATOR_TOKEN must contain at least 24 characters');
+  if (settings.supportExecution === 'worker' && settings.supportStore !== 'postgres') throw new Error('Worker support execution requires SUPPORT_STORE=postgres; use SUPPORT_EXECUTION=inline for an explicit memory demo');
+  if (settings.environment === 'production' && (settings.operatorToken.length < 24 || /\s/.test(settings.operatorToken) || isExampleToken(settings.operatorToken))) {
+    throw new Error('Production OPERATOR_TOKEN must contain at least 24 non-whitespace characters and cannot use a public example or placeholder');
   }
   let store: SupportStore;
   if (settings.supportStore === 'postgres') {
-    // WS3: return new PostgresSupportStore(pool) once migrations/0002_support.sql lands.
-    throw new Error(`SUPPORT_STORE=postgres is not implemented yet (pool ${pool.totalCount})`);
+    // Fail startup before accepting traffic when the release migration was omitted.
+    await pool.query('SELECT turn_job_id FROM support_agent_runs LIMIT 0');
+    await pool.query('SELECT id FROM support_turn_jobs LIMIT 0');
+    await pool.query('SELECT classification FROM support_settings LIMIT 0');
+    store = new PostgresSupportStore(pool);
+    if (settings.demoResetEnabled) await store.seedIfEmpty(seedData());
   } else {
     store = new MemorySupportStore();
-    await store.reset(seedData());
+    if (settings.demoResetEnabled) await store.reset(seedData());
   }
+  await store.recoverInterruptedExecutions();
+  const config = await loadSupportConfig(settings.supportConfigFile || undefined);
+  const integrations = createBusinessIntegrations(config, loadEnvironment());
+  await bootstrapSupportConfig(store, config);
   const fallback = new RulesModel();
-  const model = settings.llmProvider === 'rules' ? fallback : new AiSdkModel(settings.llmProvider, settings.llmModel, settings.llmApiKey);
-  const harness = new SupportHarness({ store, model, fallback, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs });
-  return { harness, store };
+  const model = settings.agentRuntime === 'rules' ? fallback : new DshSupportModel({
+    provider: settings.llmProvider as 'google' | 'openai' | 'anthropic' | 'local', model: settings.llmModel,
+    apiKey: settings.llmApiKey, baseURL: settings.llmBaseUrl || undefined, homeRoot: settings.runtimeHome,
+    timeoutMs: settings.llmTimeoutMs, maxToolCalls: settings.maxRuntimeToolCalls,
+  });
+  const classifier = settings.classificationProvider === 'openrouter' ? new OpenRouterTicketClassifier({
+    model: settings.classificationModel, apiKey: settings.classificationApiKey, timeoutMs: settings.classificationTimeoutMs,
+  }) : undefined;
+  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations });
+  return { harness, store, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+    persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
+    knowledgeSearch: 'lexical', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
+    classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,
+      credentialsConfigured: classifier ? Boolean(settings.classificationApiKey) : settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey) } } };
 }

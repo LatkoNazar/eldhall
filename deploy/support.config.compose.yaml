@@ -1,0 +1,25 @@
+# Optional operator-owned config and connector credentials, used in addition to
+# support.compose.yaml. Paths in this overlay are relative to deploy/.
+services:
+  api:
+    environment:
+      SUPPORT_CONFIG_FILE: /config/support.json
+    env_file:
+      - path: ${SUPPORT_CONNECTOR_ENV_FILE:-../.env.connectors}
+        required: false
+    volumes:
+      - type: bind
+        source: ${SUPPORT_CONFIG_PATH:?Set SUPPORT_CONFIG_PATH to your reviewed JSON configuration}
+        target: /config/support.json
+        read_only: true
+  worker:
+    environment:
+      SUPPORT_CONFIG_FILE: /config/support.json
+    env_file:
+      - path: ${SUPPORT_CONNECTOR_ENV_FILE:-../.env.connectors}
+        required: false
+    volumes:
+      - type: bind
+        source: ${SUPPORT_CONFIG_PATH:?Set SUPPORT_CONFIG_PATH to your reviewed JSON configuration}
+        target: /config/support.json
+        read_only: true

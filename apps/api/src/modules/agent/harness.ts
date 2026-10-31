@@ -1,11 +1,13 @@
-import { createHash } from 'node:crypto';
-import type { Analysis, CaseDetail, Customer, Proposal, SupportCase, TurnResult } from '../support/contracts.js';
-import type { PaymentProvider } from '../support/payment-provider.js';
-import type { SupportStore } from '../support/store.js';
+import { createHash, randomUUID } from 'node:crypto';
+import type { Analysis, CaseDetail, Customer, Message, Proposal, SupportCase, SupportTurnJob, TurnLease, TurnResult } from '../support/contracts.js';
+import { ProviderError, type PaymentProvider } from '../support/payment-provider.js';
+import { StaleTurn, type SupportStore } from '../support/store.js';
 import { decisionSchema, type AgentContext, type AgentDecision, type AgentModel } from './model.js';
 import { evaluatePolicy, money, type PolicyContext } from './policy.js';
 import { lexicalSentiment, mergeSentiment, priorityFor, toneFor } from './sentiment.js';
 import { TOOLS, isToolName } from './tools.js';
+import type { BusinessIntegrations } from '../../integrations/mcp.js';
+import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -18,6 +20,8 @@ export interface HarnessDeps {
   fallback: AgentModel;    // deterministic rules, used when the primary fails
   provider: PaymentProvider;
   timeoutMs: number;
+  integrations?: BusinessIntegrations;
+  classifier?: TicketClassifier;
 }
 
 export function argsHash(caseId: string, tool: string, args: unknown): string {
@@ -26,10 +30,17 @@ export function argsHash(caseId: string, tool: string, args: unknown): string {
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
 
-const CLAIMS_SUCCESS = /(refund(ed)? (has been|was|is) (issued|processed|completed|sent)|we('ve| have) refunded|money (has been|was) returned|кошти (вже )?повернено|ми повернули|повернення (виконано|оформлено))/i;
+const CLAIMS_SUCCESS = /(refund(?:ed)?\b.{0,40}\b(?:complete|completed|processed|issued|sent|done|successful)|\b(?:we|i)(?:'ve| have)?\s+refunded|money.{0,30}(?:returned|sent|refunded)|кошти.{0,30}(?:повернено|повернули|відправлено)|(?:ми|я)\s+повернул|повернення\s+(?:виконано|оформлено|завершено|успішне))/i;
 
 export class SupportHarness {
   constructor(private readonly deps: HarnessDeps) {}
+
+  private async visibleMessages(businessId: string, caseId: string): Promise<Message[]> {
+    const messages = await this.deps.store.messages(caseId);
+    const sources = await this.deps.store.knowledge(businessId);
+    return messages.map(message => message.sourceRefs?.some(ref => !sources.some(source => source.id === ref.id && source.version === ref.version && source.status === 'published'))
+      ? { ...message, body: '[Відповідь приховано: джерело змінено або відкликано]' } : message);
+  }
 
   async customer(sessionToken: string | undefined): Promise<Customer> {
     const customer = sessionToken ? await this.deps.store.customerBySession(sessionToken) : null;
@@ -48,73 +59,161 @@ export class SupportHarness {
     const customer = await this.customer(sessionToken);
     const found = await this.deps.store.getCase(caseId);
     if (!found || found.customerId !== customer.id) throw new HarnessError(404, 'Case not found');
-    return { customer, supportCase: found, messages: await this.deps.store.messages(caseId) };
+    const job = await this.deps.store.activeTurnJob(caseId);
+    return { customer, supportCase: found, messages: await this.visibleMessages(customer.businessId, caseId), activeRun: job ? { id: job.id, status: job.status } : null };
+  }
+
+  async enqueueTurn(sessionToken: string | undefined, caseId: string, body: string, clientMessageId?: string) {
+    const { customer } = await this.customerCase(sessionToken, caseId);
+    body = body.trim();
+    if (!body || body.length > 2000) throw new HarnessError(422, 'Message must contain 1–2000 non-blank characters');
+    return this.deps.store.enqueueTurn(caseId, customer.id, body, clientMessageId);
+  }
+
+  async runQueued(job: SupportTurnJob, lease: TurnLease) {
+    const customer = await this.deps.store.customer(job.customerId);
+    if (!customer) throw new HarnessError(404, 'Customer not found');
+    return this.runTurn(customer.sessionToken, job.caseId, job.body, lease);
   }
 
   /** One customer message -> one bounded agent run -> at most one proposal. */
-  async runTurn(sessionToken: string | undefined, caseId: string, body: string): Promise<TurnResult> {
+  async runTurn(sessionToken: string | undefined, caseId: string, body: string, preparedLease?: TurnLease): Promise<TurnResult> {
     const { store } = this.deps;
-    const { customer } = await this.customerCase(sessionToken, caseId);
+    const { customer, supportCase } = await this.customerCase(sessionToken, caseId);
+    body = body.trim();
+    if (!body || body.length > 2000) throw new HarnessError(422, 'Message must contain 1–2000 non-blank characters');
+    if (supportCase.ownership === 'staff') {
+      if (preparedLease) throw new HarnessError(409, 'Conversation is owned by staff');
+      await store.addMessage(caseId, 'customer', body);
+      await store.audit(caseId, 'message.routed_to_staff', `customer:${customer.id}`);
+      return { case: supportCase, reply: null, proposal: null };
+    }
+    const lease = preparedLease ?? await store.acquireTurn(caseId, randomUUID());
+    if (!lease) throw new HarnessError(409, 'A run is active or the conversation is owned by staff');
+    try {
     const business = (await store.business(customer.businessId))!;
-    await store.addMessage(caseId, 'customer', body);
-    await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
+    const settings = await store.settings(customer.businessId);
+    if (!preparedLease) {
+      await store.addMessage(caseId, 'customer', body);
+      await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
+    }
 
+    const knowledge = (await store.knowledge(customer.businessId)).filter(d => d.status === 'published').map(({ id, title, content, version }) => ({ id, title, content, version }));
+    const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
+    const assertActive = async () => {
+      if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
+      const current = await store.knowledge(customer.businessId);
+      if (knowledge.some(d => !current.some(n => n.id === d.id && n.version === d.version && n.status === 'published'))) throw new StaleTurn('Knowledge access changed');
+      const currentSkills = await store.skills(customer.businessId);
+      if (skills.some(s => !currentSkills.some(n => n.id === s.id && n.revision === s.revision && n.enabled))) throw new StaleTurn('Skill access changed');
+      if (JSON.stringify((await store.business(customer.businessId))?.policy) !== JSON.stringify(business.policy)) throw new StaleTurn('Business policy changed');
+      if (!sameClassificationConfig((await store.settings(customer.businessId)).classification, settings.classification)) throw new StaleTurn('Classification taxonomy changed');
+    };
     const ctx: AgentContext = {
+      conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
+      runtimeAttempt: lease.jobFence !== undefined && lease.jobFence > 1 ? lease.jobFence : undefined,
+      turnJobId: lease.jobFence !== undefined ? lease.runId : undefined,
+      assertActive, knowledge, skills, classification: settings.classification,
+      searchKnowledge: async query => {
+        await assertActive();
+        const terms = query.toLocaleLowerCase().split(/\s+/).filter(t => t.length > 2);
+        return knowledge.filter(d => terms.some(t => (d.title + ' ' + d.content).toLocaleLowerCase().includes(t))).slice(0, 5);
+      },
       customer: { name: customer.name, plan: customer.plan },
-      business: { name: business.name, currency: business.currency, policy: business.policy },
+      business: { name: business.name, currency: business.currency, policy: business.policy, responseStyle: { language: settings.language, tone: settings.tone } },
       payments: await store.payments(customer.id, 10),
-      history: (await store.messages(caseId)).slice(-10).map(m => ({ role: m.role, body: m.body })),
+      history: (await this.visibleMessages(customer.businessId, caseId)).slice(-10).map(m => ({ role: m.role, body: m.body })),
       message: body,
       allowedTools: business.policy.enabledTools,
     };
+    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive });
+    ctx.businessTools = integrations?.tools ?? [];
+    ctx.callBusinessTool = integrations?.callTool;
 
-    const { decision, source, model } = await this.decide(caseId, ctx);
+    const { decision, source, model, classification } = await this.decide(caseId, ctx);
+    await assertActive();
     const sentiment = mergeSentiment(lexicalSentiment(body), decision.sentiment);
     const analysis: Analysis = {
       intent: decision.intent, summary: decision.summary, reasoning: decision.reasoning, sentiment,
-      priority: priorityFor(sentiment, decision.intent), tone: toneFor(sentiment), source, model,
+      priority: priorityFor(sentiment, decision.intent), tone: toneFor(sentiment) === 'de-escalating' ? 'de-escalating' : settings.tone, source, model,
+      classification,
     };
-    await store.updateCase(caseId, { intent: analysis.intent, analysis, priority: analysis.priority });
-    await store.audit(caseId, 'agent.analyzed', `agent:${model}`, { intent: analysis.intent, sentiment: sentiment.label, priority: analysis.priority, source });
+    await store.audit(caseId, 'agent.analyzed', `agent:${model}`, { intent: analysis.intent, sentiment: sentiment.label, priority: analysis.priority, source, classification: analysis.classification });
 
     let action = decision.action;
     if (!action && (sentiment.abusive || sentiment.escalationRisk >= 0.8)) {
       action = { tool: 'escalate_to_human', args: { reason: `High escalation risk (${sentiment.label})` } };
     }
     let proposal: Proposal | null = null;
-    if (action) proposal = await this.propose(caseId, customer, action.tool, action.args);
+    if (action) proposal = await this.propose(caseId, customer, action.tool, action.args, lease);
     let escalated = proposal?.status === 'executed' && proposal.tool === 'escalate_to_human';
     if (proposal?.status === 'denied' && proposal.tool !== 'escalate_to_human') {
-      const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` });
+      const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` }, lease);
       escalated = handoff.status === 'executed';
     }
 
-    const status = proposal?.status === 'pending' ? 'awaiting_approval' : escalated ? 'escalated' : 'open';
-    const updated = await store.updateCase(caseId, { status });
-    const reply = await store.addMessage(caseId, 'assistant', this.compose(decision, analysis, proposal, business.currency, body));
-    return { case: updated, reply, proposal };
+    const waiting = (await store.proposals(caseId)).some(p => ['pending', 'approved', 'executing'].includes(p.status));
+    const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
+    await assertActive();
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), knowledge.map(({id,version}) => ({id,version})), {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification});
+    if (!completed) throw new StaleTurn('Conversation ownership changed');
+    return { ...completed, proposal };
+    } catch (error) {
+      if (error instanceof StaleTurn) throw new HarnessError(409, error.message);
+      throw error;
+    } finally { await store.releaseTurn(lease); }
   }
 
-  private async decide(caseId: string, ctx: AgentContext): Promise<{ decision: AgentDecision; source: Analysis['source']; model: string }> {
-    const { model, fallback, store, timeoutMs } = this.deps;
+  private async decide(caseId: string, ctx: AgentContext): Promise<{ decision: AgentDecision; source: Analysis['source']; model: string; classification: TicketClassification | null }> {
+    const { model, fallback, store, timeoutMs, classifier } = this.deps;
     const started = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // A dedicated Decisions provider classifies independently of the conversational/tool model.
+    // Both requests share one overall deadline. Failure never silently substitutes Gemini labels.
+    const external = classifier && ctx.classification ? (async () => {
+      const provenance = { provider: classifier.provider, model: classifier.model, ...(classifier.scoreKind ? { scoreKind: classifier.scoreKind } : {}) };
+      let aborted!: () => void;
+      try {
+        controller.signal.throwIfAborted();
+        const input = await Promise.race([
+          classifier.classify({ businessId: ctx.businessId, taxonomy: ctx.classification!, history: ctx.history.slice(-10), message: ctx.message }, controller.signal),
+          new Promise<never>((_, reject) => { aborted = () => reject(new Error('Classification deadline or ownership changed')); controller.signal.addEventListener('abort', aborted, { once: true }); }),
+        ]);
+        return normalizeClassification(ctx.classification, input, 'llm', provenance);
+      } catch {
+        return normalizeClassification(ctx.classification, undefined, 'fallback', provenance);
+      } finally { if (aborted) controller.signal.removeEventListener('abort', aborted); }
+    })() : undefined;
+    let checkingOwnership = false;
+    const classifierWatch = external ? setInterval(() => {
+      if (checkingOwnership || controller.signal.aborted) return;
+      checkingOwnership = true;
+      void ctx.assertActive().catch(error => controller.abort(error)).finally(() => { checkingOwnership = false; });
+    }, 500) : undefined;
+    const classified = async (decision: AgentDecision, source: Analysis['source']) => external ? external : normalizeClassification(ctx.classification, decision.classification, source);
     try {
-      const output = await Promise.race([
-        model.decide(ctx, controller.signal),
+      const pending = model.decide(external ? { ...ctx, classification: null } : ctx, controller.signal);
+      // DSH settles only after its child and scoped gateway have closed. Keep the turn claim until then.
+      const output = model.provider.startsWith('dsh:') ? await pending : await Promise.race([
+        pending,
         new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error(`LLM timeout after ${timeoutMs} ms`)))),
       ]);
       const decision = decisionSchema.parse(output.decision);
-      await store.recordRun({ caseId, provider: model.provider, model: model.model, status: 'ok', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: null });
-      return { decision, source: model.provider === 'rules' ? 'fallback' : 'llm', model: model.model };
+      const classification = await classified(decision, model.provider === 'rules' ? 'fallback' : 'llm');
+      await ctx.assertActive();
+      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: null });
+      return { decision, source: model.provider === 'rules' ? 'fallback' : 'llm', model: model.model, classification };
     } catch (error) {
+      await ctx.assertActive();
       const message = error instanceof Error ? error.message.slice(0, 300) : 'Model failed';
       const output = await fallback.decide(ctx, new AbortController().signal);
-      await store.recordRun({ caseId, provider: model.provider, model: model.model, status: 'fallback', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: message });
+      const classification = await classified(output.decision, 'fallback');
+      await ctx.assertActive();
+      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'fallback', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: message });
       await store.audit(caseId, 'agent.fallback', 'system', { error: message });
-      return { decision: output.decision, source: 'fallback', model: fallback.model };
-    } finally { clearTimeout(timer); }
+      return { decision: output.decision, source: 'fallback', model: fallback.model, classification };
+    } finally { clearTimeout(timer); if (classifierWatch) clearInterval(classifierWatch); }
   }
 
   private async policyContext(caseId: string, customer: Customer): Promise<PolicyContext> {
@@ -124,22 +223,22 @@ export class SupportHarness {
       customer,
       payments: await store.payments(customer.id, 50),
       refunds: await store.refunds(customer.id),
-      openProposals: (await store.proposals(caseId)).filter(p => p.status === 'pending' || p.status === 'executing'),
+      openProposals: (await store.proposals(caseId)).filter(p => ['pending', 'approved', 'executing', 'unknown'].includes(p.status)),
     };
   }
 
-  private async propose(caseId: string, customer: Customer, tool: string, args: Record<string, unknown>): Promise<Proposal> {
+  private async propose(caseId: string, customer: Customer, tool: string, args: Record<string, unknown>, lease: TurnLease): Promise<Proposal> {
     const { store } = this.deps;
     const policy = evaluatePolicy(tool, args, await this.policyContext(caseId, customer));
     const proposal = await store.createProposal({
       caseId, tool, args, argsHash: argsHash(caseId, tool, args),
       risk: isToolName(tool) ? TOOLS[tool].risk : 'high',
       status: policy.allowed ? 'pending' : 'denied', policy,
-    });
+    }, lease);
     await store.audit(caseId, policy.allowed ? 'action.proposed' : 'action.denied', 'agent', { proposalId: proposal.id, tool, failed: policy.checks.filter(c => !c.passed).map(c => c.name) });
     if (policy.allowed && !policy.requiresApproval) {
       const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
-      if (claimed) return (await this.execute(claimed)).proposal;
+      if (claimed) return store.finishProposal(claimed.id, 'executed', { queue: 'tier-2' }, null);
     }
     return proposal;
   }
@@ -148,11 +247,19 @@ export class SupportHarness {
     const { store } = this.deps;
     const existing = await store.proposal(proposalId);
     if (!existing) throw new HarnessError(404, 'Proposal not found');
-    const claimed = await store.claimProposal(proposalId, hash, 'executing', `operator:${operator}`);
+    const claimed = await store.decideProposal(proposalId, hash, 'approved', `operator:${operator}`);
     if (!claimed) {
       throw new HarnessError(409, existing.argsHash !== hash ? 'Approval does not match the proposed operation' : `Proposal is already ${existing.status}`);
     }
     await store.audit(claimed.caseId, 'action.approved', `operator:${operator}`, { proposalId, argsHash: hash });
+    return { proposal: claimed, case: (await store.getCase(claimed.caseId))! };
+  }
+
+  async executeApproved(proposalId: string, operator: string, hash: string) {
+    const existing = await this.deps.store.proposal(proposalId);
+    if (!existing) throw new HarnessError(404, 'Proposal not found');
+    const claimed = await this.deps.store.claimExecution(proposalId, hash, `operator:${operator}`);
+    if (!claimed) throw new HarnessError(409, 'Operation is not approved, arguments changed, or this payment has already been claimed');
     return this.execute(claimed);
   }
 
@@ -164,7 +271,8 @@ export class SupportHarness {
     if (!claimed) throw new HarnessError(409, `Proposal is already ${existing.status}`);
     await store.audit(claimed.caseId, 'action.rejected', `operator:${operator}`, { proposalId, reason });
     await store.addMessage(claimed.caseId, 'assistant', 'A support specialist reviewed the request and did not approve an automatic refund. They will contact you with next steps.');
-    const supportCase = await store.updateCase(claimed.caseId, { status: 'open' });
+    await store.setOwnership(claimed.caseId, 'staff', `operator:${operator}`);
+    const supportCase = await store.updateCase(claimed.caseId, { status: 'escalated' });
     return { proposal: claimed, case: supportCase };
   }
 
@@ -176,15 +284,16 @@ export class SupportHarness {
     const ctx = await this.policyContext(proposal.caseId, customer);
     ctx.openProposals = ctx.openProposals.filter(p => p.id !== proposal.id);
     const policy = evaluatePolicy(proposal.tool, proposal.args, ctx);
-    const finish = async (status: 'executed' | 'failed', result: Record<string, unknown> | null, error: string | null, caseStatus: SupportCase['status'], message: string | null) => {
+    const finish = async (status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, caseStatus: SupportCase['status'], message: string | null) => {
       const done = await store.finishProposal(proposal.id, status, result, error);
       await store.audit(proposal.caseId, status === 'executed' ? 'action.executed' : 'action.failed', proposal.decidedBy ?? 'system', { proposalId: proposal.id, tool: proposal.tool, result, error });
       if (message) await store.addMessage(proposal.caseId, 'assistant', message);
+      if (caseStatus === 'escalated') await store.setOwnership(proposal.caseId, 'staff', proposal.decidedBy ?? 'queue:tier-2');
       return { proposal: done, case: await store.updateCase(proposal.caseId, { status: caseStatus }) };
     };
     if (!policy.allowed) {
       const failed = policy.checks.filter(c => !c.passed).map(c => c.detail).join('; ');
-      return finish('failed', null, `Policy re-check failed: ${failed}`, 'open', 'We could not complete this action automatically. A specialist will follow up with you.');
+      return finish('failed', null, `Policy re-check failed: ${failed}`, 'escalated', 'We could not complete this action automatically. A specialist will follow up with you.');
     }
     if (proposal.tool === 'escalate_to_human') {
       // Escalation runs inside runTurn, which composes the customer reply itself.
@@ -196,10 +305,12 @@ export class SupportHarness {
       const refund = await provider.refund({ paymentId: payment.id, amountCents: payment.amountCents, currency: payment.currency, idempotencyKey: proposal.id });
       const row = await store.recordRefund({ paymentId: payment.id, proposalId: proposal.id, amountCents: payment.amountCents, providerRef: refund.providerRef });
       return finish('executed', { refundId: row.id, providerRef: row.providerRef, amountCents: row.amountCents, simulated: true }, null, 'resolved',
-        `Your refund of ${money(row.amountCents, payment.currency)} for the duplicate charge ${payment.merchantRef} has been approved and submitted (reference ${row.providerRef}). It usually appears on your statement within 3–5 business days.`);
+        `Симульоване повернення ${money(row.amountCents, payment.currency)} за дубль ${payment.merchantRef} виконано в демо (номер ${row.providerRef}). Реальні кошти не переміщувалися.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Provider error';
-      return finish('failed', null, message, 'escalated', 'We tried to process your refund, but the payment provider did not confirm it. No refund has been made yet; a specialist is looking into it now.');
+      return error instanceof ProviderError
+        ? finish('failed', null, message, 'escalated', 'Провайдер відхилив дію. No refund has been made. Звернення передано спеціалісту.')
+        : finish('unknown', null, message, 'escalated', 'Результат дії не підтверджено. Повторне виконання заблоковано до перевірки спеціалістом.');
     }
   }
 
@@ -218,7 +329,10 @@ export class SupportHarness {
     if (proposal?.tool === 'escalate_to_human' && proposal.status === 'executed') {
       return lead + (uk ? 'Я передав вашу розмову спеціалісту, він відповість тут найближчим часом.' : 'I have passed your conversation to a human specialist. They will reply here shortly.');
     }
-    // No executed money movement exists here, so a model reply claiming one is replaced.
+    // Financial outcomes come only from verified execution, never generated prose.
+    if (!proposal && ['duplicate_charge', 'refund_request'].includes(decision.intent)) {
+      return lead + (uk ? 'Я не можу підтвердити автоматичне повернення. Підкажіть дату та суму списання — за потреби підключимо спеціаліста.' : "I cannot confirm an automatic refund. Please tell me the date and amount of the charge so a specialist can review it.");
+    }
     if (!decision.reply || CLAIMS_SUCCESS.test(decision.reply)) {
       return lead + (uk ? 'Дякую! Я перевіряю ваше звернення, спеціаліст підключиться за потреби.' : "Thanks! I'm looking into this and a specialist will join if needed.");
     }
@@ -227,14 +341,17 @@ export class SupportHarness {
 
   async detail(caseId: string): Promise<CaseDetail> {
     const { store } = this.deps;
+    await store.recoverInterruptedExecutions();
     const supportCase = await store.getCase(caseId);
     if (!supportCase) throw new HarnessError(404, 'Case not found');
     const customer: Partial<Customer> & Omit<Customer, 'sessionToken'> = { ...(await store.customer(supportCase.customerId))! };
     delete customer.sessionToken;
+    const activeRun = await store.activeTurnJob(caseId);
     return {
+      activeRun: activeRun ? { id: activeRun.id, status: activeRun.status } : null,
       case: supportCase, customer,
       payments: await store.payments(customer.id, 20),
-      messages: await store.messages(caseId),
+      messages: await this.visibleMessages(supportCase.businessId, caseId),
       proposals: await store.proposals(caseId),
       audit: await store.auditEvents(caseId),
       runs: await store.runs(caseId),

@@ -48,6 +48,7 @@ def main() -> None:
         "BULLMQ_COMPLETED_RETENTION_SECONDS": "3600",
         "BULLMQ_FAILED_RETENTION_SECONDS": "86400",
         "API_TOKEN": secrets.token_hex(32),
+        "OPERATOR_TOKEN": secrets.token_hex(32),
         "UMAMI_POSTGRES_DB": "umami",
         "UMAMI_POSTGRES_USER": "umami",
         "UMAMI_POSTGRES_PASSWORD": secrets.token_hex(32),

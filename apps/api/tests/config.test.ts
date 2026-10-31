@@ -74,3 +74,39 @@ test('allowed hosts support ports and subdomain wildcard without suffix bypass',
   assert.equal(hostAllowed('[::1]:8000', ['[::1]']), true);
   assert.equal(hostAllowed('anything', ['*']), true);
 });
+
+test('DSH routing supports Gemini key aliases and explicit local endpoints without secret output', () => {
+  const defaults = settingsFrom({});
+  assert.equal(defaults.agentRuntime, 'rules');
+  assert.equal(defaults.supportExecution, 'inline');
+  assert.equal(settingsFrom({ SUPPORT_STORE: 'postgres' }).supportExecution, 'worker');
+  const gemini = settingsFrom({ LLM_PROVIDER: 'google', GEMINI_API_KEY: 'g-primary', GOOGLE_GENERATIVE_AI_API_KEY: 'g-legacy' });
+  assert.equal(gemini.agentRuntime, 'dsh');
+  assert.equal(gemini.llmModel, 'gemini-3.5-flash-lite');
+  assert.equal(gemini.llmApiKey, 'g-primary');
+  const local = settingsFrom({ LLM_PROVIDER: 'local', LLM_MODEL: 'local-support', LLM_BASE_URL: 'http://127.0.0.1:1234/v1' });
+  assert.equal(local.agentRuntime, 'dsh');
+  assert.equal(local.llmApiKey, '');
+  assert.equal(local.maxRuntimeToolCalls, 8);
+  for (const invalid of [{ AGENT_RUNTIME: 'other' }, { AGENT_RUNTIME: 'dsh' }, { LLM_PROVIDER: 'local' }, { LLM_PROVIDER: 'google', LLM_BASE_URL: 'file:///x' }, { MAX_RUNTIME_TOOL_CALLS: '0' }]) assert.throws(() => settingsFrom(invalid));
+});
+
+test('a dedicated OpenRouter Decisions classifier keeps model routes and credentials independent', () => {
+  const defaults = settingsFrom({});
+  assert.equal(defaults.classificationProvider, 'agent');
+  const settings = settingsFrom({
+    LLM_PROVIDER: 'google', GEMINI_API_KEY: 'synthetic-gemini-key', OPENAI_API_KEY: 'synthetic-unrelated-key',
+    CLASSIFICATION_PROVIDER: 'openrouter', CLASSIFICATION_MODEL: 'openai/gpt-6-luna-decisions',
+    OPENROUTER_API_KEY: 'synthetic-decisions-key',
+  });
+  assert.equal(settings.llmProvider, 'google');
+  assert.equal(settings.llmModel, 'gemini-3.5-flash-lite');
+  assert.equal(settings.llmApiKey, 'synthetic-gemini-key');
+  assert.equal(settings.classificationModel, 'openai/gpt-6-luna-decisions');
+  assert.equal(settings.classificationApiKey, 'synthetic-decisions-key');
+  assert.equal(settings.classificationTimeoutMs, 10000);
+  assert.equal(settingsFrom({ OPENAI_API_KEY: 'synthetic-unrelated-key' }).classificationApiKey, '');
+  assert.throws(() => settingsFrom({ CLASSIFICATION_PROVIDER: 'openrouter' }), /explicit CLASSIFICATION_MODEL/);
+  assert.throws(() => settingsFrom({ CLASSIFICATION_PROVIDER: 'unknown' }), /CLASSIFICATION_PROVIDER/);
+  assert.throws(() => settingsFrom({ CLASSIFICATION_TIMEOUT_MS: '0' }), /CLASSIFICATION_TIMEOUT_MS/);
+});

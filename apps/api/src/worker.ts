@@ -5,6 +5,10 @@ import { createPool } from './core/database.js';
 import { createWorkerRedis, jobOptions, workerHeartbeatKey, type JobMessage } from './core/queue.js';
 import { PostgresJobStore } from './modules/jobs/repository.js';
 import { persistQueueFailure, processJob } from './modules/jobs/processor.js';
+import { createSupport } from './modules/support/factory.js';
+import { startSupportWorker } from './modules/support/turn-queue.js';
+import { createInsights } from './modules/insights/factory.js';
+import { startInsightsWorker } from './modules/insights/worker.js';
 
 async function main() {
   const settings = getSettings();
@@ -12,6 +16,9 @@ async function main() {
   const store = new PostgresJobStore(pool);
   const redis = createWorkerRedis(settings);
   const options = jobOptions(settings);
+  const supportWorker = settings.supportExecution === 'worker' ? await startSupportWorker(settings, await createSupport(settings, pool)) : undefined;
+  const insights = await createInsights(settings, pool);
+  const insightsWorker = insights ? startInsightsWorker(insights) : undefined;
   const worker = new Worker<JobMessage, string | null>(settings.bullmqQueue, job => processJob(job, store), {
     connection: createNodeRedisClient(redis), prefix: settings.bullmqPrefix,
     concurrency: settings.workerConcurrency, autorun: false,
@@ -34,7 +41,7 @@ async function main() {
   worker.on('stalled', id => console.warn(`BullMQ recovered stalled job ${id}`));
 
   async function heartbeat() {
-    if (closing || heartbeatRunning || !redis.isReady || !worker.isRunning()) return;
+    if (closing || heartbeatRunning || !redis.isReady || !worker.isRunning() || (supportWorker && !supportWorker.isRunning()) || (insightsWorker && !insightsWorker.isRunning())) return;
     heartbeatRunning = true;
     try {
       await pool.query('SELECT 1');
@@ -46,6 +53,8 @@ async function main() {
     if (closing) return;
     closing = true;
     clearInterval(timer);
+    await insightsWorker?.close();
+    await supportWorker?.close();
     await worker.close();
     await Promise.allSettled([...finalizers]);
     if (redis.isReady) await redis.withAbortSignal(AbortSignal.timeout(3000)).del(key).catch(() => undefined);

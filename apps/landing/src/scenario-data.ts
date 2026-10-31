@@ -29,13 +29,13 @@ export const SCENARIOS: Record<'refund' | 'limit', Scenario> = {
     steps: [
       {
         label: 'Звернення', kicker: 'Крок 1 · Звернення', title: 'Клієнтка пише в чат',
-        text: 'Олена бачить у банку два однакові списання за підписку. Хто пише, система визначає за сесією чату, а не за текстом.',
+        text: 'Ілюстративний сценарій без API-викликів: Олена бачить два однакові списання за підписку. У застосунку клієнта визначає сесія чату, а не текст звернення.',
         chat: [{ role: 'customer', text: 'Ви списали з мене двічі за жовтень!!! Негайно поверніть' }],
         facts: [{ term: 'Клієнт', value: 'Olena K. (демо)' }, { term: 'План', value: 'Premium monthly' }, { term: 'Канал', value: 'Чат підтримки' }],
       },
       {
         label: 'Аналіз', kicker: 'Крок 2 · AI-аналіз', title: 'AI розуміє намір і настрій',
-        text: 'Модель викликає інструмент lookup_payments, знаходить платежі клієнта й повертає типізоване рішення. Сигнали настрою видно оператору.',
+        text: 'Приклад показує, як модель через lookup_payments перевіряє платежі клієнта й пропонує типізоване рішення. На цій сторінці модель не викликається.',
         typing: true,
         tags: [{ label: 'duplicate_charge', tone: 'info' }, { label: 'frustrated', tone: 'warn' }, { label: 'urgency: high', tone: 'warn' }, { label: 'P1', tone: 'accent' }],
         facts: [{ term: 'Знайдено', value: '2 × 499.00 UAH · SUB-OCT-2026' }, { term: 'Різниця', value: '40 секунд' }, { term: 'Tool calls', value: 'lookup_payments → submit_decision' }],
@@ -53,17 +53,16 @@ export const SCENARIOS: Record<'refund' | 'limit', Scenario> = {
       },
       {
         label: 'Рішення', kicker: 'Крок 4 · Human approval', title: 'Оператор підтверджує саме цю операцію',
-        text: 'Повернення — дія з високим ризиком, тож вона чекає на людину. Схвалення прив’язане до конкретних аргументів: змінена операція його не пройде.',
+        text: 'Approve лише записує згоду на конкретні аргументи. Він не виконує повернення й не викликає платіжний провайдер. Виконання потребує окремого Execute.',
         tags: [{ label: 'refund_payment', tone: 'grey' }, { label: 'high risk', tone: 'accent' }, { label: 'approved', tone: 'ok' }],
-        facts: [{ term: 'Дія', value: 'refund_payment' }, { term: 'Сума', value: '499.00 UAH' }, { term: 'Платіж', value: 'Друге списання SUB-OCT-2026' }, { term: 'Рішення', value: 'Approve · оператор Anna' }],
+        facts: [{ term: 'Дія', value: 'refund_payment' }, { term: 'Сума', value: '499.00 UAH' }, { term: 'Платіж', value: 'Друге списання SUB-OCT-2026' }, { term: 'Рішення', value: 'Approve · оператор Anna' }, { term: 'Ефект погодження', value: '0 повернень · 0 викликів провайдера' }, { term: 'Наступний крок', value: 'Окремий Execute' }],
       },
       {
-        label: 'Результат', kicker: 'Крок 5 · Вирішення', title: 'Стан змінено — клієнт отримує результат',
-        text: 'Backend виконує повернення через симульований провайдер, оновлює платіж і кейс та записує кожен крок у журнал. Повторне підтвердження відхиляється.',
-        // Verbatim MVP reply (harness.ts execute); it is English-only until the agent workstream localises it.
-        chat: [{ role: 'assistant', text: 'Your refund of 499.00 UAH for the duplicate charge SUB-OCT-2026 has been approved and submitted (reference SIM-RF-…). It usually appears on your statement within 3–5 business days.' }],
+        label: 'Виконання', kicker: 'Крок 5 · Execute', title: 'Окреме виконання — симульований результат',
+        text: 'Ілюстрація окремого Execute: backend повторно перевіряє правила й записує результат симульованого провайдера. Реальні кошти не переміщуються. Повторний Execute відхиляється.',
+        chat: [{ role: 'assistant', text: 'Симуляція завершена: повернення 499.00 UAH за дубль SUB-OCT-2026, референс SIM-RF-DEMO-001. Реальні кошти не переміщувалися.' }],
         tags: [{ label: 'payment: refunded', tone: 'ok' }, { label: 'case: resolved', tone: 'ok' }, { label: 'simulated provider', tone: 'grey' }],
-        facts: [{ term: 'Журнал', value: 'received → analyzed → proposed → approved → executed' }, { term: 'Повторний approve', value: '409 · вже виконано' }],
+        facts: [{ term: 'Виконання', value: 'Execute · окрема дія оператора' }, { term: 'Журнал', value: 'received → analyzed → proposed → approved → executed' }, { term: 'Повторний Execute', value: '409 · вже виконано' }],
       },
     ],
   },

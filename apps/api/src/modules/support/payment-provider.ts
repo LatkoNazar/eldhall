@@ -10,7 +10,7 @@ export class SimulatedPaymentProvider implements PaymentProvider {
   private readonly issued = new Map<string, string>();
 
   async refund(request: RefundRequest) {
-    if (this.failing.has(request.paymentId)) throw new ProviderError('Simulated provider declined the refund (timeout from acquirer)');
+    if (this.failing.has(request.paymentId)) throw new ProviderError('Simulated provider explicitly declined the refund');
     const existing = this.issued.get(request.idempotencyKey);
     if (existing) return { providerRef: existing, simulated: true as const };
     const providerRef = `SIM-RF-${request.idempotencyKey.slice(0, 8).toUpperCase()}`;

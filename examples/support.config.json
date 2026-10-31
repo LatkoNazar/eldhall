@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "businesses": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "slug": "example-store",
+      "name": "Example Store",
+      "currency": "UAH",
+      "policy": {
+        "refundLimitCents": 50000,
+        "duplicateWindowMinutes": 10,
+        "enabledTools": ["lookup_payments", "refund_payment", "escalate_to_human"]
+      }
+    }
+  ],
+  "classifications": [
+    {
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "revision": 1,
+      "fallbackClassId": "other",
+      "minimumConfidence": 0.6,
+      "classes": [
+        { "id": "1", "label": "Оплата", "description": "Рахунки, списання, подвійна оплата та запити на повернення.", "examples": ["З мене списали двічі за один місяць."] },
+        { "id": "2", "label": "Доставка", "description": "Відстеження замовлень, затримки та проблеми доставки.", "examples": ["Де зараз моє замовлення?"] },
+        { "id": "3", "label": "Обліковий запис", "description": "Доступ до профілю, вхід та відновлення облікового запису.", "examples": ["Не можу увійти після зміни пароля."] },
+        { "id": "4", "label": "Технічна проблема", "description": "Помилки застосунку, несправні функції та проблеми роботи сервісу.", "examples": ["Сторінка показує помилку, коли відкриваю звіт."] },
+        { "id": "5", "label": "Підписка", "description": "Тарифи, поновлення, зміни та скасування підписки.", "examples": ["Хочу перейти на інший тариф."] },
+        { "id": "other", "label": "Інше", "description": "Жоден клас не підходить або для вибору бракує інформації.", "examples": [] }
+      ]
+    }
+  ],
+  "knowledge": [
+    {
+      "id": "10000000-0000-4000-8000-000000000010",
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "title": "Delivery support",
+      "category": "delivery",
+      "content": "Deliveries usually take 2–4 working days after dispatch. If a parcel is late, check its current status and ask a support operator to investigate.",
+      "version": 1,
+      "status": "published"
+    }
+  ],
+  "skills": [
+    {
+      "id": "10000000-0000-4000-8000-000000000020",
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "name": "Late delivery triage",
+      "content": "For a late delivery, read the current order status with the approved order-status tool. Explain the returned status and cite the delivery policy. When delivery information is missing or an exception is needed, propose escalation to a human. Never promise a delivery date or refund that the backend has not confirmed.",
+      "revision": 1,
+      "enabled": true
+    }
+  ],
+  "integrations": [
+    {
+      "id": "orders",
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "url": "https://mcp.example.com/mcp",
+      "credentialEnv": "ORDERS_MCP_TOKEN",
+      "timeoutMs": 5000,
+      "maxOutputBytes": 8192,
+      "tools": [
+        {
+          "name": "get_order_status",
+          "description": "Read the authenticated customer's order status. Returns order_id, status, and tracking_url only.",
+          "inputSchema": {
+            "type": "object",
+            "properties": { "order_id": { "type": "string", "maxLength": 100 } },
+            "required": ["order_id"],
+            "additionalProperties": false
+          },
+          "scopeBindings": { "businessId": "business_id", "customerId": "customer_id" },
+          "outputFields": ["order_id", "status", "tracking_url"],
+          "access": "read"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "version": "0.2.0-proposal",
+  "date": "2026-10-31",
+  "source": "Six corrected light-theme reference images supplied by the user",
+  "references": [
+    {
+      "id": "R1",
+      "screen": "AI actions",
+      "originalFilename": "AI_действия_возврат_дублированного_платежа_2.png",
+      "file": "01-ai-actions.png",
+      "sha256": "870ca9f0ca9e6f6df24b570cbf918ab9028fabe5a514a0f2c6b2242ba28227cb",
+      "bytes": 1357230,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "id": "R2",
+      "screen": "Knowledge base",
+      "originalFilename": "База знаний для AI-поддержки-3.png",
+      "file": "02-knowledge-base.png",
+      "sha256": "5016a36cfbeca9a0cb816a4ed307da5e56ac94c15b257a0c36e27504b6b68303",
+      "bytes": 1343189,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "id": "R3",
+      "screen": "Inbox",
+      "originalFilename": "ИИ-поддержка_ двойное списание-1.png",
+      "file": "03-inbox.png",
+      "sha256": "7e0bc128e8141a470abdaf3893d479a6e8112a11a8feda2be00ef1077a2d01ae",
+      "bytes": 1375840,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "id": "R4",
+      "screen": "Team",
+      "originalFilename": "Команда поддержки eldhall-5.png",
+      "file": "04-team.png",
+      "sha256": "1e6ba0e736031e44a6312d60496e37fc6065b5d63e4b1a807ab06b41463c4271",
+      "bytes": 1269742,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "id": "R5",
+      "screen": "Analytics",
+      "originalFilename": "Панель аналитики поддержки eldhall-4.png",
+      "file": "05-analytics.png",
+      "sha256": "c52582d9a90f6e4ce4197a83ffba55c844af32cc2bbcf408197fc7a421a98cd5",
+      "bytes": 1278984,
+      "width": 1536,
+      "height": 1024
+    },
+    {
+      "id": "R6",
+      "screen": "Settings",
+      "originalFilename": "Настройки ИИ-помощника eldhall-6.png",
+      "file": "06-settings.png",
+      "sha256": "bd2644eaf5022feede1a7d065d03d0a755786773681fde5c87cf51328a91af0c",
+      "bytes": 1321818,
+      "width": 1536,
+      "height": 1024
+    }
+  ]
+}

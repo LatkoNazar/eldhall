@@ -79,30 +79,42 @@ jobs:
           node --test scripts/tests/*.test.mjs
           bash scripts/tests/test-release.sh
       - name: Validate production composition
-        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
+        run: |
+          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
+          docker compose --env-file .env.example -f deploy/support.compose.yaml --profile ui config --quiet
+          SUPPORT_CONFIG_PATH=../examples/support.config.json docker compose --env-file .env.example -f deploy/support.compose.yaml -f deploy/support.config.compose.yaml --profile ui config --quiet
       - name: Build application images
         run: |
           docker build --tag "$APP_IMAGE" apps/api
           docker build -f apps/frontend/Dockerfile --target production --tag "$FRONTEND_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           docker build -f apps/landing/Dockerfile --target production --tag "$LANDING_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+      - name: Generate private CI configuration
+        id: ci_environment
+        run: python3 scripts/init-env.py --project-name "$PROJECT_NAME" --output .env.ci
       - name: Start dependencies and migrate
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis umami-db umami
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml up -d --wait --wait-timeout 180 postgres redis umami-db umami
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml run --rm --no-deps migrate
       - name: Start application and exercise real background job
         run: |
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend landing
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < scripts/frontend-smoke.mjs
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < apps/api/scripts/smoke.mjs
-          docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://landing:8080 api node --input-type=module - < scripts/landing-smoke.mjs
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml up -d --no-build --wait --wait-timeout 180 api worker frontend landing
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < scripts/frontend-smoke.mjs
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://frontend:8080 -e SMOKE_HOST=localhost api node --input-type=module - < apps/api/scripts/smoke.mjs
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml exec -T -e SMOKE_BASE_URL=http://landing:8080 api node --input-type=module - < scripts/landing-smoke.mjs
       - name: Verify isolated analytics ingestion and attribution
-        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml exec -T -e UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1 umami node - < scripts/analytics-smoke.mjs
+        run: docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml exec -T -e UMAMI_SMOKE_ALLOW_DEFAULT_CREDENTIALS=1 umami node - < scripts/analytics-smoke.mjs
       - name: Diagnostics
-        if: failure() && steps.ci_project.outcome == 'success'
-        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml logs --tail 100
+        if: failure() && steps.ci_project.outcome == 'success' && steps.ci_environment.outcome == 'success'
+        run: |
+          test -f .env.ci || exit 0
+          docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml logs --tail 100
       - name: Clean CI environment
         if: always() && steps.ci_project.outcome == 'success'
-        run: docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml down --volumes
+        run: |
+          if [[ "${{ steps.ci_environment.outcome }}" == "success" && -f .env.ci ]]; then
+            trap 'rm -f -- .env.ci' EXIT
+            docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml down --volumes
+          fi
 
   deploy:
     needs: check
