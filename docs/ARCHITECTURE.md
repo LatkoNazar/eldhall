@@ -11,6 +11,8 @@ flowchart LR
   Worker -->|Publish accepted run IDs| Redis[(Redis / BullMQ)]
   Redis -->|At-least-once delivery| Worker
   Worker --> DSH[Native DSH model/tool loop]
+  Worker --> Classifier[Optional OpenRouter Decisions classifier]
+  PG -->|Insight runs: SKIP LOCKED claims| Worker
   DSH --> Gateway[Trusted parent tool gateway]
   Gateway -->|Configured scoped reads| MCP[Reviewed MCP server]
   Worker -->|Proposals and final messages| PG
@@ -34,6 +36,18 @@ Staff takeover invalidates the previous bot run and pending approval. Replies re
 
 The parent owns validation, data access and effects. DSH owns the model/tool loop and native sessions under persistent `RUNTIME_HOME`, separate from PostgreSQL product messages/runs/audit. Normal turns resume the conversation session with a bounded current product snapshot; recovered attempts use isolated checkpoints. Deadlines, cancellation and ownership checks fence tool output and close the runtime child. A child process is not an operating-system security boundary.
 
+### Configurable ticket categories
+
+Business-scoped `classifications` define versioned IDs, labels, descriptions, examples, an `other` fallback and a review threshold. Categories are independent of the fixed financial intent, priority and permissions. Persisted revision/tombstone watermarks prevent an old startup file from restoring a disabled or newer edited taxonomy; in-flight changes fence stale output. Historical results retain the original label/revision. A low-score result keeps the proposed class and its score separate from the final fallback class.
+
+With `CLASSIFICATION_PROVIDER=openrouter`, [the dedicated adapter](../apps/api/src/modules/agent/openrouter-classifier.ts) calls the fixed alpha Decisions endpoint using `openai/gpt-6-luna-decisions`. The winning option probability is a model score, not measured accuracy; provider failure returns `other` for review. Conversation/tool work remains DSH/Gemini. With the default `agent` classifier, the bounded DSH decision supplies the category. See [configuration](integrations-runtime.md) and [OpenRouter setup](openrouter.md).
+
+### Ticket and knowledge insights
+
+An operator admits a business-scoped analysis run; the ordinary worker polls its durable PostgreSQL row with `SKIP LOCKED`, renewable leases and fence checks. These analysis jobs do **not** use the customer-turn BullMQ queue. A bounded repeatable-read snapshot supplies ticket/message and published KB excerpts to a dedicated DSH profile exposing only `submit_insights`. Findings cite validated sampled evidence; recurrence counts derive from distinct cited tickets. Possible KB gaps/contradictions remain hypotheses, not population rates or confirmed causes.
+
+Changed/revoked sources hide stale derived findings. Creating a KB draft is idempotent per finding and performs no publication. Drafts include provenance and a verification notice; normal staff-managed publication remains separate. See [Insights limits and API](insights.md).
+
 ## Policy, approval and execution
 
 [SupportHarness](../apps/api/src/modules/agent/harness.ts) coordinates context, decision/fallback, proposals and backend-owned replies. [Deterministic policy](../apps/api/src/modules/agent/policy.ts) checks ownership, captured state, equal amount/currency/reference within the duplicate window, the later duplicate target, full refund amount, enabled tool and business limit. Sentiment changes priority/tone/escalation and never authorizes a refund.
@@ -43,6 +57,8 @@ The parent owns validation, data access and effects. DSH owns the model/tool loo
 ## Data and configuration
 
 [0002_support.sql](../apps/api/migrations/0002_support.sql) creates `support_*` businesses, sessions, payments, cases/ownership, messages/source references, proposals, payment execution reservations, simulated refunds, audit, runs, knowledge, skills and settings. [0003_support_turns.sql](../apps/api/migrations/0003_support_turns.sql) adds durable jobs, leases/fences and input/proposal deduplication. [The migration runner](../apps/api/src/migrate.ts) retains starter jobs compatibility checks. Startup rejects missing support queue schema.
+
+[0004_classification.sql](../apps/api/migrations/0004_classification.sql) persists taxonomy configuration and its private revision watermark; [0005_insights.sql](../apps/api/migrations/0005_insights.sql) adds analysis runs, evidence and draft linkage. Staff endpoints fail closed for a missing operator key, and production rejects known example credentials.
 
 `SUPPORT_CONFIG_FILE` loads reviewed JSON at startup: initial businesses, versioned documents, reviewed Markdown/prose skills and read-only MCP integrations. Persisted settings control existing business policy. Higher resource revisions can update stored rows; conflicting equal revisions fail and lower revisions do not replace newer edits. Search is bounded lexical retrieval over published business-scoped knowledge. Skills guide the model but grant no permissions. MCP injects authenticated business/customer scope, projects approved output fields and requires upstream ownership enforcement. Restart both processes to load changed configuration.
 

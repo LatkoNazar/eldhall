@@ -4,6 +4,10 @@ API-агент підтримки на TypeScript/Node.js: DeepSeek Harness ви
 
 **MVP:** подвійне списання → перевірена пропозиція → окремі **Approve** та **Execute**. Повторне виконання блокується; невизначений результат потребує звірки. Оператор може перебрати діалог, відповісти й явно повернути його боту. Є versioned KB, prose-skills, settings та налаштовані read-only MCP tools.
 
+**Класифікація:** бізнес задає власні класи, наприклад `1`–`5` та `other`, у [JSON-конфігурації](examples/support.config.json). Визначення й результати мають версії; низька оцінка переводить тікет на перевірку. DSH/Gemini веде діалог та інструменти, а [OpenRouter Decisions](docs/openrouter.md) з `openai/gpt-6-luna-decisions` окремо оцінює категорію. Оцінка не надає прав виконувати дії.
+
+**AI Insights:** ручний аналіз вибірки діалогів знаходить повторювані проблеми, можливі прогалини KB та суперечності з посиланнями на фактичні повідомлення. Результат — пропозиція для перевірки; оператор може створити [чернетку KB](docs/insights.md), а публікація залишається окремою дією.
+
 **Межі:** платіжний провайдер симульований (`SIM-RF-*`), реальні гроші не рухаються. Пошук KB — лексичний; staff auth — один серверний bearer, без OAuth, запрошень і повного RBAC. Ліцензію ще не обрано. Документи з пропозиціями нижче не є списком реалізованих можливостей.
 
 ## Швидкий старт: native API + worker
@@ -41,7 +45,7 @@ API: `http://localhost:8000`; readiness: `/health/ready`. Створи бізн�
 Опційний UI: `npm --prefix apps/frontend ci`, `npm --prefix apps/frontend run dev`; відкрий `http://localhost:5173/operator` з `OPERATOR_TOKEN` або `/chat` з наданою customer session. UI використовує same-origin proxy; незалежному клієнту можна надати explicit `CORS_ORIGINS`.
 
 [Поточна реалізація, bootstrap і self-host](docs/implementation.md) · [API](docs/API_CONTRACTS.md) · [JSON config / MCP / skills / guards](docs/integrations-runtime.md) · [світлий дизайн 0.2](docs/design-system.md) · [бізнес-модель](docs/business-model.md).
-Попередні матеріали: [архітектура](docs/ARCHITECTURE.md) · [архітектурна пропозиція](docs/architecture-review.md) · [PRD і тест-план](docs/PRD.md) · [статус baseline](docs/STATUS.md) · [командні промпти](docs/TEAM_PROMPTS.md) · [демо baseline](docs/DEMO_SCRIPT.md).
+Матеріали: [поточна архітектура](docs/ARCHITECTURE.md) · [архітектурна пропозиція](docs/architecture-review.md) · [PRD і тест-план](docs/PRD.md) · [результати перевірок](docs/STATUS.md) · [архів командних промптів](docs/TEAM_PROMPTS.md) · [сценарій демо](docs/DEMO_SCRIPT.md).
 
 Окремий support-стек: `docker compose --env-file .env -f deploy/support.compose.yaml up -d --build --wait`; додай `--profile ui` перед `up`, якщо потрібний dashboard. Production secrets і приватні loopback-порти описані в [інструкції](docs/implementation.md#self-host-compose). Решта README зберігає інструкції базового шаблону, landing та Umami; для support MVP користуйся розділом вище й поточною інструкцією.
 
@@ -51,23 +55,13 @@ API: `http://localhost:8000`; readiness: `/health/ready`. Створи бізн�
 
 React, TypeScript, Vite, Node.js/Fastify, PostgreSQL та BullMQ на Redis в одному репозиторії. `apps/api` містить Node.js/TypeScript API й worker, `apps/frontend` — застосунок, `apps/landing` — окремий статичний лендинг на TypeScript. Umami збирає маркетингові події у власну PostgreSQL-базу. Frontend і landing мають окремі production-образи. Docker Compose призначений для одного Linux VPS; CI перевіряє вебзбірки, реальну фонову задачу та аналітику перед деплоєм.
 
-Сценарії й відео для команди зберігаються в [demos/](demos/README.md); великі медіафайли передаються через Git LFS. Основний backend залишається Python; Node.js доступний як [окремий варіант у Git](#варіанти-backend).
+Сценарії й відео для команди зберігаються в [demos/](demos/README.md); великі медіафайли передаються через Git LFS. Поточний support backend — Node.js/TypeScript; попередні варіанти збережені в історії Git.
 
 Робота з фічами через головного агента та окремі worktrees: [інструкція](FEATURE_WORKFLOW.md).
 
 ## Варіанти backend
 
-`main` — основний варіант із Python/FastAPI та Celery. `codex/node-backend` — альтернативний варіант із Node.js/TypeScript API й BullMQ worker. Лендинг, frontend, Umami та demo-проєкт мають спільну основу. Цей README описує Node.js-варіант; після перемикання на `main` користуйся Python-командами README тієї гілки.
-
-Збережи локальні зміни перед перемиканням і вибери потрібний варіант:
-
-```bash
-git switch main
-# Або Node.js-варіант:
-git switch codex/node-backend
-```
-
-Node.js-варіант включає узгоджені API, worker, Compose, CI й серверні скрипти. Для перенесення в інший проєкт забирай увесь diff варіанта або працюй з його гілкою: одного каталогу `apps/api` недостатньо.
+Поточна інтеграція містить Node.js/TypeScript API, BullMQ worker і support MVP. Попередній Python/FastAPI/Celery starter доступний в історії, наприклад `git show 4458532:README.md`; гілка `codex/node-backend` зберігає ранню Node-міграцію. Поточний README описує TypeScript-реалізацію. Для перенесення в інший проєкт потрібні узгоджені API, worker, Compose, CI й серверні скрипти: одного каталогу `apps/api` недостатньо.
 
 Перехід між backend-варіантами передбачає зупинку стека. Перед використанням існуючої БД з іншим worker дочекайся завершення всіх queued/running задач і зупини попередній Compose-стек, зберігаючи volumes. Потім перебудуй та запусти повний стек за README обраної гілки; BullMQ-черга Node `jobs-transform-v1` у Redis має власні дані. [Межі сумісності БД і черг](docs/backend-variants.md).
 
