@@ -2,6 +2,8 @@
 
 Сценарій запису, не свідчення готового відео чи деплою. Запуск: [implementation](implementation.md); [API](API_CONTRACTS.md); виміряні результати: [STATUS](STATUS.md). Усі повернення **симульовані**, реальні гроші не рухаються.
 
+Короткий пітч 40–45 с має окремий [storyboard](DEMO_VIDEO.md). Нижче збережено довший сценарій показу; обидва формати повинні показувати окремі Approve та Execute. [Вхідні PPTX/PDF](../deliverables/pitch/README.md) — чернетки попереднього етапу, а не підтвердження готового актуального відео чи презентації.
+
 ## Відео (≈2:30, окремі вікна /chat і /operator)
 
 Готового split-screen маршруту немає. Підготуй окрему локальну demo-базу, API та worker: `SUPPORT_STORE=postgres`, `SUPPORT_EXECUTION=worker`, `DEMO_RESET_ENABLED=true`. Runtime: DSH, `LLM_PROVIDER=google`, `LLM_MODEL=gemini-3.5-flash-lite` і приватний серверний ключ. Offline rules-режим має бути явно позначений.

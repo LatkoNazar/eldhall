@@ -2,6 +2,8 @@
 
 Updated 31 October 2026. Active checkout: `codex/support-mvp`, based on `a946e92` from `origin/integration/support-copilot`. These are local working-tree results, not remote CI, merge, deployment or publication claims. Current guides: [implementation/start](implementation.md), [API contracts](API_CONTRACTS.md), [runtime/configuration](integrations-runtime.md). [TEAM_PROMPTS](TEAM_PROMPTS.md) is superseded historical context.
 
+The team landing and pitch work through `2456f71` is now incorporated locally. The table below records the earlier MVP verification checkpoint; final combined checks also cover the newer configurable classification, dedicated OpenRouter Decisions model, KB Insights and authentication changes. See [classification/configuration](integrations-runtime.md), [OpenRouter](openrouter.md) and [Insights](insights.md). The incoming [pitch deck](../deliverables/pitch/README.md) remains a historical draft until regenerated and verified against the current application. [Product analytics](ANALYTICS_PLAN.md) remains a plan; no new tracking integration is claimed.
+
 | Area | Implemented behavior | Verification at this checkpoint |
 | --- | --- | --- |
 | API and guards | Scoped customer/operator APIs, deterministic refund policy, sentiment, audit, separate approval/execution | API **70/70**, zero skips; lint, typecheck and build passed |
@@ -22,5 +24,5 @@ Runtime, MCP and PostgreSQL counts describe their respective suites; do not add 
 - Knowledge retrieval is lexical. Embeddings/pgvector are not implemented.
 - One configured operator bearer maps to the bootstrap staff principal; customers use opaque session bearers. OAuth/SSO, invitations and full RBAC are not implemented.
 - MCP supports configured reads only. Skills grant no executable code or permissions. The upstream server must enforce customer/business ownership.
-- No Oracle/managed-cloud deployment, Docker container execution, commit or push is claimed for this working tree.
+- No Oracle/managed-cloud deployment or Docker container execution is claimed. Local integration commits do not establish remote CI or publication success.
 - License and managed-cloud packaging remain undecided. [The architecture review](architecture-review.md) remains a target proposal.

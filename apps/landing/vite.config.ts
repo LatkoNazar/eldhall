@@ -10,10 +10,10 @@ export default defineConfig(({ mode }) => ({
     transformIndexHtml(html) {
       const env = loadEnv(mode, '../..', 'PUBLIC_')
       const href = appLink(env.PUBLIC_APP_URL, {})
-      const attributes = href
-        ? `href="${href.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}" `
-        : 'aria-disabled="true" '
-      return html.replaceAll('data-app-link=', `${attributes}data-app-link=`)
+      // CTAs ship with href="#scenario" (the on-page walkthrough); a configured app URL replaces it.
+      if (!href) return html
+      const escaped = href.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+      return html.replaceAll('href="#scenario" data-app-link=', `href="${escaped}" data-app-link=`)
     },
   }],
   server: {
