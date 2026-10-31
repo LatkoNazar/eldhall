@@ -24,6 +24,12 @@ export interface Settings {
   allowedHosts: string[];
   corsOrigins: string[];
   workerConcurrency: number;
+  operatorToken: string;
+  supportStore: 'memory' | 'postgres';
+  llmProvider: 'openai' | 'google' | 'anthropic' | 'rules';
+  llmModel: string;
+  llmTimeoutMs: number;
+  demoResetEnabled: boolean;
 }
 
 export function environmentFiles(cwd = process.cwd()): string[] {
@@ -87,7 +93,15 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     allowedHosts: array('ALLOWED_HOSTS', '["localhost","127.0.0.1","testserver"]'),
     corsOrigins: array('CORS_ORIGINS', '[]'),
     workerConcurrency: integer('WORKER_CONCURRENCY', '2', 64),
+    operatorToken: value('OPERATOR_TOKEN', ''),
+    supportStore: value('SUPPORT_STORE', 'memory') as Settings['supportStore'],
+    llmProvider: value('LLM_PROVIDER', 'rules') as Settings['llmProvider'],
+    llmModel: value('LLM_MODEL', ''),
+    llmTimeoutMs: integer('LLM_TIMEOUT_MS', '20000', 120000),
+    demoResetEnabled: (env.DEMO_RESET_ENABLED || (environment === 'development' ? 'true' : 'false')) === 'true',
   };
+  if (!['memory', 'postgres'].includes(settings.supportStore)) throw new Error('SUPPORT_STORE must be memory or postgres');
+  if (!['openai', 'google', 'anthropic', 'rules'].includes(settings.llmProvider)) throw new Error('LLM_PROVIDER must be openai, google, anthropic or rules');
   if (settings.bullmqDb < 2) throw new Error('BULLMQ_DB must isolate the queue from legacy Redis DB0/DB1');
   for (const [name, configured] of [['BULLMQ_PREFIX', settings.bullmqPrefix], ['BULLMQ_QUEUE', settings.bullmqQueue]]) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(configured!)) throw new Error(`${name} must contain 1..64 letters, digits, hyphens or underscores`);

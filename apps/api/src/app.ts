@@ -8,8 +8,9 @@ import type { JobStore } from './modules/jobs/repository.js';
 import { jobCreateSchema, jobReadSchema, type JobCreate, type Job } from './modules/jobs/schema.js';
 import { createJob, QueueUnavailable } from './modules/jobs/service.js';
 import { readiness, type Checks } from './modules/system/health.js';
+import { supportRoutes, type SupportDependencies } from './modules/support/routes.js';
 
-export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks; readJob?: (id: string) => Promise<Job | null> }
+export interface AppDependencies { store: JobStore; dispatch: (id: string) => Promise<void>; checks: Checks; readJob?: (id: string) => Promise<Job | null>; support?: SupportDependencies }
 
 export async function createApp(settings: Settings, dependencies: AppDependencies, logging = false) {
   const app = Fastify({
@@ -87,5 +88,8 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
       return job;
     });
   }, { prefix: '/api/v1/jobs' });
+  if (dependencies.support) {
+    await app.register(supportRoutes, { support: dependencies.support, operatorToken: settings.operatorToken, demoResetEnabled: settings.demoResetEnabled });
+  }
   return app;
 }
