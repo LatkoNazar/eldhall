@@ -118,8 +118,62 @@ jobs:
             docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml down --volumes
           fi
 
+  integration:
+    # Real PostgreSQL (with pgvector) and the cross-language OpenAPI → MCP path: the unit job above
+    # runs the support store in memory, so storage claims, recovery and the sidecar are verified here.
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: development-only
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Throwaway service credentials for this job only; tests create and drop their own schemas.
+      TEST_POSTGRES_HOST: 127.0.0.1
+      TEST_POSTGRES_PORT: "5432"
+      TEST_POSTGRES_DB: app
+      TEST_POSTGRES_USER: app
+      TEST_POSTGRES_PASSWORD: development-only
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.8"
+      - name: Install locked dependencies
+        run: |
+          npm --prefix apps/api ci
+          uv sync --locked --project apps/mcp-openapi
+      - name: PostgreSQL store, recovery and insights
+        working-directory: apps/api
+        run: npm run test:postgres
+      - name: pgvector knowledge persistence
+        working-directory: apps/api
+        run: node --import tsx --test tests/knowledge.test.ts
+      - name: Python OpenAPI importer and MCP sidecar
+        working-directory: apps/mcp-openapi
+        run: uv run --locked python -m unittest discover -s tests -v
+      - name: OpenAPI → MCP end to end (mock upstream, real sidecar)
+        working-directory: apps/api
+        run: npm run test:mcp-openapi
+
   deploy:
-    needs: check
+    needs: [check, integration]
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 25
