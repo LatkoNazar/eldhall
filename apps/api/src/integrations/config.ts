@@ -29,12 +29,16 @@ const toolSchema = z.object({
   if (new Set(fields).size !== 2 || fields.some(field => Object.hasOwn(tool.inputSchema.properties ?? {}, field))) ctx.addIssue({ code: 'custom', message: 'Scope fields must be distinct and excluded from model inputSchema' });
 });
 /** MCP endpoints: HTTPS without credentials/query/fragment; plain HTTP only on explicit loopback for tests. */
-const validMcpUrl = (raw: string, allowInsecureLoopback: boolean) => {
+const validMcpUrl = (raw: string, allowInsecureLoopback: boolean, allowInternalService = false) => {
   let url: URL;
   try { url = new URL(raw); } catch { return false; }
   const local = ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
-  return !url.username && !url.password && !url.search && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && local && allowInsecureLoopback));
+  // A container-network service name (one DNS label, explicit port). Startup still requires the exact origin
+  // in the deployment-owned MCP_INTERNAL_HTTP_ORIGINS; a public host can never take this path.
+  const internal = allowInternalService && url.protocol === 'http:' && INTERNAL_SERVICE_ORIGIN.test(url.origin);
+  return !url.username && !url.password && !url.search && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && local && allowInsecureLoopback) || internal);
 };
+export const INTERNAL_SERVICE_ORIGIN = /^http:\/\/(?!localhost:)[a-z][a-z0-9-]{0,62}:[1-9]\d{0,4}$/;
 const integrationSchema = z.object({
   id: key, businessId: id, url: z.string().url().max(1000),
   credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/).optional(),
@@ -62,7 +66,7 @@ const catalogSchema = z.object({
   manifest: manifestSchema,
   policy: integrationPolicySchema,
 }).strict().superRefine((catalog, ctx) => {
-  if (!validMcpUrl(catalog.url, catalog.allowInsecureLoopback)) ctx.addIssue({ code: 'custom', message: 'Catalog sidecar URL requires HTTPS without URL credentials/query/fragment; explicit loopback HTTP is available for tests' });
+  if (!validMcpUrl(catalog.url, catalog.allowInsecureLoopback, true)) ctx.addIssue({ code: 'custom', message: 'Catalog sidecar URL requires HTTPS, or HTTP to an internal service origin (http://<service>:<port>), without URL credentials/query/fragment; explicit loopback HTTP is available for tests' });
   // A mismatch would make every call fail closed at runtime; refuse it at startup where an operator sees it.
   if (catalog.policy.businessId !== catalog.businessId) ctx.addIssue({ code: 'custom', message: 'Catalog policy belongs to another business' });
   if (catalog.policy.integrationId !== catalog.manifest.integrationId) ctx.addIssue({ code: 'custom', message: 'Catalog policy is for another integration' });

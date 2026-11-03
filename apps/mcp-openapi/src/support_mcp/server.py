@@ -9,8 +9,10 @@ import asyncio
 import hmac
 import json
 import os
+import re
+import sys
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 import uvicorn
@@ -200,21 +202,59 @@ class ServiceAuth:
 
 # Keep the upstream timeout below the backend's MCP call timeout (catalog.ts, 5 s by default):
 # otherwise a slow upstream success arrives after the backend gave up and is recorded as `unknown`.
-def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, service_token: str, timeout: float = 4.0) -> Any:
+def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, service_token: str, timeout: float = 4.0,
+              allowed_hosts: tuple[str, ...] = (), allow_insecure_upstream: bool = False) -> Any:
     if len(service_token) < 16:
         raise ValueError("MCP_SERVICE_TOKEN must be at least 16 characters")
+    upstream = urlsplit(upstream_url)
+    if upstream.scheme not in ("http", "https") or not upstream.hostname or upstream.username or upstream.password or upstream.query or upstream.fragment:
+        raise ValueError("UPSTREAM_BASE_URL must be an http(s) URL without credentials, query or fragment")
+    # The upstream token and customer data must not cross a network in cleartext: plain HTTP is accepted for a
+    # private service name (one DNS label) or loopback, or when the operator opts in explicitly.
+    private = "." not in upstream.hostname or upstream.hostname in ("127.0.0.1", "::1")
+    if upstream.scheme == "http" and not private and not allow_insecure_upstream:
+        raise ValueError("UPSTREAM_BASE_URL must use https for a non-private host (set UPSTREAM_ALLOW_INSECURE_HTTP=true only for a trusted private network)")
     headers = {"authorization": f"Bearer {upstream_token}"} if upstream_token else {}
-    upstream = httpx.AsyncClient(base_url=upstream_url, headers=headers, timeout=timeout, follow_redirects=False)
-    app = create_server(manifest, upstream, timeout).http_app(path="/mcp", json_response=True, stateless_http=True)
+    client = httpx.AsyncClient(base_url=upstream_url, headers=headers, timeout=timeout, follow_redirects=False)
+    # Host header validation (DNS rebinding): localhost names plus the service name the backend dials (MCP_ALLOWED_HOSTS).
+    app = create_server(manifest, client, timeout).http_app(path="/mcp", json_response=True, stateless_http=True,
+                                                          host_origin_protection=True, allowed_hosts=list(allowed_hosts))
     return ServiceAuth(app, service_token)
+
+
+def _settings(env: os._Environ[str] | dict[str, str]) -> dict[str, Any]:
+    """Read and check the environment; messages name settings, never values."""
+    missing = [name for name in ("MANIFEST_PATH", "UPSTREAM_BASE_URL", "MCP_SERVICE_TOKEN") if not env.get(name)]
+    if missing:
+        raise ValueError(f"missing required setting(s): {', '.join(missing)}")
+    try:
+        timeout = float(env.get("UPSTREAM_TIMEOUT_SECONDS", "4"))
+        port = int(env.get("PORT", "8000"))
+    except ValueError:
+        raise ValueError("UPSTREAM_TIMEOUT_SECONDS and PORT must be numbers") from None
+    if not 0 < timeout <= 30 or not 0 < port < 65536:
+        raise ValueError("UPSTREAM_TIMEOUT_SECONDS must be in (0, 30] and PORT in 1..65535")
+    hosts = tuple(host.strip() for host in env.get("MCP_ALLOWED_HOSTS", "").split(",") if host.strip())
+    if any(not re.fullmatch(r"[a-z0-9]([a-z0-9.-]{0,252}[a-z0-9])?", host) for host in hosts):
+        raise ValueError("MCP_ALLOWED_HOSTS must be a comma-separated list of hostnames")
+    insecure = env.get("UPSTREAM_ALLOW_INSECURE_HTTP", "false")
+    if insecure not in ("true", "false"):
+        raise ValueError("UPSTREAM_ALLOW_INSECURE_HTTP must be true or false")
+    return {"timeout": timeout, "port": port, "hosts": hosts, "insecure": insecure == "true"}
 
 
 def main() -> None:
     env = os.environ
-    with open(env["MANIFEST_PATH"], encoding="utf-8") as file:
-        manifest = json.load(file)
-    app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], float(env.get("UPSTREAM_TIMEOUT_SECONDS", "4")))
-    uvicorn.run(app, host=env.get("HOST", "127.0.0.1"), port=int(env.get("PORT", "8000")), log_level="warning")
+    try:
+        settings = _settings(env)
+        with open(env["MANIFEST_PATH"], encoding="utf-8") as file:
+            manifest = json.load(file)
+        app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], settings["timeout"], settings["hosts"], settings["insecure"])
+    except (OSError, ValueError) as error:
+        # The reason is printed so an operator can act on it; it contains setting names or file errors, no secrets.
+        print(f"MCP sidecar configuration invalid: {error}", file=sys.stderr)
+        sys.exit(1)
+    uvicorn.run(app, host=env.get("HOST", "127.0.0.1"), port=settings["port"], log_level="warning")
 
 
 if __name__ == "__main__":

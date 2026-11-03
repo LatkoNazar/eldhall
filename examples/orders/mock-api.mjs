@@ -12,10 +12,13 @@ const seed = ({ olena, taras }) => new Map([
 ]);
 
 // `customers` lets a test own the orders under ids the backend actually sends (e.g. seeded Eldhall customer ids).
-export function createOrdersApi({ token, customers = { olena: 'cust-olena', taras: 'cust-taras' } }) {
+// `controlToken` (tests only) enables /__test/owners and /__test/orders/:id to assign owners after the backend
+// created its customers, and to read an order's real state; without it those routes do not exist.
+export function createOrdersApi({ token, customers = { olena: 'cust-olena', taras: 'cust-taras' }, controlToken }) {
   if (!token) throw new Error('token is required');
-  const orders = seed(customers);
+  let orders = seed(customers);
   const replays = new Map(); // `${customer}\0${key}` -> { orderId, status, body }
+  const writes = new Map(); // order id -> cancel requests that reached business logic (not idempotent replays)
   const view = ({ customer: _, ...order }) => order;
   const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 
@@ -23,6 +26,19 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
     let raw = '';
     req.on('data', chunk => { raw += chunk; if (raw.length > 16_384) req.destroy(); });
     req.on('end', () => {
+      if (controlToken && req.url?.startsWith('/__test/')) {
+        if (req.headers['x-test-control'] !== controlToken) return send(res, 401, { error: 'unauthorized' });
+        if (req.method === 'POST' && req.url === '/__test/owners') {
+          let owners;
+          try { owners = JSON.parse(raw); } catch { return send(res, 400, { error: 'invalid_json' }); }
+          if (typeof owners?.olena !== 'string' || typeof owners?.taras !== 'string') return send(res, 400, { error: 'olena_and_taras_required' });
+          orders = seed(owners); replays.clear(); writes.clear();
+          return send(res, 200, { orders: [...orders.keys()] });
+        }
+        const found = /^\/__test\/orders\/([^/]+)$/.exec(req.url);
+        const order = found && orders.get(decodeURIComponent(found[1]));
+        return order ? send(res, 200, { ...order, writes: writes.get(order.order_id) ?? 0 }) : send(res, 404, { error: 'order_not_found' });
+      }
       if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { error: 'unauthorized' });
       const customer = req.headers['x-customer-id'];
       if (typeof customer !== 'string' || !customer) return send(res, 400, { error: 'missing_customer_scope' });
@@ -39,6 +55,7 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
       try { if (raw) JSON.parse(raw); } catch { return send(res, 400, { error: 'invalid_json' }); }
       const replay = replays.get(`${customer}\0${key}`);
       if (replay) return replay.orderId === order.order_id ? send(res, replay.status, replay.body) : send(res, 422, { error: 'idempotency_key_reused' });
+      writes.set(order.order_id, (writes.get(order.order_id) ?? 0) + 1);
       const result = order.status === 'paid'
         ? (order.status = 'cancelled', { status: 200, body: view(order) })
         : { status: 409, body: { error: 'not_cancellable', status: order.status } };
@@ -50,5 +67,7 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const port = Number(process.env.PORT ?? 8090);
-  createOrdersApi({ token: process.env.ORDERS_API_TOKEN }).listen(port, '127.0.0.1', () => console.log(`orders mock on http://127.0.0.1:${port}`));
+  const host = process.env.HOST ?? '127.0.0.1';
+  createOrdersApi({ token: process.env.ORDERS_API_TOKEN, controlToken: process.env.ORDERS_TEST_CONTROL_TOKEN })
+    .listen(port, host, () => console.log(`orders mock on http://${host}:${port}`));
 }

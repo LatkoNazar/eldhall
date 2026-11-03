@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { manifestSchema, type Manifest } from './manifest.js';
-import type { SupportConfig } from './config.js';
+import { INTERNAL_SERVICE_ORIGIN, type SupportConfig } from './config.js';
 import { combineIntegrations, createBusinessIntegrations, IntegrationError, projectOutput, toolData, withMcpClient, type ActionOutcome, type BusinessIntegrations, type BusinessTool } from './mcp.js';
 import { integrationPolicySchema, resolveWithPolicy, type PermissionDecision } from './permissions.js';
 import { validateToolInput } from './schema.js';
@@ -15,6 +15,8 @@ export interface CatalogIntegrationConfig {
   url: string;
   credential: string;
   allowInsecureLoopback?: boolean;
+  /** Exact `http://<service>:<port>` origins the deployment allows without TLS (a private container network). */
+  internalHttpOrigins?: readonly string[];
   timeoutMs?: number;
   maxOutputBytes?: number;
   manifest: unknown;
@@ -36,7 +38,8 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
   const manifest: Manifest = manifestSchema.parse(config.manifest);
   const url = new URL(config.url);
   const loopback = ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
-  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback && config.allowInsecureLoopback))) throw new Error('MCP sidecar requires HTTPS without URL credentials/query/fragment; explicit loopback HTTP is available for tests');
+  const internal = url.protocol === 'http:' && (config.internalHttpOrigins ?? []).includes(url.origin);
+  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback && config.allowInsecureLoopback) && !internal)) throw new Error('MCP sidecar requires HTTPS without URL credentials/query/fragment; plain HTTP needs its exact origin in MCP_INTERNAL_HTTP_ORIGINS (or explicit loopback for tests)');
   if (!config.credential || /[\r\n]/.test(config.credential)) throw new Error('Missing or invalid MCP sidecar credential');
   const target = { url: url.href, timeoutMs: config.timeoutMs ?? 5000, credential: config.credential };
   const maxOutputBytes = config.maxOutputBytes ?? 8192;
@@ -136,6 +139,7 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
 
 /** Every configured business integration: legacy read-only MCP tools plus reviewed OpenAPI catalogs. */
 export function createSupportIntegrations(config: SupportConfig, env: NodeJS.ProcessEnv): BusinessIntegrations {
+  const internalHttpOrigins = internalOrigins(env.MCP_INTERNAL_HTTP_ORIGINS);
   return combineIntegrations([
     { owns: config.integrations.map(row => [row.businessId, row.id] as const), integrations: createBusinessIntegrations(config, env) },
     ...config.catalogs.map(catalog => {
@@ -143,9 +147,20 @@ export function createSupportIntegrations(config: SupportConfig, env: NodeJS.Pro
       if (!credential) throw new Error(`Missing MCP sidecar credential environment reference: ${catalog.credentialEnv}`);
       return {
         owns: [[catalog.businessId, catalog.manifest.integrationId] as const],
-        integrations: createCatalogIntegration({ businessId: catalog.businessId, url: catalog.url, credential, allowInsecureLoopback: catalog.allowInsecureLoopback,
+        integrations: createCatalogIntegration({ businessId: catalog.businessId, url: catalog.url, credential, allowInsecureLoopback: catalog.allowInsecureLoopback, internalHttpOrigins,
           timeoutMs: catalog.timeoutMs, maxOutputBytes: catalog.maxOutputBytes, manifest: catalog.manifest, policy: catalog.policy }),
       };
     }),
   ]);
+}
+
+/** MCP_INTERNAL_HTTP_ORIGINS: JSON array of exact `http://<service>:<port>` origins; anything else stops startup. */
+function internalOrigins(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  if (!Array.isArray(parsed) || parsed.length > 10 || parsed.some(origin => typeof origin !== 'string' || !INTERNAL_SERVICE_ORIGIN.test(origin))) {
+    throw new Error('MCP_INTERNAL_HTTP_ORIGINS must be a JSON array of http://<service>:<port> origins');
+  }
+  return parsed as string[];
 }

@@ -1,0 +1,58 @@
+# Optional OpenAPI → MCP sidecar for a reviewed catalog (docs/integrations-manifest.md).
+# Use together with support.compose.yaml and support.config.compose.yaml; paths are relative to deploy/.
+# The sidecar has no published port and sits on its own `mcp` network: only api and worker join it, so the sidecar
+# (which holds the upstream token) has no route to postgres or redis. It calls only MCP_UPSTREAM_BASE_URL. Its manifest must be the one embedded in the support config
+# catalog; the backend verifies the loaded hashes before every call and fails closed on a mismatch.
+services:
+  mcp-openapi:
+    image: ${SUPPORT_MCP_IMAGE:-support-mcp-openapi:local}
+    build:
+      context: ../apps/mcp-openapi
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: ${MCP_MEMORY_LIMIT:-256m}
+    pids_limit: 128
+    environment:
+      MANIFEST_PATH: /manifest/manifest.json
+      UPSTREAM_BASE_URL: ${MCP_UPSTREAM_BASE_URL:?Set MCP_UPSTREAM_BASE_URL to the business API base URL}
+      UPSTREAM_TOKEN: ${MCP_UPSTREAM_TOKEN:-}
+      UPSTREAM_TIMEOUT_SECONDS: ${MCP_UPSTREAM_TIMEOUT_SECONDS:-4}
+      # Plain http is refused for dotted hosts unless this is true (trusted private network only).
+      UPSTREAM_ALLOW_INSECURE_HTTP: ${MCP_UPSTREAM_ALLOW_INSECURE_HTTP:-false}
+      MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:?Set MCP_SERVICE_TOKEN (at least 16 characters) shared by api, worker and the sidecar}
+      # Host header the backend sends; anything else gets 421 (DNS rebinding protection).
+      MCP_ALLOWED_HOSTS: mcp-openapi
+    volumes:
+      - type: bind
+        source: ${MCP_MANIFEST_PATH:?Set MCP_MANIFEST_PATH to the reviewed manifest.json}
+        target: /manifest/manifest.json
+        read_only: true
+    healthcheck:
+      test: [CMD, python, -c, "import os, sys, urllib.request; sys.exit(0 if urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('PORT', '8000')}/health\", timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 6
+    networks: [mcp]
+  api:
+    environment: &mcp-client
+      # Plain HTTP is allowed only to this exact private origin; every other MCP target still needs HTTPS.
+      MCP_INTERNAL_HTTP_ORIGINS: '["http://mcp-openapi:8000"]'
+      # Name this variable as the catalog's credentialEnv in the support config.
+      MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:?Set MCP_SERVICE_TOKEN (at least 16 characters) shared by api, worker and the sidecar}
+    depends_on:
+      mcp-openapi: { condition: service_healthy }
+    networks: [support, mcp]
+  worker:
+    environment: *mcp-client
+    depends_on:
+      mcp-openapi: { condition: service_healthy }
+    networks: [support, mcp]
+
+networks:
+  mcp:

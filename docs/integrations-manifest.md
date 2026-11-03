@@ -11,7 +11,6 @@ Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python Open
 - Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
 
 **Not wired yet:**
-- a container image and Compose overlay for the sidecar (S1-2);
 - `ask` proposals and writes outside a support turn (no ledger), which fail closed with `denied`;
 - DB-held policy and the admin API (Stage D);
 - mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
@@ -33,7 +32,7 @@ A catalog is one entry of `catalogs` in the operator-controlled support config (
 }] }
 ```
 
-Startup refuses a catalog whose manifest hashes do not verify, whose policy belongs to another business or integration or was reviewed against another `manifestHash`, whose `integrationId` repeats within the business (legacy MCP integrations included), or whose credential variable is missing. Changing the manifest or policy currently means editing this file and restarting; the database-held policy with optimistic revisions is S1-4. `url` follows the same rule as legacy MCP: HTTPS, or loopback HTTP with `allowInsecureLoopback` for tests; an internal-origin allowlist for the Compose network comes with S1-2.
+Startup refuses a catalog whose manifest hashes do not verify, whose policy belongs to another business or integration or was reviewed against another `manifestHash`, whose `integrationId` repeats within the business (legacy MCP integrations included), or whose credential variable is missing. Changing the manifest or policy currently means editing this file and restarting; the database-held policy with optimistic revisions is S1-4. `url` must be HTTPS, loopback HTTP with `allowInsecureLoopback` for tests, or plain HTTP to a private service origin that the deployment allowlists exactly (see the Compose section below).
 
 ## Canonical hashing
 
@@ -152,6 +151,67 @@ To run the end-to-end check (mock upstream ← real sidecar ← TS catalog), you
 ```bash
 cd apps/api && npm run test:mcp-openapi
 ```
+
+## Running the sidecar with Docker Compose (S1-2)
+
+`deploy/support.mcp.compose.yaml` adds the sidecar (`apps/mcp-openapi/Dockerfile`) to the self-host support stack:
+
+```bash
+docker compose --env-file .env.support -f deploy/support.compose.yaml -f deploy/support.config.compose.yaml \
+  -f deploy/support.mcp.compose.yaml up -d --build --wait
+```
+
+Add to the private `.env.support` (never commit it):
+
+| Variable | Meaning |
+|---|---|
+| `MCP_SERVICE_TOKEN` | Bearer shared by api, worker and the sidecar, at least 16 characters. Use `"credentialEnv": "MCP_SERVICE_TOKEN"` in the catalog. |
+| `MCP_UPSTREAM_BASE_URL` | Base URL of the business API the sidecar calls. The spec's `servers` field is ignored. |
+| `MCP_UPSTREAM_TOKEN` | Optional bearer for that API. |
+| `MCP_UPSTREAM_ALLOW_INSECURE_HTTP` | Default `false`. Plain `http://` is accepted only for a single-label service name or loopback; set `true` only for a trusted private network. |
+| `MCP_MEMORY_LIMIT` | Sidecar memory limit, default `256m`; `pids_limit` is 128. |
+| `MCP_UPSTREAM_TIMEOUT_SECONDS` | Total upstream deadline, default 4. It must stay below the catalog's `timeoutMs`. |
+| `MCP_MANIFEST_PATH` | The reviewed `manifest.json`, bind-mounted read-only. |
+| `SUPPORT_CONFIG_PATH` | The support config. Its catalog embeds the same manifest and uses `"url": "http://mcp-openapi:8000/mcp"`. |
+
+What the overlay enforces:
+
+**Network**
+- The sidecar publishes no port and sits on its own `mcp` network. Only api and worker join that network, so the sidecar, which holds the upstream token, has no route to postgres or redis.
+- Plain HTTP is accepted only for the exact origin `http://mcp-openapi:8000`. The overlay sets this on api and worker through `MCP_INTERNAL_HTTP_ORIGINS`.
+- Every other MCP target still needs HTTPS.
+- Legacy MCP integrations stay HTTPS-only.
+
+**Request checks**
+- The sidecar answers only to `Host: mcp-openapi` or a localhost name. Any other Host gets 421, which protects against DNS rebinding.
+- Every MCP request needs the service bearer.
+- `/health` is open and reports the loaded manifest hash.
+
+**Container hardening**
+- Non-root user (uid 10001).
+- Read-only filesystem.
+- No capabilities.
+- `no-new-privileges`.
+- Dependencies installed from `uv.lock`.
+
+**Consistency checks**
+- api and worker start only after the sidecar is healthy.
+- The backend still verifies the manifest hashes on every call. A sidecar serving a different manifest fails closed.
+
+**Error handling and secrets**
+- A misconfigured sidecar exits with `MCP sidecar configuration invalid: <reason>`. The reason names settings, never values.
+- Secrets are plain container environment variables, the same as for the rest of the stack. Anyone with Docker access on the host can read them with `docker inspect`. File-based Docker secrets are a possible hardening step.
+
+**Several catalogs.** One sidecar serves one manifest. A second catalog needs a second sidecar service with its own name, manifest and upstream, and its origin added to `MCP_INTERNAL_HTTP_ORIGINS`.
+
+**Smoke.** CI job `sidecar-compose` builds the images and starts this exact composition, plus `deploy/smoke/support.mcp.smoke.compose.yaml`. That overlay adds a synthetic Orders upstream and a scripted OpenAI-compatible model. CI then runs `scripts/mcp-sidecar-smoke.mjs`, which checks:
+- chat → worker → DSH → `call_business_tool` → sidecar → upstream → reply;
+- that one customer cannot read another customer's order;
+- that `ask` → approve → execute changes the upstream exactly once (the mock counts writes), and a second execute is refused and sends nothing.
+
+The job is a PR check; it does not gate `deploy`, which ships the root stack.
+
+The smoke overlay is for tests only: it contains a mock with a test-control route.
 
 ## External actions (Stage C)
 

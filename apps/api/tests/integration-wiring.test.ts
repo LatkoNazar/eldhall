@@ -124,3 +124,27 @@ test('config: catalog URLs follow the MCP URL rule; bootstrap refuses a catalog 
   const config = supportConfigSchema.parse({ catalogs: [catalog(manifest, policy)] });
   await assert.rejects(bootstrapSupportConfig(new MemorySupportStore(), config), /unknown business/);
 });
+
+test('internal sidecar origin: plain HTTP only to a service name the deployment allowlisted exactly', async () => {
+  const manifest = await fixture<Manifest>('manifest.json');
+  const policy = await fixture<IntegrationPolicy>('policy.json');
+  const entry = (url: string) => ({ ...catalog(manifest, policy), url, allowInsecureLoopback: false });
+  // Config shape: a single-label service name with an explicit port, never a public or IP host.
+  assert.equal(supportConfigSchema.safeParse({ catalogs: [entry('http://mcp-openapi:8000/mcp')] }).success, true);
+  for (const url of ['http://mcp.example.com:8000/mcp', 'http://10.0.0.5:8000/mcp', 'http://mcp-openapi/mcp', 'http://mcp_openapi:8000/mcp', 'http://localhost:8000/mcp']) {
+    assert.equal(supportConfigSchema.safeParse({ catalogs: [entry(url)] }).success, false, url);
+  }
+  const config = supportConfigSchema.parse({ catalogs: [entry('http://mcp-openapi:8000/mcp')] });
+  const env = { WIRING_TEST_SIDECAR_TOKEN: 'x'.repeat(20) };
+  // Startup: the deployment must name that exact origin.
+  assert.throws(() => createSupportIntegrations(config, env), /MCP_INTERNAL_HTTP_ORIGINS/);
+  assert.throws(() => createSupportIntegrations(config, { ...env, MCP_INTERNAL_HTTP_ORIGINS: '["http://other:8000"]' }), /MCP_INTERNAL_HTTP_ORIGINS/);
+  for (const bad of ['http://mcp-openapi:8000', '["https://mcp-openapi:8000"]', '["http://localhost:8000"]', '["http://mcp.example.com:8000"]', '["http://mcp-openapi:8000/mcp"]', '[1]']) {
+    assert.throws(() => createSupportIntegrations(config, { ...env, MCP_INTERNAL_HTTP_ORIGINS: bad }), /must be a JSON array of http:\/\/<service>:<port> origins/, bad);
+  }
+  const scoped = createSupportIntegrations(config, { ...env, MCP_INTERNAL_HTTP_ORIGINS: '["http://mcp-openapi:8000"]' })
+    .forContext({ businessId: A, customerId: 'c', assertActive: async () => undefined });
+  assert.deepEqual(scoped.tools.map(tool => tool.name), ['get_order_status', 'cancel_order']);
+  // The allowlist never relaxes legacy MCP integrations, which stay HTTPS-only.
+  assert.equal(supportConfigSchema.safeParse({ integrations: [{ ...legacy(A, 'loyalty'), url: 'http://mcp-openapi:8000/mcp' }] }).success, false);
+});

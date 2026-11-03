@@ -1,0 +1,54 @@
+# CI-only overlay for the MCP sidecar smoke (scripts/mcp-sidecar-smoke.mjs): a synthetic Orders upstream and a
+# scripted OpenAI-compatible model drive the real API, worker, DSH runtime and sidecar. Never use in production.
+# Apply after support.compose.yaml, support.config.compose.yaml and support.mcp.compose.yaml; paths are relative to deploy/.
+x-fixture: &fixture
+  image: node:24.22.2-bookworm-slim
+  init: true
+  read_only: true
+  user: node
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [support]
+
+services:
+  orders-mock:
+    <<: *fixture
+    command: [node, /fixtures/mock-api.mjs]
+    environment:
+      HOST: 0.0.0.0
+      PORT: '8090'
+      ORDERS_API_TOKEN: ${MCP_UPSTREAM_TOKEN:?Set MCP_UPSTREAM_TOKEN}
+      ORDERS_TEST_CONTROL_TOKEN: ${ORDERS_TEST_CONTROL_TOKEN:?Set ORDERS_TEST_CONTROL_TOKEN}
+    volumes:
+      - ../examples/orders:/fixtures:ro
+    # Reachable by the sidecar (mcp network) like a real business API; not by postgres/redis consumers.
+    networks: [mcp]
+    # Loopback only, for the smoke's test-control calls (owners, real order state).
+    ports:
+      - '127.0.0.1:${ORDERS_CONTROL_PORT:-18090}:8090'
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8090/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  fake-llm:
+    <<: *fixture
+    command: [node, /smoke/fake-llm.mjs]
+    environment:
+      HOST: 0.0.0.0
+      PORT: '8080'
+    volumes:
+      - ./smoke:/smoke:ro
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  api:
+    environment: &scripted-model
+      AGENT_RUNTIME: dsh
+      LLM_PROVIDER: local
+      LLM_MODEL: smoke-fixture
+      LLM_BASE_URL: http://fake-llm:8080/v1
+  worker:
+    environment: *scripted-model
