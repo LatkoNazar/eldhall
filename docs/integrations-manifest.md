@@ -1,17 +1,17 @@
 # Integration manifest and permissions contract
 
-Stages A–B of [TODO.md](../TODO.md). It fixes the formats that the Python OpenAPI importer (`apps/mcp-openapi/`) and the TypeScript backend share.
+Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python OpenAPI importer (`apps/mcp-openapi/`) and the TypeScript backend share.
 
 **Implemented and tested:**
 - TS side:
   - manifest validation (`apps/api/src/integrations/manifest.ts`);
   - the permission resolver (`permissions.ts`);
-  - `createCatalogIntegration` (`catalog.ts`), which executes `auto` reads through the sidecar.
+  - `createCatalogIntegration` (`catalog.ts`), which runs `auto` reads inline and routes `ask` and writes through the harness proposal ledger.
 - Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
 
 **Not wired yet:**
-- harness/factory registration;
-- `ask` proposals and writes (Stage C), which fail closed with `denied`;
+- `factory.ts` registration (tests build the harness with the catalog directly);
+- `ask` proposals and writes outside a support turn (no ledger), which fail closed with `denied`;
 - DB-held policy and the admin API (Stage D);
 - mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
 
@@ -133,15 +133,52 @@ To run the end-to-end check (mock upstream ← real sidecar ← TS catalog), you
 cd apps/api && npm run test:mcp-openapi
 ```
 
-## Planned next contracts (Stage C, not implemented)
+## External actions (Stage C)
 
-- **Dispatcher result.** The model receives one of these: `executed{actionId?, data}`, `awaiting_approval{proposalId, summary}`, `denied{reasonCode}`, `failed{actionId?, reasonCode}` or `unknown{actionId, reasonCode}`.
-- **Proposal snapshot.** The snapshot holds:
-  - business, customer and case;
-  - `integrationId`, `operationKey`, `operationHash` and `manifestHash`;
-  - connection revision and policy revision;
-  - effect and normalized arguments, including injected scope;
-  - decision source, expiry and guard results.
+`ask` operations of any effect, and `auto` writes, go through the existing proposal ledger as `tool: "external_action"`. They need no new tables.
 
-  The snapshot is immutable; any change requires a new proposal. Approve stays a separate step from execute.
-- **Execution record.** The record is keyed by a durable `actionId`, which is also the upstream idempotency key. It stores origin (`operator_approval` or `policy_auto`), status, attempts, provider reference and a bounded result.
+**Snapshot.** The proposal `args` are the immutable `ExternalActionSnapshot`:
+- `integrationId`, `toolName`, `operationKey` and `title`;
+- `operationHash`, `manifestHash` and `policyRevision`;
+- `effect`;
+- `customerId`;
+- the normalized `input`.
+
+`argsHash` covers all of it. An approval therefore binds to the exact operation, arguments and versions.
+
+**During the turn**, the catalog calls the harness `propose` callback:
+- `ask` creates a `pending` proposal. The model gets `awaiting_approval`, and the customer gets a server-composed "prepared, a specialist must confirm" reply. The model's own text is not used.
+- `auto` creates the proposal, claims it (`agent:auto`) and executes it immediately through the same path.
+
+**One action per turn.** The model may make at most one external action per durable turn. The unique `(turn_job_id, tool)` key enforces this in the DB across retries. A repeat with the same arguments returns the same proposal, and a different action returns `denied: one_external_action_per_turn`.
+
+**Approve and execute.**
+- **Approve** stores consent only.
+- **Execute** first takes the atomic `claimExecution` claim, which holds the 15-minute approval TTL and lets only one of several concurrent requests win.
+- `executeAction` then re-checks the snapshot against the current manifest, policy revision, effect and customer, and fails with `stale_snapshot` or `scope_mismatch` before anything is dispatched.
+- The proposal id is the upstream idempotency key, so a delivery retry replays and does not run twice.
+
+**Outcomes.**
+
+| Proposal status | When |
+|---|---|
+| `executed` | The result was recorded first; only then does the customer get the "done" template. |
+| `failed` | Confirmed no effect: an upstream 4xx, a guard such as already shipped, or a failure before dispatch. |
+| `unknown` | A write was dispatched, then timed out, hit a 5xx, failed transport, or the executor crashed. The case moves to staff and execution stays locked for reconciliation. |
+
+Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeover and stale `executing` recovery reuse the existing proposal rules.
+
+**Verification.**
+
+| Check | Covers | Run here? |
+|---|---|---|
+| `tests/external-actions.test.ts` (memory store) | the ledger states | yes |
+| `npm run test:mcp-openapi` | real sidecar: execution, idempotent replay, the shipped-order guard, stale policy, foreign scope | yes |
+| A new case in `tests/postgres-store.integration.ts` | concurrent execute and the `external_action`-only auto claim | **no, no PostgreSQL in this environment** |
+
+**Gaps.**
+- Neither the catalog nor the runtime config is registered in `factory.ts`.
+- No admin API or UI shows external actions or edits policy; Stage D will add them.
+- `unknown` outcomes are resolved by hand; automatic reconciliation through `reconciliation.operationKey` is not implemented yet.
+- Expired approvals simply cannot be executed; they get no explicit terminal state.
+- Eldhall customer ids reach the upstream unmapped.

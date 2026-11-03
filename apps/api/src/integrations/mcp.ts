@@ -8,10 +8,27 @@ export interface BusinessTool {
   description: string;
   inputSchema: InputSchema;
 }
-export interface BusinessIntegrationContext { businessId: string; customerId: string; assertActive: () => Promise<void> }
+/** What the model receives for a business operation (TODO.md §7). Pending is never success. */
+export type BusinessToolResult =
+  | { status: 'executed'; actionId?: string; data: unknown }
+  | { status: 'awaiting_approval'; proposalId: string; summary: string }
+  | { status: 'denied'; reasonCode: string }
+  | { status: 'failed'; actionId?: string; reasonCode: string }
+  | { status: 'unknown'; actionId: string; reasonCode: string };
+/** Outcome of dispatching one recorded action. `unknown` = the upstream effect may have happened. */
+export type ActionOutcome = { status: 'executed'; data: unknown } | { status: 'failed' | 'unknown'; reasonCode: string };
+/** Immutable snapshot stored as proposal args; its hash binds approval to the exact operation and versions. */
+export interface ExternalActionRequest { args: Record<string, unknown>; mode: 'auto' | 'ask'; title: string }
+export interface BusinessIntegrationContext {
+  businessId: string; customerId: string; assertActive: () => Promise<void>;
+  /** Supplied by the harness during a turn: records the action durably (and runs it for `auto`). */
+  propose?: (request: ExternalActionRequest) => Promise<BusinessToolResult>;
+}
 export interface ScopedBusinessTools {
   tools: BusinessTool[];
   callTool(integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+  /** Re-checks the snapshot against current policy/manifest, then dispatches with `actionId` as idempotency key. */
+  executeAction?(args: Record<string, unknown>, actionId: string, signal?: AbortSignal): Promise<ActionOutcome>;
 }
 export interface BusinessIntegrations { forContext(context: BusinessIntegrationContext): ScopedBusinessTools }
 export class IntegrationError extends Error {

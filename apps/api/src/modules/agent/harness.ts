@@ -6,7 +6,7 @@ import { decisionSchema, type AgentContext, type AgentDecision, type AgentModel 
 import { evaluatePolicy, money, type PolicyContext } from './policy.js';
 import { lexicalSentiment, mergeSentiment, priorityFor, toneFor } from './sentiment.js';
 import { TOOLS, isToolName } from './tools.js';
-import type { BusinessIntegrations } from '../../integrations/mcp.js';
+import type { ActionOutcome, BusinessIntegrations, BusinessToolResult, ExternalActionRequest } from '../../integrations/mcp.js';
 import { normalizeClassification, sameClassificationConfig, type TicketClassification, type TicketClassifier } from './classification.js';
 import type { KnowledgeRetriever } from '../knowledge/retriever.js';
 import { knowledgeRuntime } from '../knowledge/runtime.js';
@@ -191,7 +191,24 @@ export class SupportHarness {
       message: body,
       allowedTools: business.policy.enabledTools,
     };
-    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive });
+    // At most one external action per durable turn: the (turn_job_id, tool) logical key holds it across retries.
+    let externalAction: { proposal: Proposal; title: string } | undefined;
+    const propose = async ({ args, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
+      await assertActive();
+      const hash = argsHash(caseId, 'external_action', args);
+      const prior = externalAction?.proposal ?? (lease.jobFence !== undefined ? (await store.proposals(caseId)).find(p => p.tool === 'external_action' && p.turnJobId === lease.runId) : undefined);
+      if (prior && prior.argsHash !== hash) return { status: 'denied', reasonCode: 'one_external_action_per_turn' };
+      let proposal = prior ?? await store.createProposal({ caseId, tool: 'external_action', args, argsHash: hash, risk: 'high', status: 'pending',
+        policy: { allowed: true, requiresApproval: mode === 'ask', checks: [{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease);
+      if (!prior) await store.audit(caseId, 'action.proposed', 'agent', { proposalId: proposal.id, tool: 'external_action', operationKey: args.operationKey, mode });
+      if (mode === 'auto' && proposal.status === 'pending') {
+        const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
+        if (claimed) proposal = (await this.executeExternal(claimed, false)).proposal;
+      }
+      externalAction = { proposal, title };
+      return toolResult(proposal, title);
+    };
+    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive, propose });
     ctx.businessTools = integrations?.tools ?? [];
     ctx.callBusinessTool = integrations?.callTool;
 
@@ -213,6 +230,9 @@ export class SupportHarness {
     let proposal: Proposal | null = null;
     if (action) proposal = await this.propose(caseId, customer, action.tool, action.args, lease);
     let escalated = proposal?.status === 'executed' && proposal.tool === 'escalate_to_human';
+    if (externalAction) externalAction.proposal = (await store.proposal(externalAction.proposal.id)) ?? externalAction.proposal;
+    // An unconfirmed external effect needs a person to reconcile it before anything else happens.
+    if (externalAction?.proposal.status === 'unknown') escalated = true;
     if (proposal?.status === 'denied' && proposal.tool !== 'escalate_to_human') {
       const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` }, lease);
       escalated = handoff.status === 'executed';
@@ -222,7 +242,7 @@ export class SupportHarness {
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
     await assertExternal();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -341,7 +361,9 @@ export class SupportHarness {
     const claimed = await store.claimProposal(proposalId, existing.argsHash, 'rejected', `operator:${operator}`);
     if (!claimed) throw new HarnessError(409, `Proposal is already ${existing.status}`);
     await store.audit(claimed.caseId, 'action.rejected', `operator:${operator}`, { proposalId, reason });
-    await store.addMessage(claimed.caseId, 'assistant', 'A support specialist reviewed the request and did not approve an automatic refund. They will contact you with next steps.');
+    await store.addMessage(claimed.caseId, 'assistant', claimed.tool === 'external_action'
+      ? `Спеціаліст не погодив дію «${String(claimed.args.title)}». Він зв'яжеться з вами щодо наступних кроків.`
+      : 'A support specialist reviewed the request and did not approve an automatic refund. They will contact you with next steps.');
     await store.setOwnership(claimed.caseId, 'staff', `operator:${operator}`);
     const supportCase = await store.updateCase(claimed.caseId, { status: 'escalated' });
     return { proposal: claimed, case: supportCase };
@@ -349,6 +371,7 @@ export class SupportHarness {
 
   /** Executes a claimed (status=executing) proposal. Re-validates policy against current state first. */
   private async execute(proposal: Proposal) {
+    if (proposal.tool === 'external_action') return this.executeExternal(proposal, true);
     const { store, provider } = this.deps;
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
@@ -388,9 +411,33 @@ export class SupportHarness {
     }
   }
 
-  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string): string {
+  /** Dispatches a claimed external action once; the outcome is recorded before anyone is told about it. */
+  private async executeExternal(proposal: Proposal, notify: boolean) {
+    const { store } = this.deps;
+    const supportCase = (await store.getCase(proposal.caseId))!;
+    const customer = (await store.customer(supportCase.customerId))!;
+    const scoped = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive: async () => undefined });
+    const outcome: ActionOutcome = scoped?.executeAction
+      // An executor crash after a possible dispatch must not look like a clean failure.
+      ? await scoped.executeAction(proposal.args, proposal.id).catch(() => ({ status: 'unknown' as const, reasonCode: 'executor_error' }))
+      : { status: 'failed', reasonCode: 'integration_unavailable' };
+    const done = outcome.status === 'executed'
+      ? await store.finishProposal(proposal.id, 'executed', { data: outcome.data }, null)
+      : await store.finishProposal(proposal.id, outcome.status, null, outcome.reasonCode);
+    await store.audit(proposal.caseId, `action.${outcome.status === 'executed' ? 'executed' : outcome.status === 'unknown' ? 'unknown' : 'failed'}`, proposal.decidedBy ?? 'system', {
+      proposalId: proposal.id, operationKey: proposal.args.operationKey, origin: proposal.decidedBy === 'agent:auto' ? 'policy_auto' : 'operator_approval',
+      ...(outcome.status === 'executed' ? {} : { reasonCode: outcome.reasonCode }) });
+    if (!notify) return { proposal: done, case: supportCase };
+    await store.addMessage(proposal.caseId, 'assistant', externalMessage(done, true));
+    if (outcome.status !== 'executed') await store.setOwnership(proposal.caseId, 'staff', proposal.decidedBy ?? 'queue:tier-2');
+    return { proposal: done, case: await store.updateCase(proposal.caseId, { status: outcome.status === 'executed' ? 'resolved' : 'escalated' }) };
+  }
+
+  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }): string {
     const uk = /[а-яіїєґ]/i.test(body);
     const lead = analysis.tone === 'neutral' ? '' : uk ? 'Мені дуже шкода, що так сталося — розумію, як це неприємно. ' : "I'm really sorry about this — I understand how frustrating it is. ";
+    // External outcomes come only from the recorded proposal state, never from model prose.
+    if (external) return lead + externalMessage(external.proposal, uk);
     if (proposal?.tool === 'refund_payment' && proposal.status === 'pending') {
       const amount = money(Number(proposal.args.amount_cents), currency);
       return lead + (uk
@@ -437,5 +484,30 @@ export class SupportHarness {
       runs: await store.runs(caseId),
       refunds: await store.refunds(customer.id),
     };
+  }
+}
+
+function toolResult(proposal: Proposal, title: string): BusinessToolResult {
+  switch (proposal.status) {
+    case 'pending': case 'approved': return { status: 'awaiting_approval', proposalId: proposal.id, summary: title };
+    case 'executed': return { status: 'executed', actionId: proposal.id, data: proposal.result?.data ?? null };
+    case 'executing': case 'unknown': return { status: 'unknown', actionId: proposal.id, reasonCode: proposal.error ?? 'in_progress' };
+    default: return { status: 'failed', actionId: proposal.id, reasonCode: proposal.error ?? proposal.status };
+  }
+}
+
+function externalMessage(proposal: Proposal, uk: boolean): string {
+  const title = String(proposal.args.title ?? '');
+  const data = proposal.result?.data as Record<string, unknown> | undefined;
+  const state = typeof data?.status === 'string' ? data.status : null;
+  switch (proposal.status) {
+    case 'pending': case 'approved':
+      return uk ? `Я підготував запит «${title}». Його має підтвердити спеціаліст — я напишу тут, щойно буде результат.` : `I prepared the request "${title}". A specialist needs to confirm it; I'll update you here.`;
+    case 'executed':
+      return uk ? `Дію «${title}» виконано${state ? ` (статус: ${state})` : ''}.` : `"${title}" is done${state ? ` (status: ${state})` : ''}.`;
+    case 'unknown': case 'executing':
+      return uk ? `Результат дії «${title}» не підтверджено. Повторне виконання заблоковано до перевірки спеціалістом.` : `The result of "${title}" is not confirmed. A specialist will check it before anything is retried.`;
+    default:
+      return uk ? `Дію «${title}» не виконано.` : `"${title}" was not completed.`;
   }
 }

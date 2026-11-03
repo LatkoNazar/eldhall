@@ -113,6 +113,21 @@ class ServerTest(unittest.TestCase):
         asyncio.run(scenario())
         self.assertEqual(str(seen[0].url), "http://upstream.test/orders/ORD-1001")
 
+    def test_write_timeout_is_unknown_and_read_timeout_is_not(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("slow", request=request)
+
+        upstream = httpx.AsyncClient(base_url="http://upstream.test", transport=httpx.MockTransport(handler))
+
+        async def scenario():
+            async with Client(create_server(load("manifest.json"), upstream)) as client:
+                write = await client.call_tool("cancel_order", {"order_id": "ORD-1001", "eldhall": {"customerId": "c", "idempotencyKey": "a"}}, raise_on_error=False)
+                read = await client.call_tool("get_order_status", {"order_id": "ORD-1001", "eldhall": {"customerId": "c"}}, raise_on_error=False)
+                self.assertEqual(write.structured_content, {"error": "outcome_unknown", "effect": "unknown"})
+                self.assertEqual(read.structured_content, {"error": "timeout", "effect": "none"})
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

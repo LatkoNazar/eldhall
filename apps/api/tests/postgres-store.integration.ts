@@ -57,6 +57,31 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       await Promise.allSettled(proposals.map(proposal=>h.executeApproved(proposal.id,'staff',proposal.argsHash)));
       assert.equal(dispatches,1);assert.equal((await store.refunds()).length,1);
     });
+    await t.test('external action: concurrent execute dispatches once; auto claim works for external_action only',async()=>{
+      await store.reset(seedData());
+      let dispatches=0;
+      const integrations={forContext:(ctx:{customerId:string;propose?:(r:{args:Record<string,unknown>;mode:'auto'|'ask';title:string})=>Promise<unknown>})=>({
+        tools:[{integrationId:'orders',name:'cancel_order',description:'Cancel order',inputSchema:{type:'object' as const,properties:{},additionalProperties:false as const}}],
+        callTool:async(_i:string,_n:string,input:Record<string,unknown>)=>ctx.propose!({mode:'ask',title:'Cancel order',args:{integrationId:'orders',operationKey:'POST /orders/{order_id}/cancel',title:'Cancel order',policyRevision:1,customerId:ctx.customerId,input}}),
+        executeAction:async()=>{dispatches++;await new Promise(resolve=>setTimeout(resolve,50));return {status:'executed' as const,data:{status:'cancelled'}};},
+      })};
+      const model=new ScriptedModel(async ctx=>{await ctx.callBusinessTool!('orders','cancel_order',{order_id:'ORD-1001'});return {intent:'other',summary:'s',reasoning:'r',sentiment:{label:'calm',urgency:'low'},reply:'',action:null};});
+      const h=new SupportHarness({store,model,fallback:new RulesModel(),provider,timeoutMs:1000,integrations});
+      const c=await h.openCase('demo-olena');
+      await h.runTurn('demo-olena',c.id,'cancel my order');
+      const p=(await store.proposals(c.id)).find(row=>row.tool==='external_action')!;
+      assert.equal(p.status,'pending');
+      await h.approve(p.id,'staff',p.argsHash);
+      const results=await Promise.allSettled([h.executeApproved(p.id,'staff',p.argsHash),h.executeApproved(p.id,'staff',p.argsHash),h.executeApproved(p.id,'staff',p.argsHash)]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal(dispatches,1);
+      assert.equal((await store.proposal(p.id))?.status,'executed');
+      // pending -> executing without a human is allowed for external_action (policy auto) but never for refunds.
+      const auto=await store.createProposal({caseId:c.id,tool:'external_action',args:{n:2},argsHash:'b'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      assert.equal((await store.claimProposal(auto.id,auto.argsHash,'executing','agent:auto'))?.status,'executing');
+      const refund=await store.createProposal({caseId:c.id,tool:'refund_payment',args:{payment_id:'x'},argsHash:'c'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      assert.equal(await store.claimProposal(refund.id,refund.argsHash,'executing','agent:auto'),null);
+    });
     await t.test('knowledge history survives restart, preserves access metadata and resets cleanly',async()=>{
       const business=(await store.businessesList())[0]!;
       const id=randomUUID();

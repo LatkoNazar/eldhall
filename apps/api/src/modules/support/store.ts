@@ -10,6 +10,8 @@ export type CasePatch = Partial<Pick<SupportCase, 'status' | 'priority' | 'inten
 export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs'] }
 export class DuplicateRefund extends Error {}
 export class StaleTurn extends Error {}
+/** Tools a policy may run without operator approval: pending -> executing by `agent:auto`. */
+export const AUTO_CLAIMABLE = ['escalate_to_human', 'external_action'];
 export class VersionConflict extends Error {}
 export interface SupportStore {
   reset(seed: SeedData): Promise<void>;
@@ -282,7 +284,7 @@ export class MemorySupportStore implements SupportStore {
   async claimProposal(id:string,argsHash:string,to:'executing'|'rejected',actor:string) {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
     const row=this.proposalRows.get(id);
-    if (!row || row.tool!=='escalate_to_human' || row.status!=='pending' || row.argsHash!==argsHash) return null;
+    if (!row || !AUTO_CLAIMABLE.includes(row.tool) || row.status!=='pending' || row.argsHash!==argsHash) return null;
     Object.assign(row,{status:to,decidedBy:actor,decidedAt:now()}); return copy(row);
   }
   async finishProposal(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null) {

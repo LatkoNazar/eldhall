@@ -73,7 +73,7 @@ test('catalog integration fails closed before any network call', async () => {
   const denied = (pattern: RegExp) => (error: unknown) => error instanceof IntegrationError && error.code === 'denied' && pattern.test(error.message);
   const scoped = make().forContext(context);
   assert.deepEqual(scoped.tools.map(tool => tool.name), ['get_order_status', 'cancel_order']);
-  await assert.rejects(scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), denied(/approval/));
+  await assert.rejects(scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), denied(/ledger/));
   await assert.rejects(scoped.callTool('orders', 'delete_customer', {}), denied(/operation_disabled/));
   await assert.rejects(scoped.callTool('crm', 'get_order_status', { order_id: 'ORD-1001' }), denied(/allowlisted/));
   for (const input of [{ order_id: 'ORD-1001', eldhall: { customerId: 'cust-taras' } }, { order_id: 'ORD-1001', customer_id: 'cust-taras' }, { order_id: 'x'.repeat(51) }]) {

@@ -3,7 +3,7 @@ import type pg from 'pg';
 import type { AgentRun, AuditEvent, Business, CaseStatus, Customer, KnowledgeSource, Message, MessageRole, Metrics, Payment, Proposal, Refund, SupportCase, SupportSettings, SupportSkill, TurnLease } from './contracts.js';
 import { PostgresTurnJobs } from './postgres-turn-jobs.js';
 import type { SeedData } from './seed.js';
-import { DuplicateRefund, StaleTurn, VersionConflict, type CasePatch, type NewProposal, type SupportStore, type TurnContext } from './store.js';
+import { AUTO_CLAIMABLE, DuplicateRefund, StaleTurn, VersionConflict, type CasePatch, type NewProposal, type SupportStore, type TurnContext } from './store.js';
 import { sameClassificationConfig } from '../agent/classification.js';
 import { canReplaceClassification, classificationState, storedClassification, visibleClassification, type StoredClassification } from './classification-storage.js';
 type StoredSettings = Omit<SupportSettings, 'classification'> & { classification?: StoredClassification };
@@ -162,7 +162,7 @@ export class PostgresSupportStore implements SupportStore {
   }
   async claimProposal(id:string,argsHash:string,to:'executing'|'rejected',actor:string) {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
-    return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status='executing',decided_by=$3,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' AND tool='escalate_to_human' RETURNING *",[id,argsHash,actor])).rows);
+    return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status='executing',decided_by=$3,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' AND tool=ANY($4) RETURNING *",[id,argsHash,actor,AUTO_CLAIMABLE])).rows);
   }
   async finishProposal(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null) {
     const row=first<Proposal>((await this.pool.query('UPDATE support_proposals SET status=$2,result=$3,error=$4 WHERE id=$1 RETURNING *',[id,status,json(result),error])).rows);

@@ -2,6 +2,7 @@
 // Run: npm run test:mcp-openapi  (needs uv; apps/mcp-openapi dependencies resolve on first run).
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -9,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
 import { createCatalogIntegration } from '../src/integrations/catalog.js';
 import type { Manifest } from '../src/integrations/manifest.js';
-import { IntegrationError } from '../src/integrations/mcp.js';
+import { IntegrationError, type ExternalActionRequest } from '../src/integrations/mcp.js';
 import { fingerprint } from '../src/integrations/permissions.js';
 // @ts-expect-error plain .mjs fixture without type declarations
 import { createOrdersApi } from '../../../examples/orders/mock-api.mjs';
@@ -64,7 +65,7 @@ test('auto read: own order through sidecar, reviewed fields only; ask/deny not e
   assert.deepEqual(scoped.tools.map(tool => tool.name), ['get_order_status', 'cancel_order']);
   assert.deepEqual(await scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-1001' }),
     { order_id: 'ORD-1001', status: 'paid', total_cents: 49900, currency: 'UAH', tracking_url: null });
-  await assert.rejects(scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), code('denied', /approval/));
+  await assert.rejects(scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), code('denied', /ledger/));
   await assert.rejects(scoped.callTool('orders', 'delete_customer', {}), code('denied', /operation_disabled/));
   // Cancel was never dispatched upstream.
   assert.equal((await scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-1001' }) as { status: string }).status, 'paid');
@@ -88,4 +89,32 @@ test('unreviewed tool, catalog drift and wrong service credential fail closed', 
   const driftedPolicy = { ...structuredClone(policy), manifestHash: drifted.manifestHash };
   await assert.rejects(integration({ manifest: drifted, policy: driftedPolicy }).callTool('orders', 'get_order_status', { order_id: 'ORD-1001' }), code('denied', /manifest does not match/));
   await assert.rejects(integration({ credential: 'wrong-service-token-value' }).callTool('orders', 'get_order_status', { order_id: 'ORD-1001' }), code('unavailable'));
+});
+
+test('ask write: snapshot only, then executeAction with idempotency key; replay is safe; guards and stale snapshots fail without effect', async () => {
+  const requests: ExternalActionRequest[] = [];
+  const scoped = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy })
+    .forContext({ ...context, propose: async request => { requests.push(request); return { status: 'awaiting_approval', proposalId: 'p1', summary: request.title }; } });
+  const status = async (id: string) => (await scoped.callTool('orders', 'get_order_status', { order_id: id }) as { status: string }).status;
+  assert.deepEqual(await scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001', reason: 'changed mind' }), { status: 'awaiting_approval', proposalId: 'p1', summary: 'Cancel order' });
+  assert.equal(requests[0]!.mode, 'ask');
+  assert.equal(requests[0]!.args.customerId, 'cust-olena');
+  assert.equal(await status('ORD-1001'), 'paid'); // proposing has no upstream effect
+
+  const actionId = randomUUID();
+  const first = await scoped.executeAction!(requests[0]!.args, actionId);
+  assert.deepEqual(first, { status: 'executed', data: { order_id: 'ORD-1001', status: 'cancelled' } });
+  assert.equal(await status('ORD-1001'), 'cancelled');
+  assert.deepEqual(await scoped.executeAction!(requests[0]!.args, actionId), first); // delivery retry: same key, same result
+  assert.deepEqual(await scoped.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'conflict' });
+
+  await scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1002' });
+  assert.deepEqual(await scoped.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'conflict' }); // shipped
+  assert.equal(await status('ORD-1002'), 'shipped');
+
+  const later = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy: { ...policy, policyRevision: 2 } }).forContext(context);
+  assert.deepEqual(await later.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'stale_snapshot' });
+  const taras = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy }).forContext({ ...context, customerId: 'cust-taras' });
+  assert.deepEqual(await taras.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'scope_mismatch' });
+  assert.deepEqual(await scoped.executeAction!({ ...requests[1]!.args, input: { order_id: 'ORD-2001' } }, randomUUID()), { status: 'failed', reasonCode: 'not_found' });
 });
