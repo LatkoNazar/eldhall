@@ -113,6 +113,8 @@ test('profile has no coding bundles and child environment excludes business cred
     // The child never inherits the service user's home: it gets the profile's own, writable directory.
     assert.equal(env.HOME, profile.home);
     assert.equal(env.DSH_AGENTS_HOME, join(profile.home, 'agents'));
+    // Containers mount /tmp noexec: on Linux the native addon must load in place, not from a /tmp copy.
+    assert.equal(env.NARB_DISABLE_NATIVE_CACHE, process.platform === 'win32' ? undefined : '1');
     assert.equal(env.POSTGRES_PASSWORD, undefined);
     assert.equal(env.OPERATOR_TOKEN, undefined);
     assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);
