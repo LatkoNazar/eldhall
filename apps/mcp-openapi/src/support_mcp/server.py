@@ -5,6 +5,7 @@ reserved `eldhall` argument; the model never reaches this service. Upstream stil
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
@@ -114,6 +115,7 @@ def _status_code(status: int) -> str:
 class OperationTool(Tool):
     operation: dict
     upstream: Any  # httpx.AsyncClient; pydantic cannot validate it
+    deadline: float = 4.0  # total seconds for the upstream call; httpx timeouts are per phase
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
         op = self.operation
@@ -123,14 +125,17 @@ class OperationTool(Tool):
             return _error(error.code, effect=False)
         write = op["effect"] == "write"
         try:
-            response = await self.upstream.request(**request)
-        except httpx.TimeoutException:
+            response = await asyncio.wait_for(self.upstream.request(**request), self.deadline)
+        except (httpx.TimeoutException, TimeoutError):
             # A write may have committed upstream; only reconciliation can tell.
             return _error("outcome_unknown" if write else "timeout", effect=None if write else False)
         except httpx.HTTPError:
             return _error("outcome_unknown" if write else "unavailable", effect=None if write else False)
         if response.status_code >= 500:
             return _error("outcome_unknown" if write else "unavailable", effect=None if write else False)
+        if write and (300 <= response.status_code < 400 or response.status_code == 408):
+            # Redirects are not followed and 408 is ambiguous: a write may already have committed (POST-redirect-GET).
+            return _error("outcome_unknown", effect=None)
         if response.status_code >= 300:
             # Confirmed rejection without effect. Raw upstream bodies/headers never leave this process.
             return _error(_status_code(response.status_code), effect=False)
@@ -150,7 +155,7 @@ def _error(code: str, effect: bool | None) -> ToolResult:
     return ToolResult(content=[TextContent(type="text", text=json.dumps(payload))], structured_content=payload, is_error=True)
 
 
-def create_server(manifest: dict, upstream: httpx.AsyncClient) -> FastMCP:
+def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float = 4.0) -> FastMCP:
     verify(manifest)
     mcp = FastMCP(name=f"eldhall-{manifest['integrationId']}", mask_error_details=True)
     for op in manifest["operations"]:
@@ -161,7 +166,7 @@ def create_server(manifest: dict, upstream: httpx.AsyncClient) -> FastMCP:
         schema["required"] = [*schema.get("required", []), RESERVED]
         read = op["effect"] == "read"
         mcp.add_tool(OperationTool(
-            name=op["toolName"], description=op["description"], parameters=schema, operation=op, upstream=upstream,
+            name=op["toolName"], description=op["description"], parameters=schema, operation=op, upstream=upstream, deadline=deadline,
             annotations=ToolAnnotations(read_only_hint=read, destructive_hint=not read, idempotent_hint=read or bool(op["idempotency"]), open_world_hint=True),
         ))
     catalog = {op["toolName"]: op["operationHash"] for op in manifest["operations"] if op["effect"] in ("read", "write")}
@@ -200,7 +205,7 @@ def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, ser
         raise ValueError("MCP_SERVICE_TOKEN must be at least 16 characters")
     headers = {"authorization": f"Bearer {upstream_token}"} if upstream_token else {}
     upstream = httpx.AsyncClient(base_url=upstream_url, headers=headers, timeout=timeout, follow_redirects=False)
-    app = create_server(manifest, upstream).http_app(path="/mcp", json_response=True, stateless_http=True)
+    app = create_server(manifest, upstream, timeout).http_app(path="/mcp", json_response=True, stateless_http=True)
     return ServiceAuth(app, service_token)
 
 

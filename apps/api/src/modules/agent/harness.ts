@@ -35,9 +35,18 @@ export function argsHash(caseId: string, tool: string, args: unknown): string {
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
 
-// Claims of a completed business effect. A reply may only say so when the backend recorded it, so any
-// such prose is replaced unless this turn has a recorded external action (which uses server templates).
-const CLAIMS_SUCCESS = /(\border\b.{0,40}\b(?:has been|was|is now|is)\s+(?:cancell?ed|refunded|updated|changed)|\b(?:we|i)(?:'ve| have)?\s+(?:cancell?ed|updated|changed|processed|completed)\b.{0,30}\b(?:order|request|booking|subscription)|замовлення.{0,40}(?:скасовано|скасоване|змінено|оновлено)|(?:ми|я)\s+(?:вже\s+)?(?:скасува|змінил|змінив|оновил|оновив|оформил|оформив|виконал|виконав)|(?:дію|запит|замовлення)\s+(?:вже\s+)?(?:виконано|оформлено|скасовано)|refund(?:ed)?\b.{0,40}\b(?:complete|completed|processed|issued|sent|done|successful)|\b(?:we|i)(?:'ve| have)?\s+refunded|money.{0,30}(?:returned|sent|refunded)|кошти.{0,30}(?:повернено|повернули|відправлено)|(?:ми|я)\s+повернул|повернення\s+(?:виконано|оформлено|завершено|успішне)|back on your card|already back|\b(?:we|i)(?:'ve| have)?\s+cancell?ed\b.{0,30}subscription|subscription\s+(?:has been|was|is)\s+cancell?ed|вже на вашій картці|гроші\s+повернуто|скасува(?:в|ла|ли)\s+(?:вашу\s+)?підписку|підписк[уа]\s+скасовано)/i;
+// Model prose may never claim that an action was performed: only server templates built from a recorded
+// proposal may say so. Claims about a resulting state ("order is cancelled") are allowed only when this
+// turn's business-tool data shows that state, so relaying a real order status still works.
+const ACTION_CLAIM = /(refund(?:ed)?\b.{0,40}\b(?:complete|completed|processed|issued|sent|done|successful)|money.{0,30}(?:returned|sent|refunded)|back on your card|already back|subscription\s+(?:has been|was|is)\s+cancell?ed|\b(?:we|i)(?:'ve| have)?\s+(?:just\s+|already\s+)?(?:cancell?ed|refunded|updated|changed|processed|completed|issued|submitted)\b|\b(?:successfully|now)\s+(?:been\s+)?(?:cancell?ed|refunded|updated|changed|processed)\b|\b(?:cancell?ed|refunded|processed|updated|changed)\s+successfully\b|\b(?:cancell?ation|refund|request|change|update)\s+(?:is\s+|has been\s+)?(?:confirmed|complete|completed|processed|done)\b|^\W*done\b|(?<![а-яіїєґ])(?:ми|я)\s+(?:вже\s+|щойно\s+)?(?:скасува|відмінил|відмінив|змінил|змінив|оновил|оновив|оформил|оформив|виконал|виконав|повернул|повернув)|(?:дію|запит|заявку|скасування|повернення(?:\s+коштів)?)\s+(?:вже\s+|успішно\s+)?(?:виконано|оформлено|скасовано|підтверджено|завершено)|кошти.{0,30}(?:повернено|повернули|відправлено)|вже на вашій картці|гроші\s+повернуто|скасува(?:в|ла|ли)\s+(?:вашу\s+)?підписку|підписк[уа]\s+скасовано)/i;
+const STATE_CLAIMS: { claim: RegExp; evidence: RegExp }[] = [
+  { claim: /\border\b.{0,60}\bcancell?ed\b|замовлення.{0,60}(?:скасован|відмінен)/i, evidence: /cancel|скасов|відмін/i },
+  { claim: /\b(?:order|payment|charge)\b.{0,60}\brefunded\b|(?:кошти|гроші|платіж|оплат[уа]).{0,60}(?:повернено|повернуто)/i, evidence: /refund|поверн/i },
+];
+export function ungroundedClaim(reply: string, evidence: readonly string[]): boolean {
+  if (ACTION_CLAIM.test(reply)) return true;
+  return STATE_CLAIMS.some(({ claim, evidence: shows }) => claim.test(reply) && !evidence.some(value => shows.test(value)));
+}
 
 export class SupportHarness {
   constructor(private readonly deps: HarnessDeps) {}
@@ -195,7 +204,14 @@ export class SupportHarness {
     };
     // At most one external action per durable turn: the (turn_job_id, tool) logical key holds it across retries.
     let externalAction: { proposal: Proposal; title: string } | undefined;
-    const propose = async ({ args, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
+    // Parallel tool calls must not race past the check below: proposals in one turn run strictly in order.
+    let proposing: Promise<unknown> = Promise.resolve();
+    const propose = (request: ExternalActionRequest): Promise<BusinessToolResult> => {
+      const run = proposing.then(() => proposeNow(request));
+      proposing = run.catch(() => undefined);
+      return run;
+    };
+    const proposeNow = async ({ args, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
       await assertActive();
       const hash = argsHash(caseId, 'external_action', args);
       const prior = externalAction?.proposal ?? (lease.jobFence !== undefined ? (await store.proposals(caseId)).find(p => p.tool === 'external_action' && p.turnJobId === lease.runId) : undefined);
@@ -205,14 +221,20 @@ export class SupportHarness {
       if (!prior) await store.audit(caseId, 'action.proposed', 'agent', { proposalId: proposal.id, tool: 'external_action', operationKey: args.operationKey, mode });
       if (mode === 'auto' && proposal.status === 'pending') {
         const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
-        if (claimed) proposal = (await this.executeExternal(claimed, false)).proposal;
+        if (claimed) proposal = (await this.executeExternal(claimed, false, assertActive)).proposal;
       }
       externalAction = { proposal, title };
       return toolResult(proposal, title);
     };
     const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive, propose });
     ctx.businessTools = integrations?.tools ?? [];
-    ctx.callBusinessTool = integrations?.callTool;
+    // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
+    const evidence: string[] = [];
+    ctx.callBusinessTool = integrations ? async (integrationId, name, input, signal) => {
+      const result = await integrations.callTool(integrationId, name, input, signal);
+      collectStrings(result, evidence);
+      return result;
+    } : undefined;
 
     const { decision, source, model, classification } = await this.decide(caseId, ctx);
     await assertActive();
@@ -244,7 +266,7 @@ export class SupportHarness {
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
     await assertExternal();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -414,11 +436,15 @@ export class SupportHarness {
   }
 
   /** Dispatches a claimed external action once; the outcome is recorded before anyone is told about it. */
-  private async executeExternal(proposal: Proposal, notify: boolean) {
+  private async executeExternal(proposal: Proposal, notify: boolean, assertActive: () => Promise<void> = async () => undefined) {
     const { store } = this.deps;
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
-    const scoped = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive: async () => undefined });
+    let scoped: ReturnType<BusinessIntegrations['forContext']> | undefined;
+    try {
+      // In a turn, the turn's ownership fence runs right before dispatch; a takeover stops the write.
+      scoped = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive });
+    } catch { scoped = undefined; }
     const outcome: ActionOutcome = scoped?.executeAction
       // An executor crash after a possible dispatch must not look like a clean failure.
       ? await scoped.executeAction(proposal.args, proposal.id).catch(() => ({ status: 'unknown' as const, reasonCode: 'executor_error' }))
@@ -435,7 +461,7 @@ export class SupportHarness {
     return { proposal: done, case: await store.updateCase(proposal.caseId, { status: outcome.status === 'executed' ? 'resolved' : 'escalated' }) };
   }
 
-  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }): string {
+  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = []): string {
     const uk = /[а-яіїєґ]/i.test(body);
     const lead = analysis.tone === 'neutral' ? '' : uk ? 'Мені дуже шкода, що так сталося — розумію, як це неприємно. ' : "I'm really sorry about this — I understand how frustrating it is. ";
     // External outcomes come only from the recorded proposal state, never from model prose.
@@ -462,7 +488,7 @@ export class SupportHarness {
     if (!proposal && decision.intent === 'billing_question') {
       return lead + (uk ? 'Дякую за питання щодо оплати. Підкажіть дату та суму списання — я перевірю, а за потреби підключу спеціаліста.' : 'Thanks for your billing question. Please tell me the date and amount of the charge so I can check it; a specialist will join if needed.');
     }
-    if (!decision.reply || CLAIMS_SUCCESS.test(decision.reply)) {
+    if (!decision.reply || ungroundedClaim(decision.reply, evidence)) {
       return lead + (uk ? 'Дякую! Я перевіряю ваше звернення, спеціаліст підключиться за потреби.' : "Thanks! I'm looking into this and a specialist will join if needed.");
     }
     return decision.reply;
@@ -501,7 +527,7 @@ function toolResult(proposal: Proposal, title: string): BusinessToolResult {
 function externalMessage(proposal: Proposal, uk: boolean): string {
   const title = String(proposal.args.title ?? '');
   const data = proposal.result?.data as Record<string, unknown> | undefined;
-  const state = typeof data?.status === 'string' ? data.status : null;
+  const state = typeof data?.status === 'string' && /^[\p{L}\p{N} _-]{1,40}$/u.test(data.status) ? data.status : null;
   switch (proposal.status) {
     case 'pending': case 'approved':
       return uk ? `Я підготував запит «${title}». Його має підтвердити спеціаліст — я напишу тут, щойно буде результат.` : `I prepared the request "${title}". A specialist needs to confirm it; I'll update you here.`;
@@ -512,4 +538,11 @@ function externalMessage(proposal: Proposal, uk: boolean): string {
     default:
       return uk ? `Дію «${title}» не виконано.` : `"${title}" was not completed.`;
   }
+}
+
+function collectStrings(value: unknown, into: string[], depth = 0): void {
+  if (into.length >= 200 || depth > 4) return;
+  if (typeof value === 'string') into.push(value.slice(0, 200));
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, into, depth + 1);
+  else if (value && typeof value === 'object') for (const item of Object.values(value)) collectStrings(item, into, depth + 1);
 }

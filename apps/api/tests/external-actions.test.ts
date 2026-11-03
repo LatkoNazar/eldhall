@@ -147,3 +147,88 @@ test('model prose claiming a business effect is replaced when nothing was record
   const opened = await harness.openCase(OLENA);
   assert.equal((await harness.runTurn(OLENA, opened.id, 'Де моє замовлення?')).reply!.body, 'Статус замовлення ORD-1001: shipped, трекінг надіслано.');
 });
+
+test('parallel tool calls in one turn cannot run two external actions (inline mode, no durable turn key)', async () => {
+  for (const second of [{ order_id: 'ORD-1002' }, { order_id: 'ORD-1001' }]) {
+    const h = setup('auto', [done, done]);
+    const parallel = new ScriptedModel(async ctx => {
+      h.results.push(...await Promise.all([ctx.callBusinessTool!('orders', 'cancel_order', { order_id: 'ORD-1001' }), ctx.callBusinessTool!('orders', 'cancel_order', second)]) as BusinessToolResult[]);
+      return decision();
+    });
+    const harness = new SupportHarness({ store: h.store, model: parallel, fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 1000, integrations: (h.harness as unknown as { deps: { integrations: BusinessIntegrations } }).deps.integrations });
+    const opened = await harness.openCase(OLENA);
+    await harness.runTurn(OLENA, opened.id, 'Скасуйте замовлення');
+    const proposals = (await h.store.proposals(opened.id)).filter(p => p.tool === 'external_action');
+    assert.equal(proposals.length, 1);
+    assert.equal(h.executed.length, 1);
+    if (second.order_id === 'ORD-1002') assert.deepEqual(h.results[1], { status: 'denied', reasonCode: 'one_external_action_per_turn' });
+    else assert.deepEqual(h.results[1], h.results[0]); // same request: same proposal, no second dispatch
+  }
+});
+
+/** A read-only integration double: what the model learned this turn is the only ground for status claims. */
+async function replyAfterRead(status: string | null, reply: string) {
+  const store = new MemorySupportStore();
+  void store.reset(seedData());
+  const integrations: BusinessIntegrations = { forContext: () => ({
+    tools: [{ integrationId: 'orders', name: 'get_order_status', description: 'Read order', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }],
+    callTool: async () => ({ order_id: 'ORD-1001', status }),
+  }) };
+  const model = new ScriptedModel(async ctx => {
+    if (status !== null) await ctx.callBusinessTool!('orders', 'get_order_status', { order_id: 'ORD-1001' });
+    return decision({ reply });
+  });
+  const harness = new SupportHarness({ store, model, fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 1000, integrations });
+  const opened = await harness.openCase(OLENA);
+  return (await harness.runTurn(OLENA, opened.id, 'Що з моїм замовленням?')).reply!.body;
+}
+
+test('claims guard: action claims are always replaced; state claims pass only when this turn read that state', async () => {
+  for (const reply of ['Done! Order #1001 cancelled.', 'Your order has now been cancelled.', 'Your order has been successfully cancelled.', 'Order ORD-1001 cancelled successfully',
+    'I cancelled it for you.', "I've updated your delivery address.", 'Cancellation confirmed', 'Замовлення відмінено.', 'Вашу заявку оформлено.', 'Повернення коштів оформлено.', 'Скасування підтверджено.']) {
+    assert.notEqual(await replyAfterRead(null, reply), reply, reply);
+  }
+  // First-person claims stay blocked even when the order really is cancelled: the agent did not do it this turn.
+  assert.notEqual(await replyAfterRead('cancelled', 'I cancelled it for you.'), 'I cancelled it for you.');
+  for (const reply of ['Your order ORD-1001 was cancelled on 3 May.', 'Status: your order is cancelled.', 'Ваше замовлення було скасовано продавцем.']) {
+    assert.equal(await replyAfterRead('cancelled', reply), reply, reply);
+    assert.notEqual(await replyAfterRead('paid', reply), reply, `${reply} without matching data`);
+  }
+  assert.equal(await replyAfterRead('refunded', 'Order ORD-1002 was refunded last week.'), 'Order ORD-1002 was refunded last week.');
+  assert.equal(await replyAfterRead(null, 'Інформація оновилася, перевірте email.'), 'Інформація оновилася, перевірте email.');
+  assert.equal(await replyAfterRead('shipped', 'Статус замовлення ORD-1001: shipped.'), 'Статус замовлення ORD-1001: shipped.');
+});
+
+test('in-turn auto dispatch is fenced by the turn: a takeover before dispatch stops the write', async () => {
+  const store = new MemorySupportStore();
+  void store.reset(seedData());
+  let dispatched = false;
+  const integrations: BusinessIntegrations = { forContext(ctx) {
+    return {
+      tools: [{ integrationId: 'orders', name: 'cancel_order', description: 'Cancel order', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }],
+      callTool: async (_i, _n, input) => ctx.propose!({ mode: 'auto', title: 'Cancel order', args: { integrationId: 'orders', operationKey: 'POST /orders/{order_id}/cancel', title: 'Cancel order', policyRevision: 1, customerId: ctx.customerId, input } }),
+      // Mirrors catalog.ts: the context fence runs right before dispatch; failing it means nothing was sent.
+      executeAction: async () => {
+        const caseId = (await store.listCases())[0]!.id;
+        await store.setOwnership(caseId, 'staff', 'operator:staff');
+        try { await ctx.assertActive(); } catch { return { status: 'failed', reasonCode: 'unavailable' }; }
+        dispatched = true;
+        return { status: 'executed', data: {} };
+      },
+    };
+  } };
+  const model = new ScriptedModel(async ctx => { await ctx.callBusinessTool!('orders', 'cancel_order', { order_id: 'ORD-1001' }).catch(() => undefined); return decision(); });
+  const harness = new SupportHarness({ store, model, fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 1000, integrations });
+  const opened = await harness.openCase(OLENA);
+  await harness.runTurn(OLENA, opened.id, 'Скасуйте замовлення').catch(() => undefined);
+  assert.equal(dispatched, false);
+  assert.equal((await store.proposals(opened.id)).find(p => p.tool === 'external_action')?.status, 'failed');
+});
+
+test('customer template quotes only a short plain upstream status', async () => {
+  for (const [status, shown] of [['cancelled', true], ['<img src=x onerror=alert(1)>', false], ['x'.repeat(41), false]] as const) {
+    const h = setup('auto', [async () => ({ status: 'executed', data: { status } })]);
+    const { result } = await turn(h);
+    assert.equal(result.reply!.body.includes('(статус:'), shown, status);
+  }
+});

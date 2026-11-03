@@ -119,7 +119,7 @@ Sidecar:
 - **Path values.** Values placed into the path are percent-encoded as one segment; `""`, `.` and `..` are rejected (`invalid_path_value`), because HTTP clients normalize dot segments and `/orders/../cancel` would reach `/cancel`.
 - **Timeouts.** `UPSTREAM_TIMEOUT_SECONDS` (default 4 s) must stay below the backend's MCP call timeout (`timeoutMs`, default 5 s). Otherwise a slow upstream success arrives after the backend gave up and is recorded as `unknown`.
 - **Trusted scope.** It arrives in the reserved `eldhall` argument (`customerId`, `businessId?`, `idempotencyKey?`), which no manifest input may use.
-- **Errors.** Upstream errors become `{error, effect: none|unknown}`. Raw bodies and headers are never returned. A write that times out or gets a 5xx returns `effect: unknown`.
+- **Errors.** Upstream errors become `{error, effect: none|unknown}`. Raw bodies and headers are never returned. A write that times out, gets a 5xx, a 3xx (redirects are not followed; POST-redirect-GET may follow a committed write) or a 408 returns `effect: unknown`. Other 4xx responses are confirmed rejections (`effect: none`). The upstream call has a total deadline (`asyncio.wait_for`), not only per-phase httpx timeouts.
 
 TS boundary, in the order of checks:
 1. The resolver decides `auto`, `ask` or `deny`.
@@ -152,7 +152,9 @@ cd apps/api && npm run test:mcp-openapi
 - `ask` creates a `pending` proposal. The model gets `awaiting_approval`, and the customer gets a server-composed "prepared, a specialist must confirm" reply. The model's own text is not used.
 - `auto` creates the proposal, claims it (`agent:auto`) and executes it immediately through the same path.
 
-**One action per turn.** The model may make at most one external action per durable turn. The unique `(turn_job_id, tool)` key enforces this in the DB across retries. A repeat with the same arguments returns the same proposal, and a different action returns `denied: one_external_action_per_turn`.
+**One action per turn.** The model may make at most one external action per durable turn. The unique `(turn_job_id, tool)` key enforces this in the DB across retries. A repeat with the same arguments returns the same proposal, and a different action returns `denied: one_external_action_per_turn`. Proposals within one turn are serialized, so parallel tool calls cannot race past this check (inline mode has no durable turn key). An in-turn `auto` dispatch runs the turn's ownership fence right before sending; a takeover stops it with nothing sent.
+
+**Reply guard.** Model prose that claims an action was performed ("I cancelled…", "cancelled successfully", "Скасування підтверджено") is always replaced; only server templates from a recorded proposal may say so. A claim about a resulting state ("your order is cancelled") is kept only when business data returned in this turn shows that state. The upstream `status` quoted in the "done" template is limited to a short plain token.
 
 **Approve and execute.**
 - **Approve** stores consent only.
@@ -166,7 +168,7 @@ cd apps/api && npm run test:mcp-openapi
 |---|---|
 | `executed` | The result was recorded first; only then does the customer get the "done" template. |
 | `failed` | Confirmed no effect: an upstream 4xx, a guard such as already shipped, or a failure before dispatch. |
-| `unknown` | A write was dispatched, then timed out, hit a 5xx, failed transport, or the executor crashed. The case moves to staff and execution stays locked for reconciliation. |
+| `unknown` | A write was dispatched, then timed out, hit a 5xx/3xx/408, failed transport, or the executor crashed. The case moves to staff and execution stays locked for reconciliation. |
 
 Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeover and stale `executing` recovery reuse the existing proposal rules.
 

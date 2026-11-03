@@ -123,6 +123,34 @@ class ServerTest(unittest.TestCase):
         asyncio.run(scenario())
         self.assertEqual(str(seen[0].url), "http://upstream.test/orders/ORD-1001")
 
+    def _call(self, handler, deadline=4.0):
+        upstream = httpx.AsyncClient(base_url="http://upstream.test", transport=httpx.MockTransport(handler))
+
+        async def scenario():
+            async with Client(create_server(load("manifest.json"), upstream, deadline)) as client:
+                write = await client.call_tool("cancel_order", {"order_id": "ORD-1001", "eldhall": {"customerId": "c", "idempotencyKey": "a"}}, raise_on_error=False)
+                read = await client.call_tool("get_order_status", {"order_id": "ORD-1001", "eldhall": {"customerId": "c"}}, raise_on_error=False)
+                return write.structured_content, read.structured_content
+
+        return asyncio.run(scenario())
+
+    def test_redirect_or_408_after_write_is_unknown_but_confirmed_4xx_is_not(self):
+        for status in (301, 303, 307, 408):
+            write, read = self._call(lambda request, status=status: httpx.Response(status, headers={"location": "/orders/ORD-1001"}))
+            self.assertEqual(write, {"error": "outcome_unknown", "effect": "unknown"}, status)
+            self.assertEqual(read["effect"], "none", status)
+        write, _ = self._call(lambda request: httpx.Response(409, json={"error": "not_cancellable"}))
+        self.assertEqual(write, {"error": "conflict", "effect": "none"})
+
+    def test_total_deadline_bounds_a_slow_upstream(self):
+        async def slow(request):
+            await asyncio.sleep(2)
+            return httpx.Response(200, json={"order_id": "ORD-1001", "status": "cancelled"})
+
+        write, read = self._call(slow, deadline=0.2)
+        self.assertEqual(write, {"error": "outcome_unknown", "effect": "unknown"})
+        self.assertEqual(read, {"error": "timeout", "effect": "none"})
+
     def test_write_timeout_is_unknown_and_read_timeout_is_not(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("slow", request=request)
