@@ -6,16 +6,34 @@ Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python Open
 - TS side:
   - manifest validation (`apps/api/src/integrations/manifest.ts`);
   - the permission resolver (`permissions.ts`);
-  - `createCatalogIntegration` (`catalog.ts`), which runs `auto` reads inline and routes `ask` and writes through the harness proposal ledger.
+  - `createCatalogIntegration` (`catalog.ts`), which runs `auto` reads inline and routes `ask` and writes through the harness proposal ledger;
+  - wiring: `catalogs` in the support config file, loaded by `factory.ts` through `createSupportIntegrations`, which serves legacy read-only MCP integrations and catalogs side by side and routes every call by business + `integrationId`.
 - Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
 
 **Not wired yet:**
-- `factory.ts` registration (tests use the catalog against the sidecar and the harness with a stub integration);
+- a container image and Compose overlay for the sidecar (S1-2);
 - `ask` proposals and writes outside a support turn (no ledger), which fail closed with `denied`;
 - DB-held policy and the admin API (Stage D);
 - mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
 
 Reference fixture: [`examples/orders/`](../examples/orders/). It contains a synthetic OpenAPI file, the matching manifest and policy, and a mock upstream API (`mock-api.mjs`) that enforces customer ownership.
+
+## Configuration (S1-1)
+
+A catalog is one entry of `catalogs` in the operator-controlled support config (`SUPPORT_CONFIG_FILE`). The reviewed manifest and policy are embedded, so the single read-only config mount carries them; the sidecar credential is named, never stored:
+
+```json
+{ "catalogs": [{
+  "businessId": "<business uuid>",
+  "url": "https://mcp-openapi.internal/mcp",
+  "credentialEnv": "ORDERS_SIDECAR_TOKEN",
+  "timeoutMs": 5000,
+  "manifest": { "...": "importer output (manifest.json)" },
+  "policy": { "...": "policy.json with the same businessId and manifestHash" }
+}] }
+```
+
+Startup refuses a catalog whose manifest hashes do not verify, whose policy belongs to another business or integration or was reviewed against another `manifestHash`, whose `integrationId` repeats within the business (legacy MCP integrations included), or whose credential variable is missing. Changing the manifest or policy currently means editing this file and restarting; the database-held policy with optimistic revisions is S1-4. `url` follows the same rule as legacy MCP: HTTPS, or loopback HTTP with `allowInsecureLoopback` for tests; an internal-origin allowlist for the Compose network comes with S1-2.
 
 ## Canonical hashing
 
@@ -178,10 +196,9 @@ Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeove
 |---|---|---|
 | `tests/external-actions.test.ts` (memory store) | the ledger states | yes |
 | `npm run test:mcp-openapi` | real sidecar: execution, idempotent replay, the shipped-order guard, stale policy, foreign scope | yes |
-| A new case in `tests/postgres-store.integration.ts` | concurrent execute and the `external_action`-only auto claim | **no, no PostgreSQL in this environment** |
+| A new case in `tests/postgres-store.integration.ts` | concurrent execute and the `external_action`-only auto claim | yes, in the CI `integration` job (`npm run test:postgres`) |
 
 **Gaps.**
-- Neither the catalog nor the runtime config is registered in `factory.ts`.
 - No admin API or UI shows external actions or edits policy; Stage D will add them.
 - `unknown` outcomes are resolved by hand; automatic reconciliation through `reconciliation.operationKey` is not implemented yet.
 - Expired approvals simply cannot be executed; they get no explicit terminal state.

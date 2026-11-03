@@ -139,6 +139,29 @@ async function invoke(integration: McpIntegrationConfig, tool: McpIntegrationCon
   });
 }
 
+/** One registry per business: routes each call to the integration that owns `integrationId`, never by tool name alone. */
+export function combineIntegrations(parts: { owns: readonly (readonly [businessId: string, integrationId: string])[]; integrations: BusinessIntegrations }[]): BusinessIntegrations {
+  return { forContext(context) {
+    const scoped = parts
+      .map(part => ({ ids: part.owns.filter(([businessId]) => businessId === context.businessId).map(([, integrationId]) => integrationId), part }))
+      .filter(entry => entry.ids.length)
+      .map(entry => ({ ids: entry.ids, tools: entry.part.integrations.forContext(context) }));
+    const route = (integrationId: unknown) => typeof integrationId === 'string' ? scoped.find(entry => entry.ids.includes(integrationId))?.tools : undefined;
+    return {
+      tools: scoped.flatMap(entry => entry.tools.tools),
+      async callTool(integrationId, name, input, signal) {
+        const owner = route(integrationId);
+        if (!owner) throw new IntegrationError('denied', 'Business tool is not allowlisted');
+        return owner.callTool(integrationId, name, input, signal);
+      },
+      async executeAction(args, actionId, signal) {
+        const owner = route(args.integrationId);
+        return owner?.executeAction ? owner.executeAction(args, actionId, signal) : { status: 'failed', reasonCode: 'integration_unavailable' };
+      },
+    };
+  } };
+}
+
 export function createBusinessIntegrations(config: SupportConfig, env: NodeJS.ProcessEnv = process.env): BusinessIntegrations {
   const reviewed = supportConfigSchema.parse(config);
   const credentials = new Map<string, string>();

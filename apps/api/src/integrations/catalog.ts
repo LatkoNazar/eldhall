@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { manifestSchema, type Manifest } from './manifest.js';
-import { IntegrationError, projectOutput, toolData, withMcpClient, type ActionOutcome, type BusinessIntegrations, type BusinessTool } from './mcp.js';
-import { resolvePermission } from './permissions.js';
+import type { SupportConfig } from './config.js';
+import { combineIntegrations, createBusinessIntegrations, IntegrationError, projectOutput, toolData, withMcpClient, type ActionOutcome, type BusinessIntegrations, type BusinessTool } from './mcp.js';
+import { integrationPolicySchema, resolveWithPolicy, type PermissionDecision } from './permissions.js';
 import { validateToolInput } from './schema.js';
 
 /**
@@ -39,7 +40,13 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
   if (!config.credential || /[\r\n]/.test(config.credential)) throw new Error('Missing or invalid MCP sidecar credential');
   const target = { url: url.href, timeoutMs: config.timeoutMs ?? 5000, credential: config.credential };
   const maxOutputBytes = config.maxOutputBytes ?? 8192;
-  const decide = (operation: Operation) => resolvePermission({ businessId: config.businessId, integrationId: manifest.integrationId, manifestHash: manifest.manifestHash, operation }, config.policy);
+  // Manifest and policy are fixed for this process (DB-held policy is S1-4), so each decision is computed once here
+  // instead of re-validating the whole policy for every operation on every turn.
+  const policy = integrationPolicySchema.safeParse(config.policy);
+  const decisions = new Map<string, PermissionDecision>(manifest.operations.map(operation => [operation.operationKey, policy.success
+    ? resolveWithPolicy({ businessId: config.businessId, integrationId: manifest.integrationId, manifestHash: manifest.manifestHash, operation }, policy.data)
+    : { mode: 'deny', source: 'guard', matchedRuleIds: [], policyRevision: null, reasonCode: 'policy_invalid' }]));
+  const decide = (operation: Operation) => decisions.get(operation.operationKey)!;
   const checkInput = (operation: Operation, input: unknown): Record<string, unknown> => {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.hasOwn(input, RESERVED)) throw new IntegrationError('invalid_input', 'Model input cannot supply identity scope');
     try {
@@ -125,4 +132,20 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
       },
     };
   } };
+}
+
+/** Every configured business integration: legacy read-only MCP tools plus reviewed OpenAPI catalogs. */
+export function createSupportIntegrations(config: SupportConfig, env: NodeJS.ProcessEnv): BusinessIntegrations {
+  return combineIntegrations([
+    { owns: config.integrations.map(row => [row.businessId, row.id] as const), integrations: createBusinessIntegrations(config, env) },
+    ...config.catalogs.map(catalog => {
+      const credential = env[catalog.credentialEnv];
+      if (!credential) throw new Error(`Missing MCP sidecar credential environment reference: ${catalog.credentialEnv}`);
+      return {
+        owns: [[catalog.businessId, catalog.manifest.integrationId] as const],
+        integrations: createCatalogIntegration({ businessId: catalog.businessId, url: catalog.url, credential, allowInsecureLoopback: catalog.allowInsecureLoopback,
+          timeoutMs: catalog.timeoutMs, maxOutputBytes: catalog.maxOutputBytes, manifest: catalog.manifest, policy: catalog.policy }),
+      };
+    }),
+  ]);
 }

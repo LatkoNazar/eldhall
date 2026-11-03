@@ -65,8 +65,11 @@ const strictness: Record<PermissionMode, number> = { auto: 0, ask: 1, deny: 2 };
 
 export function resolvePermission(request: PermissionRequest, rawPolicy: unknown): PermissionDecision {
   const parsed = integrationPolicySchema.safeParse(rawPolicy);
-  if (!parsed.success) return guard('policy_invalid', null);
-  const policy = parsed.data;
+  return parsed.success ? resolveWithPolicy(request, parsed.data) : guard('policy_invalid', null);
+}
+
+/** Same decision for an already validated policy; lets a caller parse a static policy once instead of per call. */
+export function resolveWithPolicy(request: PermissionRequest, policy: IntegrationPolicy): PermissionDecision {
   const deny = (reasonCode: string) => guard(reasonCode, policy.policyRevision);
   const { operation } = request;
   if (policy.businessId !== request.businessId) return deny('business_mismatch');

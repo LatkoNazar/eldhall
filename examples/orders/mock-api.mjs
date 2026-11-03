@@ -4,15 +4,17 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
-const seed = () => new Map([
-  ['ORD-1001', { order_id: 'ORD-1001', customer: 'cust-olena', status: 'paid', total_cents: 49900, currency: 'UAH', tracking_url: null, internal_note: 'VIP, margin 12%' }],
-  ['ORD-1002', { order_id: 'ORD-1002', customer: 'cust-olena', status: 'shipped', total_cents: 129900, currency: 'UAH', tracking_url: 'https://track.example/ORD-1002', internal_note: 'warehouse B' }],
-  ['ORD-2001', { order_id: 'ORD-2001', customer: 'cust-taras', status: 'paid', total_cents: 9900, currency: 'UAH', tracking_url: null, internal_note: 'fraud review cleared' }],
+const seed = ({ olena, taras }) => new Map([
+  ['ORD-1001', { order_id: 'ORD-1001', customer: olena, status: 'paid', total_cents: 49900, currency: 'UAH', tracking_url: null, internal_note: 'VIP, margin 12%' }],
+  ['ORD-1002', { order_id: 'ORD-1002', customer: olena, status: 'shipped', total_cents: 129900, currency: 'UAH', tracking_url: 'https://track.example/ORD-1002', internal_note: 'warehouse B' }],
+  ['ORD-1003', { order_id: 'ORD-1003', customer: olena, status: 'paid', total_cents: 25900, currency: 'UAH', tracking_url: null, internal_note: 'gift wrap' }],
+  ['ORD-2001', { order_id: 'ORD-2001', customer: taras, status: 'paid', total_cents: 9900, currency: 'UAH', tracking_url: null, internal_note: 'fraud review cleared' }],
 ]);
 
-export function createOrdersApi({ token }) {
+// `customers` lets a test own the orders under ids the backend actually sends (e.g. seeded Eldhall customer ids).
+export function createOrdersApi({ token, customers = { olena: 'cust-olena', taras: 'cust-taras' } }) {
   if (!token) throw new Error('token is required');
-  const orders = seed();
+  const orders = seed(customers);
   const replays = new Map(); // `${customer}\0${key}` -> { orderId, status, body }
   const view = ({ customer: _, ...order }) => order;
   const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };

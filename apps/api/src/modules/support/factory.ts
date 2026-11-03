@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { loadEnvironment, type Settings } from '../../core/config.js';
 import { loadSupportConfig } from '../../integrations/config.js';
 import { bootstrapSupportConfig } from '../../integrations/bootstrap.js';
-import { createBusinessIntegrations } from '../../integrations/mcp.js';
+import { createSupportIntegrations } from '../../integrations/catalog.js';
 import { DshSupportModel } from '../../runtime/dsh-model.js';
 import { SupportHarness } from '../agent/harness.js';
 import { RulesModel } from '../agent/model.js';
@@ -39,7 +39,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   }
   await store.recoverInterruptedExecutions();
   const config = await loadSupportConfig(settings.supportConfigFile || undefined);
-  const integrations = createBusinessIntegrations(config, loadEnvironment());
+  const integrations = createSupportIntegrations(config, loadEnvironment());
   await bootstrapSupportConfig(store, config);
   const fallback = new RulesModel();
   const model = settings.agentRuntime === 'rules' ? fallback : new DshSupportModel({

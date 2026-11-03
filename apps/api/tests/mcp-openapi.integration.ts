@@ -8,7 +8,13 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
-import { createCatalogIntegration } from '../src/integrations/catalog.js';
+import { createCatalogIntegration, createSupportIntegrations } from '../src/integrations/catalog.js';
+import { supportConfigSchema } from '../src/integrations/config.js';
+import { SupportHarness } from '../src/modules/agent/harness.js';
+import { RulesModel, ScriptedModel, type AgentDecision } from '../src/modules/agent/model.js';
+import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
+import { seedData } from '../src/modules/support/seed.js';
+import { MemorySupportStore } from '../src/modules/support/store.js';
 import type { Manifest } from '../src/integrations/manifest.js';
 import { IntegrationError, type ExternalActionRequest } from '../src/integrations/mcp.js';
 import { fingerprint } from '../src/integrations/permissions.js';
@@ -19,7 +25,11 @@ const orders = new URL('../../../examples/orders/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', orders), 'utf8')) as Manifest;
 const policy = JSON.parse(await readFile(new URL('policy.json', orders), 'utf8')) as { businessId: string; operations: { reviewedOperationHash: string | null }[] };
 const serviceToken = 'local-sidecar-service-token';
-const context = { businessId: policy.businessId, customerId: 'cust-olena', assertActive: async () => undefined };
+// Seeded Eldhall customers (src/modules/support/seed.ts); the mock upstream owns orders under the same ids.
+const OLENA = '00000000-0000-4000-8000-000000000101';
+const TARAS = '00000000-0000-4000-8000-000000000102';
+const NOVAPAY = '00000000-0000-4000-8000-000000000001';
+const context = { businessId: policy.businessId, customerId: OLENA, assertActive: async () => undefined };
 const code = (expected: IntegrationError['code'], message?: RegExp) => (error: unknown) => error instanceof IntegrationError && error.code === expected && (!message || message.test(error.message));
 
 let upstream: Server;
@@ -29,7 +39,7 @@ let sidecarUrl = '';
 const freePort = () => new Promise<number>(resolve => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as AddressInfo; s.close(() => resolve(port)); }); });
 
 before(async () => {
-  upstream = createOrdersApi({ token: 'upstream-token' }) as Server;
+  upstream = createOrdersApi({ token: 'upstream-token', customers: { olena: OLENA, taras: TARAS } }) as Server;
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const port = await freePort();
   sidecarUrl = `http://127.0.0.1:${port}/mcp`;
@@ -74,10 +84,10 @@ test('auto read: own order through sidecar, reviewed fields only; ask/deny not e
 test('foreign order and scope spoofing never reach another customer', async () => {
   const scoped = integration();
   await assert.rejects(scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-2001' }), code('unavailable'));
-  await assert.rejects(scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-2001', eldhall: { customerId: 'cust-taras' } }), code('invalid_input'));
-  await assert.rejects(scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-2001', customer_id: 'cust-taras' }), code('invalid_input'));
+  await assert.rejects(scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-2001', eldhall: { customerId: TARAS } }), code('invalid_input'));
+  await assert.rejects(scoped.callTool('orders', 'get_order_status', { order_id: 'ORD-2001', customer_id: TARAS }), code('invalid_input'));
   const taras = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy })
-    .forContext({ ...context, customerId: 'cust-taras' });
+    .forContext({ ...context, customerId: TARAS });
   assert.equal((await taras.callTool('orders', 'get_order_status', { order_id: 'ORD-2001' }) as { order_id: string }).order_id, 'ORD-2001');
 });
 
@@ -98,7 +108,7 @@ test('ask write: snapshot only, then executeAction with idempotency key; replay 
   const status = async (id: string) => (await scoped.callTool('orders', 'get_order_status', { order_id: id }) as { status: string }).status;
   assert.deepEqual(await scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001', reason: 'changed mind' }), { status: 'awaiting_approval', proposalId: 'p1', summary: 'Cancel order' });
   assert.equal(requests[0]!.mode, 'ask');
-  assert.equal(requests[0]!.args.customerId, 'cust-olena');
+  assert.equal(requests[0]!.args.customerId, OLENA);
   assert.equal(await status('ORD-1001'), 'paid'); // proposing has no upstream effect
 
   const actionId = randomUUID();
@@ -114,7 +124,47 @@ test('ask write: snapshot only, then executeAction with idempotency key; replay 
 
   const later = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy: { ...policy, policyRevision: 2 } }).forContext(context);
   assert.deepEqual(await later.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'stale_snapshot' });
-  const taras = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy }).forContext({ ...context, customerId: 'cust-taras' });
+  const taras = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy }).forContext({ ...context, customerId: TARAS });
   assert.deepEqual(await taras.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'scope_mismatch' });
   assert.deepEqual(await scoped.executeAction!({ ...requests[1]!.args, input: { order_id: 'ORD-2001' } }, randomUUID()), { status: 'failed', reasonCode: 'not_found' });
+});
+
+test('live wiring: configured catalog → harness → sidecar: auto read grounds the reply, ask cancel runs only after approve + execute', async () => {
+  // Same reviewed manifest/policy, assigned to the seeded business, loaded through the real config schema and factory helper.
+  const config = supportConfigSchema.parse({ catalogs: [{ businessId: NOVAPAY, url: sidecarUrl, credentialEnv: 'ORDERS_SIDECAR_TOKEN', allowInsecureLoopback: true, manifest, policy: { ...policy, businessId: NOVAPAY } }] });
+  const integrations = createSupportIntegrations(config, { ORDERS_SIDECAR_TOKEN: serviceToken });
+  const store = new MemorySupportStore();
+  await store.reset(seedData());
+  const decision = (reply: string): AgentDecision => ({ intent: 'other', summary: 's', reasoning: 'r', sentiment: { label: 'calm', urgency: 'low' }, reply, action: null });
+  const model = new ScriptedModel(async ctx => {
+    const names = (ctx.businessTools ?? []).map(tool => tool.name);
+    if (ctx.message.includes('статус')) {
+      const order = await ctx.callBusinessTool!('orders', 'get_order_status', { order_id: 'ORD-1002' }) as { status: string };
+      return decision(`Замовлення ORD-1002: ${order.status}. Інструменти: ${names.join(', ')}`);
+    }
+    await ctx.callBusinessTool!('orders', 'cancel_order', { order_id: 'ORD-1003', reason: 'customer request' });
+    return decision('Ваше замовлення скасовано!');
+  });
+  const harness = new SupportHarness({ store, model, fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 10_000, integrations });
+
+  const read = await harness.openCase('demo-olena');
+  const status = (await harness.runTurn('demo-olena', read.id, 'Який статус ORD-1002?')).reply!.body;
+  assert.equal(status, 'Замовлення ORD-1002: shipped. Інструменти: get_order_status, cancel_order');
+
+  const opened = await harness.openCase('demo-olena');
+  const turn = await harness.runTurn('demo-olena', opened.id, 'Скасуйте ORD-1003');
+  const proposal = (await store.proposals(opened.id)).find(p => p.tool === 'external_action')!;
+  assert.equal(proposal.status, 'pending');
+  assert.match(turn.reply!.body, /підготував запит «Cancel order»/);
+  const upstreamStatus = async () => (await integrations.forContext({ businessId: NOVAPAY, customerId: OLENA, assertActive: async () => undefined })
+    .callTool('orders', 'get_order_status', { order_id: 'ORD-1003' }) as { status: string }).status;
+  assert.equal(await upstreamStatus(), 'paid'); // proposing and approving have no upstream effect
+  await harness.approve(proposal.id, 'anna', proposal.argsHash);
+  assert.equal(await upstreamStatus(), 'paid');
+  const executed = await harness.executeApproved(proposal.id, 'anna', proposal.argsHash);
+  assert.equal(executed.proposal.status, 'executed');
+  assert.equal(await upstreamStatus(), 'cancelled');
+  assert.equal((await store.messages(opened.id)).at(-1)!.body, 'Дію «Cancel order» виконано (статус: cancelled).');
+  // Another customer of the same business cannot reach Olena's order through the same wiring.
+  await assert.rejects(integrations.forContext({ businessId: NOVAPAY, customerId: TARAS, assertActive: async () => undefined }).callTool('orders', 'get_order_status', { order_id: 'ORD-1003' }), code('unavailable'));
 });

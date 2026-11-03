@@ -2,6 +2,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { classificationConfigSchema } from '../modules/agent/classification.js';
 import { safeKey, validateInputSchema, type InputSchema } from './schema.js';
+import { manifestSchema } from './manifest.js';
+import { integrationPolicySchema } from './permissions.js';
 import { qdrantKnowledgeSchema } from '../modules/knowledge/qdrant.js';
 
 const id = z.string().uuid();
@@ -26,6 +28,13 @@ const toolSchema = z.object({
   const fields = Object.values(tool.scopeBindings);
   if (new Set(fields).size !== 2 || fields.some(field => Object.hasOwn(tool.inputSchema.properties ?? {}, field))) ctx.addIssue({ code: 'custom', message: 'Scope fields must be distinct and excluded from model inputSchema' });
 });
+/** MCP endpoints: HTTPS without credentials/query/fragment; plain HTTP only on explicit loopback for tests. */
+const validMcpUrl = (raw: string, allowInsecureLoopback: boolean) => {
+  let url: URL;
+  try { url = new URL(raw); } catch { return false; }
+  const local = ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
+  return !url.username && !url.password && !url.search && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && local && allowInsecureLoopback));
+};
 const integrationSchema = z.object({
   id: key, businessId: id, url: z.string().url().max(1000),
   credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/).optional(),
@@ -41,6 +50,25 @@ const integrationSchema = z.object({
   if (new Set(integration.tools.map(tool => tool.name)).size !== integration.tools.length) ctx.addIssue({ code: 'custom', message: 'Duplicate configured tool name' });
 });
 
+// Reviewed OpenAPI catalog served by the Python sidecar (docs/integrations-manifest.md). The manifest and the
+// policy are embedded so the single read-only config mount carries them; credentials stay in the environment.
+const catalogSchema = z.object({
+  businessId: id,
+  url: z.string().url().max(1000),
+  credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/),
+  allowInsecureLoopback: z.boolean().default(false),
+  timeoutMs: z.number().int().min(50).max(30_000).default(5000),
+  maxOutputBytes: z.number().int().min(128).max(32_768).default(8192),
+  manifest: manifestSchema,
+  policy: integrationPolicySchema,
+}).strict().superRefine((catalog, ctx) => {
+  if (!validMcpUrl(catalog.url, catalog.allowInsecureLoopback)) ctx.addIssue({ code: 'custom', message: 'Catalog sidecar URL requires HTTPS without URL credentials/query/fragment; explicit loopback HTTP is available for tests' });
+  // A mismatch would make every call fail closed at runtime; refuse it at startup where an operator sees it.
+  if (catalog.policy.businessId !== catalog.businessId) ctx.addIssue({ code: 'custom', message: 'Catalog policy belongs to another business' });
+  if (catalog.policy.integrationId !== catalog.manifest.integrationId) ctx.addIssue({ code: 'custom', message: 'Catalog policy is for another integration' });
+  if (catalog.policy.manifestHash !== catalog.manifest.manifestHash) ctx.addIssue({ code: 'custom', message: 'Catalog policy was reviewed against another manifest' });
+});
+
 export const supportConfigSchema = z.object({
   version: z.literal(1).default(1),
   businesses: z.array(z.object({ id, slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/), name: z.string().min(1).max(200), currency: z.string().regex(/^[A-Z]{3}$/), policy }).strict()).max(100).default([]),
@@ -49,6 +77,7 @@ export const supportConfigSchema = z.object({
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),
   externalKnowledge: z.array(qdrantKnowledgeSchema).max(100).default([]),
+  catalogs: z.array(catalogSchema).max(20).default([]),
 }).strict().superRefine((config, ctx) => {
   for (const field of ['businesses', 'knowledge', 'skills', 'integrations'] as const) {
     if (new Set(config[field].map(row => row.id)).size !== config[field].length) ctx.addIssue({ code: 'custom', message: `Duplicate ${field} id` });
@@ -57,6 +86,9 @@ export const supportConfigSchema = z.object({
   if (new Set(config.classifications.map(row => row.businessId)).size !== config.classifications.length) ctx.addIssue({ code: 'custom', message: 'Duplicate classification business' });
   if (new Set(config.externalKnowledge.map(row => row.id)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Duplicate external knowledge connector id' });
   if (new Set(config.externalKnowledge.map(row => row.businessId)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Only one external knowledge connector per business is supported' });
+  // Proposals and routing identify an integration by business + id, across both integration kinds.
+  const owned = [...config.integrations.map(row => `${row.businessId}/${row.id}`), ...config.catalogs.map(row => `${row.businessId}/${row.manifest.integrationId}`)];
+  if (new Set(owned).size !== owned.length) ctx.addIssue({ code: 'custom', message: 'Duplicate integration id within a business' });
 });
 export type SupportConfig = z.infer<typeof supportConfigSchema>;
 export type McpIntegrationConfig = SupportConfig['integrations'][number];
