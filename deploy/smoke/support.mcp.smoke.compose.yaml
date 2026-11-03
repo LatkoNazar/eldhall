@@ -37,6 +37,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: '8080'
+      FAKE_LLM_DEBUG: '1'
     volumes:
       - ./smoke:/smoke:ro
     healthcheck:

@@ -221,7 +221,8 @@ jobs:
         run: $COMPOSE up -d --no-build --wait --wait-timeout 240 orders-mock fake-llm mcp-openapi api worker
       - name: Chat → MCP → upstream; ask → approve → execute
         run: |
-          set -a; . ./.env.mcp-smoke; set +a
+          OPERATOR_TOKEN=$(sed -n 's/^OPERATOR_TOKEN=//p' .env.mcp-smoke) \
+          ORDERS_TEST_CONTROL_TOKEN=$(sed -n 's/^ORDERS_TEST_CONTROL_TOKEN=//p' .env.mcp-smoke) \
           SMOKE_API_URL=http://127.0.0.1:18000 ORDERS_CONTROL_URL=http://127.0.0.1:18090 node scripts/mcp-sidecar-smoke.mjs run
       - name: Diagnostics
         if: failure() && steps.smoke_env.outcome == 'success'

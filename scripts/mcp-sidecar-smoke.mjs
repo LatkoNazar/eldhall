@@ -52,6 +52,11 @@ async function run() {
   const owners = await fetch(`${control}/__test/owners`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-test-control': controlToken }, body: JSON.stringify({ olena: olena.id, taras: taras.id }) });
   assert.equal(owners.status, 200, 'assign upstream owners');
 
+  // On a wrong reply, show which model ran and why (runs[].error is redacted by the API) instead of guessing.
+  const explain = async (caseId, reply) => {
+    const runs = (await call('GET', `/api/v1/cases/${caseId}`, { operatorAuth: true })).json?.runs ?? [];
+    return `${reply}\nruns: ${JSON.stringify(runs.map(({ provider, model, status, toolCalls, error }) => ({ provider, model, status, toolCalls, error })))}`;
+  };
   const turn = async (who, text) => {
     const opened = await call('POST', '/api/v1/chat/cases', { session: who.session });
     assert.equal(opened.status, 201);
@@ -68,22 +73,24 @@ async function run() {
 
   // 1. auto read: the reply carries the status the sidecar read from the upstream for this customer.
   const status = await turn(olena, 'Який статус замовлення ORD-1002?');
-  assert.match(status.reply, /Статус замовлення: shipped\./, status.reply);
+  assert.match(status.reply, /Статус замовлення: shipped\./, await explain(status.caseId, status.reply));
   const detail = (await call('GET', `/api/v1/cases/${status.caseId}`, { operatorAuth: true })).json;
   assert.ok(detail.runs.some(run => run.status === 'ok' && run.toolCalls.includes('call_business_tool')), 'model run used call_business_tool');
   console.log('auto read: ok (chat → DSH → sidecar → upstream → reply)');
 
   // 2. another customer of the same business cannot read Olena's order.
+  const foreignBefore = (await order('ORD-1001')).foreignReads;
   const foreign = await turn(taras, 'Який статус замовлення ORD-1001?');
-  // The scripted model got a business-tool error (upstream 404 for a foreign order), not data and not a policy denial.
-  assert.equal(foreign.reply, 'Не вдалося отримати дані замовлення.');
+  // The scripted model got a business-tool error, and the upstream itself saw and refused Taras's read of Olena's order.
+  assert.equal(foreign.reply, 'Не вдалося отримати дані замовлення.', await explain(foreign.caseId, foreign.reply));
+  assert.equal((await order('ORD-1001')).foreignReads, foreignBefore + 1, 'the upstream refused exactly one foreign read');
   const foreignAudit = (await call('GET', `/api/v1/cases/${foreign.caseId}`, { operatorAuth: true })).json;
   assert.ok(foreignAudit.runs.some(run => run.toolCalls.includes('call_business_tool')), 'the foreign read was attempted through the sidecar');
   console.log('ownership: ok (foreign order not readable)');
 
   // 3. ask: proposal only; approve does nothing upstream; execute does it once.
   const ask = await turn(olena, 'Скасуйте, будь ласка, замовлення ORD-1001');
-  assert.match(ask.reply, /підготував запит «Cancel order»/, ask.reply);
+  assert.match(ask.reply, /підготував запит «Cancel order»/, await explain(ask.caseId, ask.reply));
   const proposal = (await call('GET', `/api/v1/cases/${ask.caseId}`, { operatorAuth: true })).json.proposals.find(row => row.tool === 'external_action');
   assert.equal(proposal?.status, 'pending');
   assert.equal(await upstream('ORD-1001'), 'paid');
@@ -94,8 +101,9 @@ async function run() {
   assert.equal(executed.json.proposal.status, 'executed');
   assert.equal(await upstream('ORD-1001'), 'cancelled');
   assert.equal((await order('ORD-1001')).writes, 1, 'exactly one cancel reached the upstream');
+  assert.equal((await order('ORD-1001')).cancelRequests, 1, 'exactly one cancel request arrived (not only one effect)');
   assert.equal((await call('POST', `/api/v1/proposals/${proposal.id}/execute`, { operatorAuth: true, body: { argsHash: proposal.argsHash } })).status, 409, 'second execute refused');
-  assert.equal((await order('ORD-1001')).writes, 1, 'the refused second execute sent nothing upstream');
+  assert.equal((await order('ORD-1001')).cancelRequests, 1, 'the refused second execute sent nothing upstream');
   const messages = (await call('GET', `/api/v1/chat/cases/${ask.caseId}`, { session: olena.session })).json.messages;
   assert.equal(messages.at(-1).body, 'Дію «Cancel order» виконано (статус: cancelled).');
   console.log('ask → approve → execute: ok (one upstream effect, second execute refused)');

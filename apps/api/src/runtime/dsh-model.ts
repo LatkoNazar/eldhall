@@ -145,7 +145,7 @@ export class DshSupportModel implements AgentModel {
       if (!address || typeof address === 'string') throw new Error('Support gateway failed to bind');
       runtime = new DeepSeekHarness({ profile: 'support', dshHome: profile.home, processCwd: profile.workspace, cwd: profile.workspace,
         provider: this.options.provider === 'local' ? 'support-local' : this.options.provider, model: this.model, maxTokens: 4096,
-        env: childEnvironment({ apiKey: this.options.apiKey || (this.options.baseURL ? 'local-endpoint' : ''), gatewayUrl: `http://127.0.0.1:${address.port}/tool-calls`, capability, maxToolCalls: this.options.maxToolCalls,
+        env: childEnvironment({ apiKey: this.options.apiKey || (this.options.baseURL ? 'local-endpoint' : ''), gatewayUrl: `http://127.0.0.1:${address.port}/tool-calls`, capability, maxToolCalls: this.options.maxToolCalls, home: profile.home,
           businessToolsEnabled: Boolean(ctx.businessTools?.length && ctx.callBusinessTool), classificationClassIds: ctx.classification?.classes.map(item => item.id) }),
         // Fresh native profiles on Windows can take over 15s to initialize.
         // The enclosing run deadline still bounds initialization and model work.

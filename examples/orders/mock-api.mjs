@@ -19,6 +19,8 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
   let orders = seed(customers);
   const replays = new Map(); // `${customer}\0${key}` -> { orderId, status, body }
   const writes = new Map(); // order id -> cancel requests that reached business logic (not idempotent replays)
+  const counters = new Map(); // order id -> { cancelRequests, foreignReads } as seen by this upstream
+  const count = (id, field) => { const row = counters.get(id) ?? { cancelRequests: 0, foreignReads: 0 }; row[field]++; counters.set(id, row); };
   const view = ({ customer: _, ...order }) => order;
   const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 
@@ -32,12 +34,12 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
           let owners;
           try { owners = JSON.parse(raw); } catch { return send(res, 400, { error: 'invalid_json' }); }
           if (typeof owners?.olena !== 'string' || typeof owners?.taras !== 'string') return send(res, 400, { error: 'olena_and_taras_required' });
-          orders = seed(owners); replays.clear(); writes.clear();
+          orders = seed(owners); replays.clear(); writes.clear(); counters.clear();
           return send(res, 200, { orders: [...orders.keys()] });
         }
         const found = /^\/__test\/orders\/([^/]+)$/.exec(req.url);
         const order = found && orders.get(decodeURIComponent(found[1]));
-        return order ? send(res, 200, { ...order, writes: writes.get(order.order_id) ?? 0 }) : send(res, 404, { error: 'order_not_found' });
+        return order ? send(res, 200, { ...order, writes: writes.get(order.order_id) ?? 0, cancelRequests: 0, foreignReads: 0, ...counters.get(order.order_id) }) : send(res, 404, { error: 'order_not_found' });
       }
       if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { error: 'unauthorized' });
       const customer = req.headers['x-customer-id'];
@@ -45,6 +47,8 @@ export function createOrdersApi({ token, customers = { olena: 'cust-olena', tara
       const url = new URL(req.url ?? '/', 'http://orders.local');
       const match = /^\/orders\/([^/]+)(\/cancel)?$/.exec(url.pathname);
       const order = match && orders.get(decodeURIComponent(match[1]));
+      if (order && match[2] && req.method === 'POST') count(order.order_id, 'cancelRequests');
+      if (order && order.customer !== customer) count(order.order_id, 'foreignReads');
       // Not found and not owned look identical, so ids cannot be probed across customers.
       if (!match || !order || order.customer !== customer) return send(res, 404, { error: 'order_not_found' });
       if (!match[2] && req.method === 'GET') return send(res, 200, view(order));

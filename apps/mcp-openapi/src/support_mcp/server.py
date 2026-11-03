@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -192,6 +193,8 @@ class ServiceAuth:
         self.app, self.expected = app, f"Bearer {token}".encode()
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] not in ("http", "lifespan"):
+            return  # no websocket or other protocol is served
         if scope["type"] == "http" and scope["path"] != "/health":
             supplied = dict(scope["headers"]).get(b"authorization", b"")
             if not hmac.compare_digest(supplied, self.expected):
@@ -211,7 +214,11 @@ def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, ser
         raise ValueError("UPSTREAM_BASE_URL must be an http(s) URL without credentials, query or fragment")
     # The upstream token and customer data must not cross a network in cleartext: plain HTTP is accepted for a
     # private service name (one DNS label) or loopback, or when the operator opts in explicitly.
-    private = "." not in upstream.hostname or upstream.hostname in ("127.0.0.1", "::1")
+    host = upstream.hostname
+    try:
+        private = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        private = bool(re.fullmatch(r"[a-z][a-z0-9-]{0,62}", host))  # a single-label service name, never a digit-only "IP"
     if upstream.scheme == "http" and not private and not allow_insecure_upstream:
         raise ValueError("UPSTREAM_BASE_URL must use https for a non-private host (set UPSTREAM_ALLOW_INSECURE_HTTP=true only for a trusted private network)")
     headers = {"authorization": f"Bearer {upstream_token}"} if upstream_token else {}

@@ -73,8 +73,10 @@ class ContainerAppTest(unittest.TestCase):
     def test_cleartext_upstream_only_on_a_private_name_or_by_explicit_opt_in(self):
         for url in ("http://orders-mock:8090", "http://127.0.0.1:8090", "https://api.customer.example"):
             build_app(MANIFEST, url, "upstream-token", TOKEN)
-        with self.assertRaisesRegex(ValueError, "must use https"):
-            build_app(MANIFEST, "http://api.customer.example", "upstream-token", TOKEN)
+        for url in ("http://api.customer.example", "http://[2001:db8::1]", "http://134744072", "http://8.8.8.8", "http://10.0.0.5"):
+            with self.assertRaisesRegex(ValueError, "must use https", msg=url):
+                build_app(MANIFEST, url, "upstream-token", TOKEN)
+        build_app(MANIFEST, "http://[::1]:8090", "upstream-token", TOKEN)
         build_app(MANIFEST, "http://api.customer.example", "upstream-token", TOKEN, allow_insecure_upstream=True)
         base = {"MANIFEST_PATH": "m", "UPSTREAM_BASE_URL": "http://u", "MCP_SERVICE_TOKEN": "secret-value-123456"}
         self.assertFalse(_settings(base)["insecure"])
