@@ -118,3 +118,32 @@ test('one external action per turn: a second different action is denied, a repea
   assert.deepEqual(h.results[2], { status: 'denied', reasonCode: 'one_external_action_per_turn' });
   assert.equal((await h.store.proposals(caseId)).filter(p => p.tool === 'external_action').length, 1);
 });
+
+test('store: agent:auto can claim only proposals recorded without approval; ask and refunds stay with the operator', async () => {
+  const h = setup('ask', []);
+  const { caseId, proposal } = await turn(h);
+  assert.equal(await h.store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto'), null);
+  assert.equal((await h.store.proposal(proposal.id))!.status, 'pending');
+  const policy = { ...proposal.policy, requiresApproval: false };
+  const auto = await h.store.createProposal({ caseId, tool: 'external_action', args: { n: 2 }, argsHash: 'b'.repeat(64), risk: 'high', status: 'pending', policy });
+  assert.equal((await h.store.claimProposal(auto.id, auto.argsHash, 'executing', 'agent:auto'))?.status, 'executing');
+  const refund = await h.store.createProposal({ caseId, tool: 'refund_payment', args: { payment_id: 'x' }, argsHash: 'c'.repeat(64), risk: 'high', status: 'pending', policy });
+  assert.equal(await h.store.claimProposal(refund.id, refund.argsHash, 'executing', 'agent:auto'), null);
+});
+
+test('model prose claiming a business effect is replaced when nothing was recorded this turn', async () => {
+  for (const reply of ['Ваше замовлення вже скасовано!', 'Я скасував ваше замовлення.', 'Your order has been cancelled.', "We've cancelled your order ORD-1001."]) {
+    const h = setup('ask', [], []);
+    const store = h.store;
+    const harness = new SupportHarness({ store, model: new ScriptedModel(() => decision({ reply })), fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 1000 });
+    const opened = await harness.openCase(OLENA);
+    const result = await harness.runTurn(OLENA, opened.id, reply.includes('order') ? 'Please cancel my order' : 'Скасуйте замовлення');
+    assert.notEqual(result.reply!.body, reply, reply);
+    assert.doesNotMatch(result.reply!.body, /скасовано|скасував|cancell?ed/i);
+  }
+  // Plain status information stays untouched.
+  const h = setup('ask', [], []);
+  const harness = new SupportHarness({ store: h.store, model: new ScriptedModel(() => decision({ reply: 'Статус замовлення ORD-1001: shipped, трекінг надіслано.' })), fallback: new RulesModel(), provider: new SimulatedPaymentProvider(), timeoutMs: 1000 });
+  const opened = await harness.openCase(OLENA);
+  assert.equal((await harness.runTurn(OLENA, opened.id, 'Де моє замовлення?')).reply!.body, 'Статус замовлення ORD-1001: shipped, трекінг надіслано.');
+});

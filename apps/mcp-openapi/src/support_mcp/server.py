@@ -58,7 +58,11 @@ def build_request(op: dict, arguments: dict[str, Any]) -> dict[str, Any]:
     def place(where: str, name: str, value: Any) -> None:
         nonlocal path
         if where == "path":
-            path = path.replace("{" + name + "}", quote(str(value), safe=""))
+            segment = str(value)
+            # quote() keeps "." and "..", and HTTP clients normalize them: /orders/../cancel would become /cancel.
+            if segment in ("", ".", ".."):
+                raise Rejected("invalid_path_value")
+            path = path.replace("{" + name + "}", quote(segment, safe=""))
         elif where == "query":
             query[name] = value
         elif where == "body":
@@ -189,7 +193,9 @@ class ServiceAuth:
         await self.app(scope, receive, send)
 
 
-def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, service_token: str, timeout: float = 10.0) -> Any:
+# Keep the upstream timeout below the backend's MCP call timeout (catalog.ts, 5 s by default):
+# otherwise a slow upstream success arrives after the backend gave up and is recorded as `unknown`.
+def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, service_token: str, timeout: float = 4.0) -> Any:
     if len(service_token) < 16:
         raise ValueError("MCP_SERVICE_TOKEN must be at least 16 characters")
     headers = {"authorization": f"Bearer {upstream_token}"} if upstream_token else {}
@@ -202,7 +208,7 @@ def main() -> None:
     env = os.environ
     with open(env["MANIFEST_PATH"], encoding="utf-8") as file:
         manifest = json.load(file)
-    app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], float(env.get("UPSTREAM_TIMEOUT_SECONDS", "10")))
+    app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], float(env.get("UPSTREAM_TIMEOUT_SECONDS", "4")))
     uvicorn.run(app, host=env.get("HOST", "127.0.0.1"), port=int(env.get("PORT", "8000")), log_level="warning")
 
 

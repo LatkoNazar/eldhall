@@ -116,6 +116,8 @@ Sidecar:
 - **Tools.** It registers one tool per manifest operation with effect `read` or `write`, built explicitly from the manifest. `FastMCP.from_openapi()` is not used because it would expose every route. It also serves a backend-only `get_connector_manifest` tool.
 - **Authentication.** Every MCP request needs the service bearer `MCP_SERVICE_TOKEN`.
 - **Upstream.** The upstream target comes only from `UPSTREAM_BASE_URL` and `UPSTREAM_TOKEN`; the spec's `servers` field is ignored. Redirects are off.
+- **Path values.** Values placed into the path are percent-encoded as one segment; `""`, `.` and `..` are rejected (`invalid_path_value`), because HTTP clients normalize dot segments and `/orders/../cancel` would reach `/cancel`.
+- **Timeouts.** `UPSTREAM_TIMEOUT_SECONDS` (default 4 s) must stay below the backend's MCP call timeout (`timeoutMs`, default 5 s). Otherwise a slow upstream success arrives after the backend gave up and is recorded as `unknown`.
 - **Trusted scope.** It arrives in the reserved `eldhall` argument (`customerId`, `businessId?`, `idempotencyKey?`), which no manifest input may use.
 - **Errors.** Upstream errors become `{error, effect: none|unknown}`. Raw bodies and headers are never returned. A write that times out or gets a 5xx returns `effect: unknown`.
 

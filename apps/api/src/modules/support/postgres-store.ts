@@ -162,7 +162,7 @@ export class PostgresSupportStore implements SupportStore {
   }
   async claimProposal(id:string,argsHash:string,to:'executing'|'rejected',actor:string) {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
-    return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status='executing',decided_by=$3,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' AND tool=ANY($4) RETURNING *",[id,argsHash,actor,AUTO_CLAIMABLE])).rows);
+    return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status='executing',decided_by=$3,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' AND tool=ANY($4) AND (policy->>'requiresApproval')='false' RETURNING *",[id,argsHash,actor,AUTO_CLAIMABLE])).rows);
   }
   async finishProposal(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null) {
     const row=first<Proposal>((await this.pool.query('UPDATE support_proposals SET status=$2,result=$3,error=$4 WHERE id=$1 RETURNING *',[id,status,json(result),error])).rows);

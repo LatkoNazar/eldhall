@@ -79,6 +79,16 @@ class RequestMappingTest(unittest.TestCase):
             build_request(self.cancel, {"order_id": "1", "eldhall": {"customerId": "c1"}})
         self.assertEqual(caught.exception.code, "idempotency_key_missing")
 
+    def test_dot_and_empty_path_values_cannot_escape_the_reviewed_route(self):
+        for value in ("..", ".", ""):
+            with self.assertRaises(Rejected) as caught:
+                build_request(self.cancel, {"order_id": value, "eldhall": {"customerId": "c1", "idempotencyKey": "a"}})
+            self.assertEqual(caught.exception.code, "invalid_path_value")
+        # Encoded forms stay inside one segment and are left to the upstream to reject.
+        self.assertEqual(build_request(self.read, {"order_id": "../x", "eldhall": {"customerId": "c1"}})["url"], "/orders/..%2Fx")
+        with self.assertRaises(Rejected):
+            build_request({**self.read, "path": "/customers/{customer_id}", "parameters": {}, "inputSchema": {"type": "object", "properties": {}}, "scope": {"customerId": {"in": "path", "name": "customer_id"}}}, {"eldhall": {"customerId": ".."}})
+
     def test_projection_drops_private_and_nested_fields(self):
         self.assertEqual(project({"order_id": "1", "status": "paid", "internal_note": "x", "tracking_url": {"a": 1}}, self.read["outputFields"]), {"order_id": "1", "status": "paid"})
 

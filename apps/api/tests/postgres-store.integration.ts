@@ -77,9 +77,11 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       assert.equal(dispatches,1);
       assert.equal((await store.proposal(p.id))?.status,'executed');
       // pending -> executing without a human is allowed for external_action (policy auto) but never for refunds.
-      const auto=await store.createProposal({caseId:c.id,tool:'external_action',args:{n:2},argsHash:'b'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      const asked=await store.createProposal({caseId:c.id,tool:'external_action',args:{n:3},argsHash:'d'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      assert.equal(await store.claimProposal(asked.id,asked.argsHash,'executing','agent:auto'),null); // recorded as ask: operator only
+      const auto=await store.createProposal({caseId:c.id,tool:'external_action',args:{n:2},argsHash:'b'.repeat(64),risk:'high',status:'pending',policy:{...p.policy,requiresApproval:false}});
       assert.equal((await store.claimProposal(auto.id,auto.argsHash,'executing','agent:auto'))?.status,'executing');
-      const refund=await store.createProposal({caseId:c.id,tool:'refund_payment',args:{payment_id:'x'},argsHash:'c'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      const refund=await store.createProposal({caseId:c.id,tool:'refund_payment',args:{payment_id:'x'},argsHash:'c'.repeat(64),risk:'high',status:'pending',policy:{...p.policy,requiresApproval:false}});
       assert.equal(await store.claimProposal(refund.id,refund.argsHash,'executing','agent:auto'),null);
     });
     await t.test('knowledge history survives restart, preserves access metadata and resets cleanly',async()=>{
