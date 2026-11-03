@@ -55,7 +55,7 @@ test('missing or blank DATABASE_URL keeps the existing split-parameter connectio
 test('URL production configuration uses the existing database credentials while preserving other production guards', () => {
   const production = {
     ENVIRONMENT: 'production', DATABASE_URL: 'postgres://existing:short@db.example.test/existing',
-    REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["support.example.test"]',
+    REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["support.example.test"]', SUPPORT_STORE: 'postgres',
   };
   assert.equal(settingsFrom(production).databaseUrl, production.DATABASE_URL);
   assert.equal(settingsFrom({ ...production, POSTGRES_PASSWORD: '', POSTGRES_PORT: 'not-used' }).databaseUrl, production.DATABASE_URL);
