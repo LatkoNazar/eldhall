@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
+import { createCatalogIntegration } from '../src/integrations/catalog.js';
 import { manifestSchema, type Manifest } from '../src/integrations/manifest.js';
+import { IntegrationError } from '../src/integrations/mcp.js';
 import { fingerprint, resolvePermission } from '../src/integrations/permissions.js';
 // @ts-expect-error plain .mjs fixture without type declarations
 import { createOrdersApi } from '../../../examples/orders/mock-api.mjs';
@@ -60,6 +62,31 @@ test('structural rules: key, mappings, scope isolation, path params, uniqueness,
   assert.ok(broken(m => { m.operations[1]!.reconciliation = { operationKey: 'GET /nope' }; })[0]!.includes('reconciliation'));
   // Model input can never be routed into a header.
   assert.ok(broken(m => { (m.operations[1]!.parameters as Record<string, string>).reason = 'header'; }).length > 0);
+});
+
+test('catalog integration fails closed before any network call', async () => {
+  const manifest = await fixture('manifest.json');
+  const policy = await fixture('policy.json') as { businessId: string; enabled: boolean; operations: { mode: string }[] };
+  // Port 9 is discard: reaching the network would surface as `unavailable`, not `denied`/`invalid_input`.
+  const make = (raw = policy) => createCatalogIntegration({ businessId: policy.businessId, url: 'http://127.0.0.1:9/mcp', credential: 'x'.repeat(20), allowInsecureLoopback: true, manifest, policy: raw });
+  const context = { businessId: policy.businessId, customerId: 'cust-olena', assertActive: async () => undefined };
+  const denied = (pattern: RegExp) => (error: unknown) => error instanceof IntegrationError && error.code === 'denied' && pattern.test(error.message);
+  const scoped = make().forContext(context);
+  assert.deepEqual(scoped.tools.map(tool => tool.name), ['get_order_status', 'cancel_order']);
+  await assert.rejects(scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), denied(/approval/));
+  await assert.rejects(scoped.callTool('orders', 'delete_customer', {}), denied(/operation_disabled/));
+  await assert.rejects(scoped.callTool('crm', 'get_order_status', { order_id: 'ORD-1001' }), denied(/allowlisted/));
+  for (const input of [{ order_id: 'ORD-1001', eldhall: { customerId: 'cust-taras' } }, { order_id: 'ORD-1001', customer_id: 'cust-taras' }, { order_id: 'x'.repeat(51) }]) {
+    await assert.rejects(scoped.callTool('orders', 'get_order_status', input), (error: unknown) => error instanceof IntegrationError && error.code === 'invalid_input');
+  }
+  const writeAuto = structuredClone(policy); writeAuto.operations[1]!.mode = 'auto';
+  await assert.rejects(make(writeAuto).forContext(context).callTool('orders', 'cancel_order', { order_id: 'ORD-1001' }), denied(/ledger/));
+  const foreign = make().forContext({ ...context, businessId: '20000000-0000-4000-8000-000000000002' });
+  assert.deepEqual(foreign.tools, []);
+  await assert.rejects(foreign.callTool('orders', 'get_order_status', { order_id: 'ORD-1001' }), denied(/allowlisted/));
+  assert.deepEqual(make({ ...policy, enabled: false }).forContext(context).tools, []);
+  assert.throws(() => make().forContext({ ...context, customerId: '' }), denied(/identity/));
+  assert.throws(() => createCatalogIntegration({ businessId: policy.businessId, url: 'http://sidecar.internal/mcp', credential: 'x'.repeat(20), manifest, policy }), /HTTPS/);
 });
 
 test('mock Orders API: auth, ownership without probing, private fields, cancel guard and idempotent replay', async () => {

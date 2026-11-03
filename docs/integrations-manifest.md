@@ -1,6 +1,19 @@
 # Integration manifest and permissions contract
 
-Stage A of [TODO.md](../TODO.md). It fixes the formats that the Python OpenAPI importer (`apps/mcp-openapi/`, not built yet) and the TypeScript backend share. **Implemented:** manifest validation (`apps/api/src/integrations/manifest.ts`) and the permission resolver (`permissions.ts`), both covered by tests. **Not wired yet:** harness, dispatcher, store, admin API. Nothing here executes upstream calls.
+Stages A–B of [TODO.md](../TODO.md). It fixes the formats that the Python OpenAPI importer (`apps/mcp-openapi/`) and the TypeScript backend share.
+
+**Implemented and tested:**
+- TS side:
+  - manifest validation (`apps/api/src/integrations/manifest.ts`);
+  - the permission resolver (`permissions.ts`);
+  - `createCatalogIntegration` (`catalog.ts`), which executes `auto` reads through the sidecar.
+- Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
+
+**Not wired yet:**
+- harness/factory registration;
+- `ask` proposals and writes (Stage C), which fail closed with `denied`;
+- DB-held policy and the admin API (Stage D);
+- mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
 
 Reference fixture: [`examples/orders/`](../examples/orders/). It contains a synthetic OpenAPI file, the matching manifest and policy, and a mock upstream API (`mock-api.mjs`) that enforces customer ownership.
 
@@ -75,7 +88,52 @@ The schema is `integrationPolicySchema`; [`examples/orders/policy.json`](../exam
 
 Integration or group `auto` never enables an operation that is new, changed or unreviewed. Absolute business guards, scope and ownership checks run outside the resolver, and no rule overrides them.
 
-## Planned next contracts (Stage B/C, not implemented)
+## Import and sidecar (Stage B)
+
+Importer:
+
+```bash
+cd apps/mcp-openapi
+uv run support-mcp-import ../../examples/orders/openapi.json ../../examples/orders/review.json \
+  --out ../../examples/orders/manifest.json --report report.json --previous old-manifest.json
+uv run python -m unittest discover -s tests
+```
+
+How the importer works:
+- **Inputs.** It reads a local OpenAPI 3.0.x/3.1.x JSON file and a deployment-owned `review.json`. For each operation, the review supplies the effect, scope, `outputFields`, guard, idempotency and reconciliation settings.
+- **Unreviewed operations.** Operations without a review entry are reported as `unreviewed` and left out of the manifest.
+- **Unsupported constructs.** These are reported as `unsupported` and never widened:
+  - `oneOf`/`anyOf`/`allOf`;
+  - remote or cyclic `$ref`;
+  - binary or non-JSON bodies;
+  - open-ended objects;
+  - required non-scope headers.
+- **Repeat imports.** `--previous` adds an added/changed/unchanged/removed diff of the operations.
+- **Fixture.** The committed fixture manifest is the importer's own output, and a test checks that it reproduces exactly.
+
+Sidecar:
+- **Implementation.** FastMCP 4, Streamable HTTP on `/mcp`, plus an open `/health`.
+- **Tools.** It registers one tool per manifest operation with effect `read` or `write`, built explicitly from the manifest. `FastMCP.from_openapi()` is not used because it would expose every route. It also serves a backend-only `get_connector_manifest` tool.
+- **Authentication.** Every MCP request needs the service bearer `MCP_SERVICE_TOKEN`.
+- **Upstream.** The upstream target comes only from `UPSTREAM_BASE_URL` and `UPSTREAM_TOKEN`; the spec's `servers` field is ignored. Redirects are off.
+- **Trusted scope.** It arrives in the reserved `eldhall` argument (`customerId`, `businessId?`, `idempotencyKey?`), which no manifest input may use.
+- **Errors.** Upstream errors become `{error, effect: none|unknown}`. Raw bodies and headers are never returned. A write that times out or gets a 5xx returns `effect: unknown`.
+
+TS boundary, in the order of checks:
+1. The resolver decides `auto`, `ask` or `deny`.
+2. Input is checked against the reviewed schema; the reserved `eldhall` key and scope fields are rejected.
+3. The sidecar must advertise the tool as read-only.
+4. `get_connector_manifest` must return the same `manifestHash` and `operationHash`.
+5. The call goes out with backend scope.
+6. The output is projected to `outputFields`.
+
+To run the end-to-end check (mock upstream ← real sidecar ← TS catalog), you need `uv`:
+
+```bash
+cd apps/api && npm run test:mcp-openapi
+```
+
+## Planned next contracts (Stage C, not implemented)
 
 - **Dispatcher result.** The model receives one of these: `executed{actionId?, data}`, `awaiting_approval{proposalId, summary}`, `denied{reasonCode}`, `failed{actionId?, reasonCode}` or `unknown{actionId, reasonCode}`.
 - **Proposal snapshot.** The snapshot holds:

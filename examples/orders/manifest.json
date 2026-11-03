@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatorVersion": "fixture-handwritten",
+  "generatorVersion": "support-mcp-openapi/0.1.0",
   "adapterContractVersion": 1,
   "integrationId": "orders",
   "specHash": "53844106da7be40938d60c967aaa9fb420093db6c899d58d92c0e3425dbba361",
@@ -25,10 +25,10 @@
             "maxLength": 50
           }
         },
+        "additionalProperties": false,
         "required": [
           "order_id"
-        ],
-        "additionalProperties": false
+        ]
       },
       "parameters": {
         "order_id": "path"
@@ -75,10 +75,10 @@
             "maxLength": 500
           }
         },
+        "additionalProperties": false,
         "required": [
           "order_id"
-        ],
-        "additionalProperties": false
+        ]
       },
       "parameters": {
         "order_id": "path",
@@ -136,5 +136,5 @@
       "operationHash": "8e83254eaef51abfcdc055dec77de967eb777cdfeb8433021f61ee2168539d39"
     }
   ],
-  "manifestHash": "9f8a2c8a9c65e2edbe43b540231196fa2527ddff0e617b8ddc09aa5d81028174"
+  "manifestHash": "ff1d9828dd39396ee775f82b9e2b2281506ae7bbf98508ce6f28c22eede835af"
 }
