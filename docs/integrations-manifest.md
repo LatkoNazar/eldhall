@@ -10,7 +10,7 @@ Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python Open
 - Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
 
 **Not wired yet:**
-- `factory.ts` registration (tests build the harness with the catalog directly);
+- `factory.ts` registration (tests use the catalog against the sidecar and the harness with a stub integration);
 - `ask` proposals and writes outside a support turn (no ledger), which fail closed with `denied`;
 - DB-held policy and the admin API (Stage D);
 - mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
