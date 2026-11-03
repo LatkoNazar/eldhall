@@ -92,10 +92,13 @@ export function resolvePermission(request: PermissionRequest, rawPolicy: unknown
 
 const guard = (reasonCode: string, policyRevision: number | null): PermissionDecision => ({ mode: 'deny', source: 'guard', matchedRuleIds: [], policyRevision, reasonCode });
 
-/** sha256 over canonical JSON (sorted keys), ignoring formatting and key order; `omit` drops the top-level hash field itself. */
+/**
+ * sha256 over canonical JSON, ignoring formatting and key order; `omit` drops the top-level hash field itself.
+ * Keys sort by code unit (not locale) so Python's `json.dumps(sort_keys=True, separators=(',', ':'), ensure_ascii=False)` matches.
+ */
 export function fingerprint(value: unknown, omit?: string): string {
   const body = omit && value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== omit)) : value;
   return createHash('sha256').update(JSON.stringify(canonical(body))).digest('hex');
 }
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
-  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)])) : value;

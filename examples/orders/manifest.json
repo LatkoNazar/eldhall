@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": "fixture-handwritten",
+  "adapterContractVersion": 1,
+  "integrationId": "orders",
+  "specHash": "53844106da7be40938d60c967aaa9fb420093db6c899d58d92c0e3425dbba361",
+  "operations": [
+    {
+      "operationKey": "GET /orders/{order_id}",
+      "operationId": "getOrderStatus",
+      "toolName": "get_order_status",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "title": "Get order status",
+      "description": "Status of one order owned by the scoped customer.",
+      "tags": [
+        "Orders"
+      ],
+      "effect": "read",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "additionalProperties": false
+      },
+      "parameters": {
+        "order_id": "path"
+      },
+      "scope": {
+        "customerId": {
+          "in": "header",
+          "name": "X-Customer-Id"
+        }
+      },
+      "outputFields": [
+        "order_id",
+        "status",
+        "total_cents",
+        "currency",
+        "tracking_url"
+      ],
+      "guard": null,
+      "idempotency": null,
+      "reconciliation": null,
+      "operationHash": "d44c41c793c7104227a7cff2816750dd1e20d4a39f114779d43a9f7c5e480de2"
+    },
+    {
+      "operationKey": "POST /orders/{order_id}/cancel",
+      "operationId": "cancelOrder",
+      "toolName": "cancel_order",
+      "method": "POST",
+      "path": "/orders/{order_id}/cancel",
+      "title": "Cancel order",
+      "description": "Cancel an order before shipment. Replays with the same Idempotency-Key return the original result.",
+      "tags": [
+        "Orders"
+      ],
+      "effect": "write",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "additionalProperties": false
+      },
+      "parameters": {
+        "order_id": "path",
+        "reason": "body"
+      },
+      "scope": {
+        "customerId": {
+          "in": "header",
+          "name": "X-Customer-Id"
+        }
+      },
+      "outputFields": [
+        "order_id",
+        "status"
+      ],
+      "guard": "orders.cancel_before_shipment",
+      "idempotency": {
+        "header": "Idempotency-Key"
+      },
+      "reconciliation": {
+        "operationKey": "GET /orders/{order_id}"
+      },
+      "operationHash": "82303661a2c81f3e7dcc83ef757fd5c70da79eb01f1b44faa367f10bd12c7f7b"
+    },
+    {
+      "operationKey": "DELETE /customers/{customer_id}",
+      "operationId": "deleteCustomer",
+      "toolName": "delete_customer",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}",
+      "title": "Delete customer",
+      "description": "Destructive admin operation. Present to prove that imported operations stay disabled until reviewed.",
+      "tags": [
+        "Customers"
+      ],
+      "effect": "unknown",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "parameters": {},
+      "scope": {
+        "customerId": {
+          "in": "path",
+          "name": "customer_id"
+        }
+      },
+      "outputFields": [
+        "customer_id"
+      ],
+      "guard": null,
+      "idempotency": null,
+      "reconciliation": null,
+      "operationHash": "8e83254eaef51abfcdc055dec77de967eb777cdfeb8433021f61ee2168539d39"
+    }
+  ],
+  "manifestHash": "9f8a2c8a9c65e2edbe43b540231196fa2527ddff0e617b8ddc09aa5d81028174"
+}
