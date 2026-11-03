@@ -189,20 +189,21 @@ jobs:
       - name: Generate private smoke secrets
         run: |
           umask 077
-          secret() { value=$(openssl rand -hex 32); echo "::add-mask::$value"; printf '%s' "$value"; }
+          : > .env.mcp-smoke
+          # The mask command must go to this step's stdout, not into a command substitution or the file.
+          for name in POSTGRES_PASSWORD REDIS_PASSWORD API_TOKEN OPERATOR_TOKEN MCP_SERVICE_TOKEN MCP_UPSTREAM_TOKEN ORDERS_TEST_CONTROL_TOKEN; do
+            value=$(openssl rand -hex 32)
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> .env.mcp-smoke
+          done
           {
             echo "PROJECT_NAME=mcp-smoke-$GITHUB_RUN_ID"
-            echo "POSTGRES_PASSWORD=$(secret)"
-            echo "REDIS_PASSWORD=$(secret)"
-            echo "API_TOKEN=$(secret)"
-            echo "OPERATOR_TOKEN=$(secret)"
-            echo "MCP_SERVICE_TOKEN=$(secret)"
-            echo "MCP_UPSTREAM_TOKEN=$(secret)"
-            echo "ORDERS_TEST_CONTROL_TOKEN=$(secret)"
             echo "MCP_UPSTREAM_BASE_URL=http://orders-mock:8090"
             echo "MCP_MANIFEST_PATH=../examples/orders/manifest.json"
             echo "SUPPORT_CONFIG_PATH=$RUNNER_TEMP/support.smoke.json"
-          } > .env.mcp-smoke
+          } >> .env.mcp-smoke
+          # Fail here, not later, if the file is not plain KEY=value lines.
+          ! grep -qvE '^[A-Z_]+=[^[:space:]]+$' .env.mcp-smoke
       - name: Write the support config (no secrets; readable by the container user)
         id: smoke_env
         run: |
