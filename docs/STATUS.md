@@ -13,7 +13,7 @@ Implemented: deterministic local OpenAPI import and normalized artifacts; authen
 | Frontend suite, lint, typecheck, production build | 80 tests passed; all checks passed |
 | Python importer/sidecar suite | 32 tests passed, zero skips |
 | Native DSH fixture suite | 8 tests passed (also part of the full API suite) |
-| Node → Python MCP → synthetic Orders API | 5 integration tests passed |
+| Node → Python MCP → synthetic Orders API | 6 integration tests passed, including upstream target/revision mismatch |
 | Config generator and JavaScript syntax | Validated against the compiled backend schema |
 
 PostgreSQL race/recovery tests and standalone Compose acceptance are mandatory CI gates on the configured ARM64 runner. Local Docker Desktop cannot start due to a broken service socket; these runtime gates must not be inferred from Compose parsing or the memory tests. No production deployment is claimed at this checkpoint. The standalone smoke uses only synthetic Orders data and a scripted model.
