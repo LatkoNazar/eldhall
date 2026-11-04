@@ -18,7 +18,8 @@ CONTEXTS = {
     "landing": "apps/landing/public/licenses",
     "mcp-openapi": "apps/mcp-openapi/licenses",
 }
-BROWSER_PACKAGES = {"frontend": ("react", "react-dom", "scheduler", "vite"), "landing": ("vite",)}
+BROWSER_PACKAGES = {"frontend": ("react", "react-dom", "scheduler", "vite", "@hugeicons/react", "@hugeicons/core-free-icons"), "landing": ("vite",)}
+BROWSER_LICENSE_FILES = {"vite": "LICENSE.md", "@hugeicons/react": "LICENSE.md", "@hugeicons/core-free-icons": "LICENSE.md"}
 
 
 def read(root: Path, relative: str, maximum: int = 1_048_576) -> bytes:
@@ -45,7 +46,7 @@ def browser_notices(root: Path, app: str, lock: dict) -> tuple[bytes, list[dict]
         locked = lock["packages"][f"node_modules/{name}"]
         if metadata.get("version") != locked.get("version") or metadata.get("license") != "MIT" or locked.get("license") != "MIT":
             raise ValueError(f"Review browser component version/licence before regeneration: {app}/{name}")
-        filename = "LICENSE.md" if name == "vite" else "LICENSE"
+        filename = BROWSER_LICENSE_FILES.get(name, "LICENSE")
         text = read(root, f"{relative}/{filename}", 262_144).decode("utf-8")
         # Vite's file contains its complete dependency notice inventory. Retain
         # that whole file rather than dropping upstream notices heuristically.

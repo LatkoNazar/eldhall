@@ -1,3 +1,5 @@
+import { captureOperatorUnauthorized } from './operator-session'
+
 export type CaseStatus = 'open' | 'awaiting_approval' | 'escalated' | 'resolved'
 export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown' | 'expired' | 'invalidated'
 export interface TicketClassification {
@@ -63,6 +65,7 @@ function caseShape(value: unknown): boolean {
 function proposalShape(value: unknown): boolean { return record(value) && strings(value, ['id', 'tool', 'status', 'argsHash']) && record(value.args) && record(value.policy) && list(value.policy.checks, item => record(item) && strings(item, ['name', 'detail']) && typeof item.passed === 'boolean') }
 function validPayload(path: string, value: unknown): boolean {
   const route = path.split('?')[0] ?? path
+  if (route === '/operator/session') return record(value) && value.authenticated === true
   if (route === '/cases') return list(value, caseShape)
   if (/^\/cases\/[^/]+$/.test(route)) return record(value) && caseShape(value.case) && record(value.customer) && strings(value.customer, ['name', 'email', 'plan']) && list(value.messages, messageShape) && list(value.proposals, proposalShape) && list(value.payments, item => record(item) && strings(item, ['id', 'currency', 'createdAt', 'description', 'status']) && finite(item.amountCents)) && list(value.refunds, item => record(item) && strings(item, ['id', 'providerRef'])) && list(value.audit, item => record(item) && strings(item, ['id', 'type', 'actor', 'createdAt'])) && list(value.runs, item => record(item) && strings(item, ['id', 'status', 'provider', 'model']) && finite(item.latencyMs) && Array.isArray(item.toolCalls))
   if (route === '/metrics') return record(value) && finite(value.cases) && record(value.byStatus) && ['open', 'awaiting_approval', 'escalated', 'resolved'].every(key => finite((value.byStatus as Record<string, unknown>)[key])) && record(value.byPriority) && record(value.proposals) && Object.values(value.proposals).every(finite) && finite(value.agentRuns) && finite(value.fallbackRuns) && (value.avgAgentLatencyMs === null || finite(value.avgAgentLatencyMs))
@@ -77,6 +80,7 @@ function validPayload(path: string, value: unknown): boolean {
   return record(value) || Array.isArray(value)
 }
 export async function request<T>(path: string, token = '', options: { method?: string; body?: unknown; signal?: AbortSignal; customer?: boolean } = {}): Promise<T> {
+  const unauthorized = captureOperatorUnauthorized(token, options.customer)
   const controller = new AbortController()
   const abort = () => controller.abort()
   options.signal?.addEventListener('abort', abort, { once: true })
@@ -88,10 +92,11 @@ export async function request<T>(path: string, token = '', options: { method?: s
       headers: { Accept: 'application/json', ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? options.customer ? { 'X-Customer-Session': token } : { Authorization: `Bearer ${token}` } : {}) },
       ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
     })
+    if (response.status === 401) unauthorized?.()
     let payload: unknown
     try { payload = await response.json() } catch { throw new ApiError(response.status, 'Сервер повернув неочікувану відповідь.') }
     if (!response.ok) {
-      const detail = record(payload) && typeof payload.detail === 'string' ? payload.detail : record(payload) && record(payload.proposal) && typeof payload.proposal.error === 'string' ? payload.proposal.error : response.status === 401 ? 'Ключ доступу недійсний або сесію завершено.' : response.status === 403 ? 'Для цієї дії немає дозволу.' : response.status === 404 ? 'Ресурс недоступний у цьому середовищі.' : `Запит не виконано (${response.status}).`
+      const detail = response.status === 401 && !options.customer ? 'Ключ доступу недійсний або сесію завершено.' : record(payload) && typeof payload.detail === 'string' ? payload.detail : record(payload) && record(payload.proposal) && typeof payload.proposal.error === 'string' ? payload.proposal.error : response.status === 401 ? 'Ключ доступу недійсний або сесію завершено.' : response.status === 403 ? 'Для цієї дії немає дозволу.' : response.status === 404 ? 'Ресурс недоступний у цьому середовищі.' : `Запит не виконано (${response.status}).`
       throw new ApiError(response.status, detail, payload)
     }
     const valid = options.method === 'POST' && /^\/chat\/cases\/[^/]+\/messages$/.test(path)

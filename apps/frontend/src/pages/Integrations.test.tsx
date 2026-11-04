@@ -24,6 +24,7 @@ function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean } = 
   if (options.conflictingGroups) currentOperations[0]!.effective = { mode: 'deny', source: 'group', matchedRuleIds: ['billing', 'orders'], policyRevision: 1, reasonCode: 'group_conflict_strictest' }
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
+    if (path === '/api/v1/operator/session') return response({ authenticated: true })
     if (path === '/api/v1/cases') return response([])
     if (path === '/api/v1/metrics') return response({ cases: 0, byStatus: { open: 0, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 0 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null })
     if (path === '/api/v1/businesses') return response({ businesses: [{ id: businessId, name: 'First Store', currency: 'UAH' }, { id: otherBusiness, name: 'Second Store', currency: 'EUR' }] })

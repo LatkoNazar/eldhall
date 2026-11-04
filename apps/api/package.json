@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:worker": "tsx watch src/worker.ts",
+    "demo:local": "tsx src/local-demo.ts",
     "build": "node scripts/check-licenses.mjs && tsc -p tsconfig.build.json && node scripts/write-build-info.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",

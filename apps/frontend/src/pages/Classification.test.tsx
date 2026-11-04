@@ -18,6 +18,7 @@ function mockWorkspace(classification: TicketClassification | null) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method && init.method !== 'GET') throw new Error('Classification display must not mutate support state')
     const path = String(input)
+    if (path === '/api/v1/operator/session') return new Response(JSON.stringify({ authenticated: true }), { headers: { 'Content-Type': 'application/json' } })
     const payload = path === '/api/v1/cases' ? [current.case] : path === '/api/v1/cases/classified-case' ? current : { cases: 1, byStatus: { open: 1, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 1 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 1, fallbackRuns: 0, avgAgentLatencyMs: 100 }
     return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
   })
@@ -33,6 +34,7 @@ beforeEach(() => {
 it('shows the persisted business class snapshot and identifies confidence as a model estimate', async () => {
   const fetch = mockWorkspace(classified)
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   const classification = await screen.findByRole('region', { name: 'Класифікація тікета' })
   expect(within(classification).getByText('Оплата за послуги')).toBeInTheDocument()
   expect(within(classification).getByText('ID 1 · версія 3')).toBeInTheDocument()
@@ -46,6 +48,7 @@ it('shows the persisted business class snapshot and identifies confidence as a m
 it('shows fallback classes as requiring human review without claiming model confidence', async () => {
   mockWorkspace({ ...classified, classId: 'other', label: 'Інше', confidence: 0, source: 'fallback', reasonCode: 'model_fallback', needsReview: true })
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   const classification = await screen.findByRole('region', { name: 'Класифікація тікета' })
   expect(within(classification).getByText('Інше')).toBeInTheDocument()
   expect(within(classification).getByText('Потребує перевірки оператором')).toBeInTheDocument()
@@ -56,6 +59,7 @@ it('shows fallback classes as requiring human review without claiming model conf
 it('keeps cases without configured classification usable', async () => {
   mockWorkspace(null)
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   expect(await screen.findByText('Потрібне пояснення рахунка.')).toBeInTheDocument()
   expect(screen.queryByRole('region', { name: 'Класифікація тікета' })).not.toBeInTheDocument()
 })
@@ -63,6 +67,7 @@ it('keeps cases without configured classification usable', async () => {
 it('distinguishes a low-score proposed candidate from the final review class', async () => {
   mockWorkspace({ ...classified, classId: 'other', label: 'Інше', confidence: 0.4, needsReview: true, reasonCode: 'low_confidence', proposedClassId: '1', proposedLabel: 'Оплата за послуги', scoreKind: 'selected_probability' })
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   const classification = await screen.findByRole('region', { name: 'Класифікація тікета' })
   expect(within(classification).getByText('Інше')).toBeInTheDocument()
   expect(within(classification).getByText(/Запропонований кандидат:/)).toHaveTextContent('Оплата за послуги')
@@ -79,6 +84,7 @@ it('rejects malformed classification metadata rather than rendering unchecked mo
 it('does not present the normalized zero of an invalid model class as a measured probability', async () => {
   mockWorkspace({ ...classified, classId: 'other', label: 'Інше', confidence: 0, needsReview: true, reasonCode: 'unknown_class', scoreKind: 'selected_probability' })
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   const classification = await screen.findByRole('region', { name: 'Класифікація тікета' })
   expect(within(classification).getByText('Резервна класифікація: модель не визначила допустимий клас.')).toBeInTheDocument()
   expect(within(classification).queryByText(/Імовірність вибору:/)).not.toBeInTheDocument()

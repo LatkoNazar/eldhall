@@ -12,6 +12,7 @@ function response(value: unknown) { return new Response(JSON.stringify(value), {
 function mockApi() {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input)
+    if (path === '/api/v1/operator/session') return response({ authenticated: true })
     if (path === '/api/v1/cases') return response([ticket('case-a'), ticket('case-b')])
     if (path === '/api/v1/metrics') return response({ cases: 2, byStatus: { open: 2, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 2 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null })
     if (path.startsWith('/api/v1/cases/')) {
@@ -40,6 +41,7 @@ it('navigates inside the same dashboard shell and retains its case polling resou
   const fetch = mockApi()
   const user = userEvent.setup()
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   await screen.findByText('Message case-a')
   const shell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('.sidebar')
@@ -60,6 +62,7 @@ it('clears stale route search and reacts immediately to a same-path case deep li
   mockApi()
   const user = userEvent.setup()
   render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
   await screen.findByText('Message case-a')
   await user.type(screen.getByRole('textbox', { name: /Пошук звернень/ }), 'no matching customer')
   expect(screen.queryByText('Message case-b')).not.toBeInTheDocument()
@@ -83,6 +86,7 @@ it('updates same-path document and business selection instead of retaining initi
 it('handles browser Back/Forward and normalized trailing-slash routes without replacing the shell', async () => {
   mockApi()
   render(<App />)
+  await waitFor(() => expect(document.querySelector('.app-shell')).toBeInTheDocument())
   const shell = document.querySelector('.app-shell')
   act(() => { navigate('/operator/team/') })
   expect(await screen.findByRole('heading', { name: 'Команда' })).toBeInTheDocument()

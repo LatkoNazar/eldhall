@@ -1,16 +1,16 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-const backend = {
-  target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
-}
-
-export default defineConfig({
-  envDir: '../..',
-  envPrefix: ['VITE_', 'PUBLIC_'],
+export default defineConfig(({ mode }) => {
+  const localDemo = mode === 'local-demo'
+  const isolated = localDemo || mode === 'test'
+  const backend = { target: localDemo ? 'http://127.0.0.1:8000' : process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000' }
+  return {
+  envDir: isolated ? false : '../..',
+  envPrefix: isolated ? [] : ['VITE_', 'PUBLIC_'],
   plugins: [react()],
   server: {
-    host: '0.0.0.0',
+    host: localDemo ? '127.0.0.1' : '0.0.0.0',
     port: 5173,
     strictPort: true,
     fs: { allow: ['.', '../../packages/analytics'] },
@@ -25,4 +25,5 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
   },
+  }
 })

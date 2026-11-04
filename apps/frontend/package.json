@@ -13,10 +13,13 @@
     "lint": "eslint . --max-warnings 0 && node scripts/lint-analytics.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo:local": "node scripts/local-demo.mjs"
   },
   "dependencies": {
     "@eldhall/analytics": "file:../../packages/analytics",
+    "@hugeicons/core-free-icons": "4.4.0",
+    "@hugeicons/react": "1.1.10",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

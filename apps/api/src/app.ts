@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { Settings } from './core/config.js';
-import { hostAllowed, tokenMatches } from './core/auth.js';
+import { hostAllowed, staffTokenMatches, tokenMatches } from './core/auth.js';
 import type { JobStore } from './modules/jobs/repository.js';
 import { jobCreateSchema, jobReadSchema, type JobCreate, type Job } from './modules/jobs/schema.js';
 import { createJob, QueueUnavailable } from './modules/jobs/service.js';
@@ -67,6 +67,14 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     return reply.code(500).send({ detail: 'Internal server error' });
   });
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ detail: 'Not Found' }));
+  // Authentication only: this must remain independent of business/service readiness.
+  app.get('/api/v1/operator/session', (request, reply) => {
+    reply.header('Cache-Control', 'no-store').header('Vary', 'Authorization');
+    if (!staffTokenMatches(request.headers.authorization, settings.operatorToken)) {
+      return reply.code(401).header('WWW-Authenticate', 'Bearer').send({ detail: 'Invalid operator token' });
+    }
+    return { authenticated: true };
+  });
   app.get('/health/live', () => ({ status: 'ok' }));
   app.get('/health/ready', async (_request, reply) => {
     const checks = await readiness(dependencies.checks);
