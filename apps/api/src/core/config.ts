@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { tmpdir } from 'node:os';
 import { isExampleToken } from './auth.js';
@@ -88,7 +88,8 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
   const environment = value('ENVIRONMENT', 'development');
   const provider = value('LLM_PROVIDER', 'rules');
   const supportStore = value('SUPPORT_STORE', 'memory');
-  const agentRuntime = value('AGENT_RUNTIME', provider === 'rules' ? 'rules' : 'dsh');
+  // Compose forwards unset variables as empty strings; treat those as unset.
+  const agentRuntime = value('AGENT_RUNTIME', '') || (provider === 'rules' ? 'rules' : 'dsh');
   const databaseUrl = value('DATABASE_URL', '').trim();
   if (databaseUrl) {
     try {
@@ -136,7 +137,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     llmProvider: provider as Settings['llmProvider'],
     llmModel: value('LLM_MODEL', provider === 'google' ? 'gemini-3.5-flash-lite' : ''),
     // .env values are not copied into process.env, so the key is passed to the provider explicitly.
-    llmApiKey: provider === 'google' ? value('GEMINI_API_KEY', value('GOOGLE_GENERATIVE_AI_API_KEY', '')) : value({ openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', local: 'LOCAL_MODEL_API_KEY', rules: '' }[provider] ?? '', ''),
+    llmApiKey: provider === 'google' ? value('GEMINI_API_KEY', '') || value('GOOGLE_GENERATIVE_AI_API_KEY', '') : value({ openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', local: 'LOCAL_MODEL_API_KEY', rules: '' }[provider] ?? '', ''),
     llmTimeoutMs: integer('LLM_TIMEOUT_MS', '20000', 120000),
     demoResetEnabled: (env.DEMO_RESET_ENABLED || (environment === 'development' ? 'true' : 'false')) === 'true',
     agentRuntime: agentRuntime as Settings['agentRuntime'],
@@ -151,7 +152,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     classificationTimeoutMs: integer('CLASSIFICATION_TIMEOUT_MS', '10000', 120000),
     knowledgeEmbeddingsProvider: value('KB_EMBEDDINGS_PROVIDER', 'local') as Settings['knowledgeEmbeddingsProvider'],
     knowledgeEmbeddingsModel: value('KB_EMBEDDINGS_MODEL', '').trim(),
-    knowledgeEmbeddingsApiKey: value('KB_EMBEDDINGS_PROVIDER', 'local') === 'openai' ? value('OPENAI_API_KEY', '') : value('KB_EMBEDDINGS_PROVIDER', 'local') === 'google' ? value('GEMINI_API_KEY', value('GOOGLE_GENERATIVE_AI_API_KEY', '')) : '',
+    knowledgeEmbeddingsApiKey: value('KB_EMBEDDINGS_PROVIDER', 'local') === 'openai' ? value('OPENAI_API_KEY', '') : value('KB_EMBEDDINGS_PROVIDER', 'local') === 'google' ? value('GEMINI_API_KEY', '') || value('GOOGLE_GENERATIVE_AI_API_KEY', '') : '',
     knowledgeUrlAllowlist: array('KB_URL_ALLOWLIST', '[]'),
   };
   if (!['memory', 'postgres'].includes(settings.supportStore)) throw new Error('SUPPORT_STORE must be memory or postgres');
@@ -181,6 +182,17 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     if (settings.apiToken.length < 32 || /\s/.test(settings.apiToken) || isExampleToken(settings.apiToken)) throw new Error('Production API_TOKEN must contain at least 32 non-whitespace characters and cannot use a public example or placeholder');
     if (settings.allowedHosts.length === 0 || settings.allowedHosts.includes('*')) {
       throw new Error('Production ALLOWED_HOSTS must contain explicit hostnames');
+    }
+    // Safe defaults: production never silently runs in a demo shape that loses or exposes data.
+    if (settings.supportStore !== 'postgres') {
+      throw new Error('Production requires SUPPORT_STORE=postgres: the in-memory store loses conversations, approvals and audit on every restart');
+    }
+    if (settings.demoResetEnabled) {
+      throw new Error('DEMO_RESET_ENABLED must be off in production: it publishes demo session tokens and lets the operator token wipe all data');
+    }
+    const runtimeHome = value('RUNTIME_HOME', '').trim();
+    if (settings.agentRuntime === 'dsh' && (!runtimeHome || !isAbsolute(runtimeHome) || resolve(runtimeHome).startsWith(resolve(tmpdir())))) {
+      throw new Error('Production DSH requires RUNTIME_HOME as an absolute path on persistent storage outside the temporary directory; otherwise agent sessions are lost on restart');
     }
   }
   if (settings.allowedHosts.some(host => host.includes('*') && (host !== '*' && (!host.startsWith('*.') || host.slice(2).includes('*'))))) {

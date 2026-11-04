@@ -11,7 +11,13 @@ import { createInsights } from './modules/insights/factory.js';
 import { startInsightsWorker } from './modules/insights/worker.js';
 
 async function main() {
-  const settings = getSettings();
+  let settings: ReturnType<typeof getSettings>;
+  // Configuration messages name the setting, never its value, so the reason is safe to log.
+  try { settings = getSettings(); } catch (error) {
+    console.error(`Worker configuration invalid: ${error instanceof Error ? error.message : 'unknown error'}`);
+    process.exitCode = 1;
+    return;
+  }
   const pool = createPool(settings);
   const store = new PostgresJobStore(pool);
   const redis = createWorkerRedis(settings);

@@ -32,10 +32,46 @@ test('production requires strong credentials, token and explicit hosts without e
   assert.throws(() => settingsFrom(credentials), /API_TOKEN/);
   assert.throws(() => settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["*"]' }), /ALLOWED_HOSTS/);
   assert.throws(() => settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '[]' }), /ALLOWED_HOSTS/);
-  assert.equal(settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["api.example.com"]' }).environment, 'production');
+  assert.equal(settingsFrom({ ...credentials, API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["api.example.com"]', SUPPORT_STORE: 'postgres' }).environment, 'production');
   for (const env of [{ POSTGRES_PORT: '0' }, { REDIS_PORT: 'x' }, { ENVIRONMENT: 'test' }, { CORS_ORIGINS: 'null' }, { ALLOWED_HOSTS: '[23]' }, { WORKER_CONCURRENCY: '99' }]) {
     assert.throws(() => settingsFrom(env));
   }
+});
+
+test('production refuses demo-shaped defaults: memory store, demo reset, DSH sessions in a temp directory', () => {
+  const production = { ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32), ALLOWED_HOSTS: '["api.example.com"]' };
+  // Unset store means memory; an explicit memory demo is refused too.
+  for (const env of [production, { ...production, SUPPORT_STORE: 'memory' }, { ...production, SUPPORT_STORE: 'memory', SUPPORT_EXECUTION: 'inline' }]) {
+    assert.throws(() => settingsFrom(env), /SUPPORT_STORE=postgres/);
+  }
+  const ok = { ...production, SUPPORT_STORE: 'postgres' };
+  assert.equal(settingsFrom(ok).demoResetEnabled, false);
+  assert.throws(() => settingsFrom({ ...ok, DEMO_RESET_ENABLED: 'true' }), /DEMO_RESET_ENABLED must be off/);
+  assert.equal(settingsFrom({ ...ok, DEMO_RESET_ENABLED: 'false' }).demoResetEnabled, false);
+  // DSH needs an absolute, persistent session directory named explicitly; the rules runtime needs none.
+  const dsh = { ...ok, LLM_PROVIDER: 'google', GEMINI_API_KEY: 'g-key' };
+  for (const env of [dsh, { ...dsh, RUNTIME_HOME: '.runtime/dsh' }, { ...dsh, RUNTIME_HOME: join(tmpdir(), 'support-dsh') }]) {
+    assert.throws(() => settingsFrom(env), /Production DSH requires RUNTIME_HOME/);
+  }
+  for (const blank of ['', '   ']) assert.throws(() => settingsFrom({ ...dsh, RUNTIME_HOME: blank }), /RUNTIME_HOME must not be empty/);
+  assert.equal(settingsFrom({ ...dsh, RUNTIME_HOME: '/data/dsh' }).runtimeHome, '/data/dsh');
+  assert.equal(settingsFrom(ok).agentRuntime, 'rules');
+  // Messages name settings, never values.
+  assert.throws(() => settingsFrom({ ...dsh, SUPPORT_STORE: 'memory' }), (error: unknown) => !/g-key|ppppp|rrrrr|ttttt/.test(String(error)));
+  // Development keeps the convenient demo defaults.
+  const dev = settingsFrom({});
+  assert.deepEqual([dev.supportStore, dev.demoResetEnabled], ['memory', true]);
+});
+
+test('empty values forwarded by Compose mean unset and never shadow a configured key', () => {
+  const google = settingsFrom({ LLM_PROVIDER: 'google', AGENT_RUNTIME: '', GEMINI_API_KEY: '', GOOGLE_GENERATIVE_AI_API_KEY: 'g-legacy' });
+  assert.equal(google.agentRuntime, 'dsh');
+  assert.equal(google.llmApiKey, 'g-legacy');
+  assert.match(google.runtimeHome, /support-dsh$/);
+  // RUNTIME_HOME is never forwarded empty by Compose, so an empty value stays a loud error.
+  assert.throws(() => settingsFrom({ RUNTIME_HOME: '' }), /RUNTIME_HOME must not be empty/);
+  assert.equal(settingsFrom({ AGENT_RUNTIME: '' }).agentRuntime, 'rules');
+  assert.equal(settingsFrom({ KB_EMBEDDINGS_PROVIDER: 'google', GEMINI_API_KEY: '', GOOGLE_GENERATIVE_AI_API_KEY: 'g-legacy' }).knowledgeEmbeddingsApiKey, 'g-legacy');
 });
 
 test('Redis queue uses isolated storage, resilient worker options and bounded retention', () => {

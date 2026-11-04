@@ -75,6 +75,8 @@ The optional React app starts with `npm --prefix apps/frontend ci` then `npm --p
 
 An offline synthetic demo explicitly selects `LLM_PROVIDER=rules`, `AGENT_RUNTIME=rules` and `DEMO_RESET_ENABLED=true`. Use `SUPPORT_STORE=memory` with `SUPPORT_EXECUTION=inline` only when reset-on-restart storage is intended. PostgreSQL and Redis are still dependencies of the starter API/worker. The memory store is not a production persistence option.
 
+With `ENVIRONMENT=production`, API, worker and migrations refuse to start, and print the reason (the setting name, never its value), when `SUPPORT_STORE` is not `postgres`, when `DEMO_RESET_ENABLED=true`, or when the DSH runtime has no explicit `RUNTIME_HOME`. `RUNTIME_HOME` must then be an absolute path outside the temporary directory. The root production overlay (`compose.prod.yaml`) therefore defaults `SUPPORT_STORE` to `postgres` and keeps DSH sessions on the `runtime_data` volume at `/data/dsh`; the root stack forwards `GEMINI_API_KEY`, `AGENT_RUNTIME` and `LLM_BASE_URL`, and an empty `GEMINI_API_KEY` or `AGENT_RUNTIME` counts as unset. Persisted DSH sessions contain conversation transcripts: they are not pruned automatically, are not part of `scripts/backup.sh`, and are not removed with a case; retention is a tracked follow-up. Before deploying an existing server, remove any `SUPPORT_STORE=memory` or `DEMO_RESET_ENABLED=true` from its private `.env`.
+
 <a id="headless-bootstrap"></a>
 ## Headless bootstrap
 

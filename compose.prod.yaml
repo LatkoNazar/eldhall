@@ -11,17 +11,34 @@ services:
   api:
     environment:
       ENVIRONMENT: production
+      # Production refuses the in-memory demo store (apps/api/src/core/config.ts).
+      SUPPORT_STORE: ${SUPPORT_STORE:-postgres}
+      # DSH sessions live on a persistent volume, not on the 128 MB /tmp tmpfs.
+      RUNTIME_HOME: /data/dsh
       API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}
+    volumes:
+      - runtime_data:/data/dsh
     ports:
       - "127.0.0.1:${APP_PORT:-18000}:8000"
   worker:
     environment:
       ENVIRONMENT: production
+      SUPPORT_STORE: ${SUPPORT_STORE:-postgres}
+      RUNTIME_HOME: /data/dsh
       API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}
+    volumes:
+      - runtime_data:/data/dsh
   migrate:
     environment:
       ENVIRONMENT: production
+      SUPPORT_STORE: ${SUPPORT_STORE:-postgres}
+      RUNTIME_HOME: /data/dsh
       API_TOKEN: ${API_TOKEN:?Set a random production API_TOKEN of at least 32 characters}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set production ALLOWED_HOSTS as a JSON array}
+    volumes:
+      - runtime_data:/data/dsh
+
+volumes:
+  runtime_data:
