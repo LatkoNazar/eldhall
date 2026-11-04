@@ -3,12 +3,12 @@ import { expect, it, vi } from 'vitest'
 import { initScenario } from '../../landing/src/scenario'
 import { SCENARIOS } from '../../landing/src/scenario-data'
 
-function walkthrough() {
+function walkthrough(onEvent?: Parameters<typeof initScenario>[1]) {
   document.body.innerHTML = `<section data-scenario>
     <button id="refund-tab" data-scenario-tab="refund">Повернення</button><button id="limit-tab" data-scenario-tab="limit">Понад ліміт</button>
     <div data-scenario-panel><ol data-scenario-progress></ol><div data-scenario-chat></div><span data-scenario-business></span><p data-scenario-kicker></p><h2 data-scenario-title></h2><p data-scenario-text></p><div data-scenario-detail></div><button data-scenario-prev>Назад</button><button data-scenario-next>Далі</button></div>
   </section>`
-  initScenario()
+  initScenario(document, onEvent)
   return document.querySelector<HTMLElement>('[data-scenario]')!
 }
 
@@ -42,4 +42,26 @@ it('retains the five-step keyboard flow and the denial scenario without simulate
 it('contains no obsolete real-bank settlement promise in illustrative scenario messages', () => {
   const messages = Object.values(SCENARIOS).flatMap(scenario => scenario.steps.flatMap(step => step.chat ?? [])).map(message => message.text).join('\n')
   expect(messages).not.toMatch(/approved and submitted|3[–-]5 business days/i)
+})
+
+it('reports each scenario start and completion once without personal data or repeat inflation', () => {
+  const track = vi.fn()
+  walkthrough(track)
+  expect(track).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: /^Крок 5:/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Спочатку' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Крок 5:/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Понад ліміт' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Крок 5:/ }))
+  expect(track.mock.calls).toEqual([
+    ['demo_started', 'refund'], ['demo_completed', 'refund'],
+    ['demo_started', 'limit'], ['demo_completed', 'limit'],
+  ])
+})
+
+it('finishes the walkthrough even if its telemetry callback fails', () => {
+  walkthrough(() => { throw new Error('collector unavailable') })
+  fireEvent.click(screen.getByRole('button', { name: /^Крок 5:/ }))
+  expect(screen.getByText('Крок 5 · Execute · ілюстрація')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Спочатку' })).toBeEnabled()
 })

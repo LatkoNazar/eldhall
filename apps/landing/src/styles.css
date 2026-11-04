@@ -343,4 +343,10 @@ a[aria-disabled="true"] { opacity: .6; pointer-events: none }
 .shot-tall img { object-fit: cover; object-position: bottom; height: 520px }
 .shot figcaption { color: var(--fg-2); font-size: 15px }
 @media (max-width: 960px) { .hero-chat { left: auto; right: 12px; width: 44% } .hero-shot figcaption { position: static; max-width: none; text-align: left; margin-top: 12px } .hero-shot { padding-bottom: 0 } .shots { grid-template-columns: minmax(0, 1fr) } }
+@media (min-width: 641px) and (max-width: 960px) {
+  .hero-shot { display: grid; grid-template-columns: minmax(0, 1fr) }
+  .hero-shot .browser { grid-area: 1 / 1 }
+  .hero-chat { position: static; grid-area: 1 / 1; align-self: end; justify-self: end; margin-right: 12px }
+  .hero-shot figcaption { grid-area: 2 / 1 }
+}
 @media (max-width: 640px) { .hero-chat { display: none } .browser-bar { height: 28px } }

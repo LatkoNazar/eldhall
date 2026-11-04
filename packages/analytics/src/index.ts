@@ -17,8 +17,37 @@ export interface SignupCreated {
   method: 'email' | 'oauth' | 'passkey'
 }
 
+// Product events from docs/ANALYTICS_PLAN.md. Every property is an enum from this allow-list;
+// unknown keys or values drop the whole event, so free text, names, ids or amounts cannot leak.
+export const productEvents = {
+  demo_started: { scenario: ['refund', 'limit'] },
+  demo_completed: { scenario: ['refund', 'limit'] },
+  support_case_created: {},
+  approval_granted: { tool: ['refund_payment', 'escalate_to_human'] },
+  action_executed: { tool: ['refund_payment', 'escalate_to_human'] },
+  action_failed: { tool: ['refund_payment', 'escalate_to_human'], outcome: ['failed', 'unknown'] },
+} as const satisfies Record<string, Record<string, readonly string[]>>
+export type ProductEvent = keyof typeof productEvents
+export type ProductEventProps<E extends ProductEvent> = { [K in keyof (typeof productEvents)[E]]: (typeof productEvents)[E][K] extends readonly (infer V)[] ? V : never }
+
+/** Returns sanitized event data, or null when anything is outside the allow-list. */
+export function validateProductEvent(event: string, props: Record<string, unknown> = {}): Record<string, string> | null {
+  if (!Object.hasOwn(productEvents, event)) return null
+  const schema = productEvents[event as ProductEvent] as Record<string, readonly string[]>
+  const keys = Object.keys(props)
+  if (keys.some(key => !Object.hasOwn(schema, key)) || Object.keys(schema).some(key => !keys.includes(key))) return null
+  const data: Record<string, string> = {}
+  for (const key of keys) {
+    const value = props[key]
+    if (typeof value !== 'string' || !schema[key]!.includes(value)) return null
+    data[key] = value
+  }
+  return data
+}
+
 export interface Analytics {
   readonly enabled: boolean
+  track<E extends ProductEvent>(event: E, props: ProductEventProps<E>): void
   trackLandingCta(location: 'header' | 'hero' | 'footer'): void
   trackSignupCompleted(result: SignupCreated): void
 }
@@ -106,7 +135,15 @@ export function sanitizeAnalyticsUrl(value: string, base: string): string {
   }
 }
 
-const disabled: Analytics = { enabled: false, trackLandingCta() {}, trackSignupCompleted() {} }
+const disabled: Analytics = { enabled: false, track() {}, trackLandingCta() {}, trackSignupCompleted() {} }
+
+/** The document's analytics client (no-op until initAnalytics configured one). */
+export function currentAnalytics(page: Window = window): Analytics {
+  const client = (page as AnalyticsWindow).__eldhallAnalytics?.client
+  // A client cached by older code can survive Vite hot reload without track().
+  // Keep it inert until a full reload instead of breaking the business flow.
+  return client && typeof client.track === 'function' ? client : disabled
+}
 
 /** One tracker per document, including React StrictMode and Vite hot reloads. */
 export function initAnalytics(env: PublicAnalyticsEnv, surface: Surface, page: Window = window): Analytics {
@@ -143,7 +180,7 @@ function initialize(env: PublicAnalyticsEnv, surface: Surface, page: Window): An
       existing.views.add(surface)
       send(existing, { name: surface === 'landing' ? 'landing_viewed' : 'app_opened', data: { surface, ...campaign } }, browser)
     }
-    return existing.client
+    return currentAnalytics(page)
   }
 
   const state: State = {
@@ -155,6 +192,10 @@ function initialize(env: PublicAnalyticsEnv, surface: Surface, page: Window): An
   }
   const client: Analytics = {
     enabled: true,
+    track(event, props) {
+      const data = validateProductEvent(event, props as Record<string, unknown>)
+      if (data) send(state, { name: event, data: { surface, ...data, ...campaign } }, browser)
+    },
     trackLandingCta(location) {
       send(state, { name: 'landing_cta_clicked', data: { surface: 'landing', location, ...campaign } }, browser)
     },
