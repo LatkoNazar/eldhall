@@ -5,7 +5,7 @@
 **База репозиторію:** `295bce336afc67f07974bf60c276ac060f4a9201`; цей документ описує наступну роботу.  
 **Пріоритет:** базова перевірка інтеграцій потрібна до заяви про перевірене підключення конкретного бізнесу; генерація поведінкових чернеток і onboarding — наступний завершений продуктовий зріз.  
 **Власник логіки:** TypeScript core; Python/FastMCP залишається адаптером OpenAPI.  
-**Пов'язані плани:** [головний TODO](../TODO.md), [D06 — connector contracts](../todos/06-connectors-and-extension-contracts.md), [D11 — evaluations](../todos/11-agent-quality-and-evaluations.md).
+**Пов'язані контракти й плани:** [OpenAPI/MCP permissions та execution](../docs/integrations-manifest.md), [підключення власного API](../docs/OPENAPI_QUICKSTART.md), [D06 — connector contracts](../todos/06-connectors-and-extension-contracts.md), [D11 — evaluations](../todos/11-agent-quality-and-evaluations.md).
 
 Усі нові типи, таблиці, команди, endpoint-и та шляхи реалізації нижче — **proposed**, доки їх не реалізовано й не описано в постійних API contracts. Цей документ не додає тестову систему самим фактом свого існування.
 

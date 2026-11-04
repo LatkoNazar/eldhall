@@ -12,6 +12,8 @@ project = None
 command = None
 services = []
 composition = None
+log_path = Path(os.environ["FAKE_DOCKER_LOG"])
+history = [json.loads(line) for line in log_path.read_text().splitlines()] if log_path.exists() else []
 if args and args[0] == "compose":
     env_file = Path(args[args.index("--env-file") + 1])
     values = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
@@ -31,7 +33,11 @@ if args and args[0] == "compose":
     services = re.findall(r"^  ([a-z][a-z0-9-]*):", composition.read_text(), re.MULTILINE)
     if any(value.endswith("compose.caddy.yaml") for value in args):
         services.append("caddy")
-with Path(os.environ["FAKE_DOCKER_LOG"]).open("a") as handle:
+elif args and args[0] == "ps":
+    project = next(value.split("=", 2)[2] for value in args if value.startswith("label=com.docker.compose.project="))
+elif args and args[0] in ("inspect", "exec"):
+    project = next((row["project"] for row in reversed(history) if row["args"][0] == "ps"), None)
+with log_path.open("a") as handle:
     handle.write(
         json.dumps(
             {
@@ -45,6 +51,31 @@ with Path(os.environ["FAKE_DOCKER_LOG"]).open("a") as handle:
         )
         + "\n"
     )
+if args and args[0] == "ps":
+    service = next(value.split("=", 2)[2] for value in args if value.startswith("label=com.docker.compose.service="))
+    print(("a" if service == "rabbitmq" else "b") * 64)
+    sys.exit(0)
+if args and args[0] == "inspect":
+    identifier = args[-1]
+    print(json.dumps({"id": identifier, "running": True, "project": project,
+                      "service": "rabbitmq" if identifier == "a" * 64 else "postgres"}))
+    sys.exit(0)
+if args and args[0] == "exec":
+    mode = os.environ.get("FAKE_LEGACY_MODE", "empty")
+    api_stop = max((index for index, row in enumerate(history) if row["project"] == project and "stop" in row["args"] and row["args"][-1] == "api"), default=-1)
+    worker_stop = max((index for index, row in enumerate(history) if row["project"] == project and "stop" in row["args"] and row["args"][-1] == "worker"), default=-1)
+    worker_start = max((index for index, row in enumerate(history) if row["project"] == project and "up" in row["args"] and "worker" in row["args"]), default=-1)
+    stopped = worker_stop > max(api_stop, worker_start)
+    if mode == "unknown_after_stop" and api_stop >= 0:
+        print("private-legacy-error", file=sys.stderr)
+        sys.exit(1)
+    if args[1] == "b" * 64:
+        probes = sum(row["args"][:2] == ["exec", "b" * 64] for row in history[api_stop + 1:])
+        pending = (mode == "busy_then_empty" and (api_stop < 0 or probes < 1)) or (mode == "pending_after_worker" and stopped)
+        print(json.dumps({"total": 4 + int(pending), "queued": int(pending), "running": 0, "succeeded": 4, "failed": 0, "other": 0}))
+    else:
+        print("0\t0\t" + ("1" if mode == "consumers_after_worker" else "0" if stopped else "3"))
+    sys.exit(0)
 fail = (
     os.environ.get("FAKE_FAIL")
     if os.environ.get("FAKE_FAIL_IMAGE", os.environ.get("APP_IMAGE")) == os.environ.get("APP_IMAGE")

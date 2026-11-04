@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 /**
- * Deterministic auto/ask/deny resolver for imported business operations (TODO.md §4.2, §5.1).
+ * Deterministic auto/ask/deny resolver; contract: docs/integrations-manifest.md.
  * Pure: no I/O. Missing or malformed policy always resolves to deny. Absolute business guards,
  * scope and ownership checks are separate and cannot be overridden by anything decided here.
  */

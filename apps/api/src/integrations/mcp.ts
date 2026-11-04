@@ -8,7 +8,7 @@ export interface BusinessTool {
   description: string;
   inputSchema: InputSchema;
 }
-/** What the model receives for a business operation (TODO.md §7). Pending is never success. */
+/** Model-facing operation result (docs/integrations-manifest.md). Pending is never success. */
 export type BusinessToolResult =
   | { status: 'executed'; actionId?: string; data: unknown }
   | { status: 'awaiting_approval'; proposalId: string; summary: string }

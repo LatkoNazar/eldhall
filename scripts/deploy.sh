@@ -95,6 +95,11 @@ rollback_on_error() {
   exit "$result"
 }
 trap rollback_on_error ERR
+if [[ -n "$previous" && "$previous" != "$release" ]] && has_service "$old_services" rabbitmq && ! has_service "$services" rabbitmq; then
+  # AMQP messages are not BullMQ jobs. Keep the old broker and all storage;
+  # failure here restores the archived API/worker through rollback_on_error.
+  python3 "$(dirname "${BASH_SOURCE[0]}")/drain-legacy-queue.py" "$project_name" -- "${old[@]}"
+fi
 start_dependencies "$services" "${compose[@]}"
 if [[ -n "$previous" && -f "$previous/compose.yaml" ]]; then
   backup="$root/backups/pre-$sha-$(date -u +%Y%m%dT%H%M%SZ).dump"

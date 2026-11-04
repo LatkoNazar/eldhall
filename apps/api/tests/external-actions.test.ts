@@ -116,11 +116,47 @@ test('auto: same ledger, executed inside the turn, recorded as policy_auto; unkn
 
 test('one external action per turn: a second different action is denied, a repeat returns the same proposal', async () => {
   const h = setup('ask', [], [{ order_id: 'ORD-1001' }, { order_id: 'ORD-1001' }, { order_id: 'ORD-1002' }]);
-  const { caseId, proposal } = await turn(h);
-  assert.deepEqual(h.results.map(r => r.status), ['awaiting_approval', 'awaiting_approval', 'denied']);
-  assert.equal((h.results[1] as { proposalId: string }).proposalId, proposal.id);
-  assert.deepEqual(h.results[2], { status: 'denied', reasonCode: 'one_external_action_per_turn' });
+  const { caseId } = await turn(h);
+  assert.deepEqual(h.results.map(r => r.status), ['awaiting_approval', 'denied', 'denied']);
+  assert.deepEqual(h.results[1], { status: 'denied', reasonCode: 'turn_awaiting_approval' });
+  assert.deepEqual(h.results[2], { status: 'denied', reasonCode: 'turn_awaiting_approval' });
   assert.equal((await h.store.proposals(caseId)).filter(p => p.tool === 'external_action').length, 1);
+});
+
+test('pending ask read/write ends a scripted turn, blocks dependent tools and prevents builtin money or handoff proposals',async()=>{
+  for(const effect of ['read','write']) for(const builtin of ['refund_payment','escalate_to_human']) {
+    const store=new MemorySupportStore(seedData());let calls=0;let aborted=false;let completeAttempts!:()=>void;
+    const attempted=new Promise<void>(resolve=>{completeAttempts=resolve;});
+    const integrations:BusinessIntegrations={forContext:ctx=>({tools:[{integrationId:'orders',name:'reviewed_tool',description:'Needs approval',inputSchema:{type:'object',properties:{},additionalProperties:false}}],
+      callTool:async(_integrationId,_name,input)=>{calls++;return ctx.propose!({mode:'ask',title:'Reviewed order request',args:{...requestArgs(ctx,input),effect}});},
+      executeAction:async()=>{throw new Error('A pending request must not execute');},
+    })};
+    const later:unknown[]=[];
+    const model={provider:'scripted',model:'pending-adversary',async decide(ctx:import('../src/modules/agent/model.js').AgentContext,signal:AbortSignal){
+      signal.addEventListener('abort',()=>{aborted=true;},{once:true});
+      const pending=await ctx.callBusinessTool!('orders','reviewed_tool',{});later.push(pending);
+      later.push(await ctx.callBusinessTool!('orders','reviewed_tool',{}));
+      await assert.rejects(ctx.searchKnowledge('read after pending'),/awaiting operator approval/);
+      completeAttempts();
+      return{decision:decision({action:builtin==='refund_payment'?{tool:builtin,args:{payment_id:'00000000-0000-4000-8000-000000000202',amount_cents:49900}}:{tool:builtin,args:{reason:'forced continuation'}},sentiment:{label:'abusive',urgency:'high'}}),steps:2,toolCalls:[]};
+    }};
+    const harness=new SupportHarness({store,model,fallback:new RulesModel(),provider:new SimulatedPaymentProvider(),timeoutMs:1000,integrations});
+    const opened=await harness.openCase(OLENA);const result=await harness.runTurn(OLENA,opened.id,'Шахраї! Скасуйте замовлення негайно!');await attempted;
+    assert.equal(calls,1);assert.equal(aborted,true);assert.deepEqual(later[1],{status:'denied',reasonCode:'turn_awaiting_approval'});
+    const proposals=await store.proposals(opened.id);assert.equal(proposals.length,1);assert.equal(proposals[0]!.tool,'external_action');assert.equal(proposals[0]!.status,'pending');assert.equal(proposals[0]!.args.effect,effect);
+    assert.equal(result.case.status,'awaiting_approval');assert.equal(result.case.ownership,'bot');assert.match(result.reply!.body,/підготував запит.*підтвердити спеціаліст/);assert.equal((await store.refunds()).length,0);
+  }
+});
+
+test('pending request completes the application turn without waiting for a custom model to continue',async()=>{
+  const store=new MemorySupportStore(seedData());let stopped=false;let stopReason:unknown;
+  const integrations:BusinessIntegrations={forContext:ctx=>({tools:[{integrationId:'orders',name:'ask_read',description:'Ask read',inputSchema:{type:'object',properties:{},additionalProperties:false}}],callTool:async(_id,_name,input)=>ctx.propose!({mode:'ask',title:'Reviewed read',args:{...requestArgs(ctx,input),effect:'read'}})})};
+  const model={provider:'scripted',model:'waits-after-pending',async decide(ctx:import('../src/modules/agent/model.js').AgentContext,signal:AbortSignal){
+    await ctx.callBusinessTool!('orders','ask_read',{});
+    return new Promise<never>((_resolve,reject)=>{if(signal.aborted){stopped=true;stopReason=signal.reason;reject(new Error('pending stopped'));return;}signal.addEventListener('abort',()=>{stopped=true;stopReason=signal.reason;reject(new Error('pending stopped'));},{once:true});});
+  }};
+  const harness=new SupportHarness({store,model,fallback:new RulesModel(),provider:new SimulatedPaymentProvider(),timeoutMs:1000,integrations});const opened=await harness.openCase(OLENA);
+  const result=await harness.runTurn(OLENA,opened.id,'Перевірте замовлення');assert.equal(stopped,true);assert.ok(stopReason instanceof Error);assert.equal(stopReason.message,'Turn is awaiting operator approval');assert.equal(result.case.status,'awaiting_approval');assert.equal((await store.proposals(opened.id)).length,1);
 });
 
 test('store: agent:auto can claim only proposals recorded without approval; ask and refunds stay with the operator', async () => {

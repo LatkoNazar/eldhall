@@ -3,7 +3,7 @@ import { fingerprint } from './permissions.js';
 import { safeKey, validateInputSchema, type InputSchema } from './schema.js';
 
 /**
- * Normalized OpenAPI → MCP catalog (TODO.md §4.1), produced by the Python importer and verified here.
+ * Normalized OpenAPI → MCP catalog, produced by the Python importer and verified here.
  * Contract details and the canonical hashing rules: docs/integrations-manifest.md.
  */
 export const MANIFEST_SCHEMA_VERSION = 1;

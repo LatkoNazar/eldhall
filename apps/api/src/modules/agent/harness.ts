@@ -11,6 +11,9 @@ import { normalizeClassification, sameClassificationConfig, type TicketClassific
 import type { KnowledgeRetriever } from '../knowledge/retriever.js';
 import { knowledgeRuntime } from '../knowledge/runtime.js';
 import type { ExternalKnowledge, ExternalKnowledgeRef } from '../knowledge/qdrant.js';
+import { approvalPendingDecision } from './pending.js';
+
+class ApprovalPendingToolError extends Error {}
 
 export class HarnessError extends Error {
   readonly status: number;
@@ -180,13 +183,24 @@ export class SupportHarness {
       if (externalFailed) throw new StaleTurn('External knowledge is unavailable');
       for(const [integrationId,observed] of observedPolicies) { const state=await store.integrationStore.get(customer.businessId,integrationId);if(!state||!state.enabled||state.draining||state.activeManifestHash!==observed.manifestHash||state.connectionRevision!==observed.connectionRevision||state.policy.policyRevision!==observed.policyRevision) throw new StaleTurn('Integration policy changed'); }
     };
+    let awaitingApproval: { proposalId: string; title: string } | undefined;
+    let finishPending!: (decision: AgentDecision) => void;
+    const pendingDecision = new Promise<AgentDecision>(resolve => { finishPending = resolve; });
+    const terminal = { wait: pendingDecision, read: () => awaitingApproval ? approvalPendingDecision(awaitingApproval.title) : undefined };
+    let modelTools: Promise<void> = Promise.resolve();
+    const modelTool = <T>(run: () => Promise<T>): Promise<T> => {
+      const next = modelTools.then(() => { if (awaitingApproval) throw new ApprovalPendingToolError('Turn is awaiting operator approval'); return run(); });
+      modelTools = next.then(() => undefined, () => undefined);
+      return next;
+    };
     const ctx: AgentContext = {
       conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
       runtimeAttempt: lease.jobFence !== undefined && lease.jobFence > 1 ? lease.jobFence : undefined,
       ...(externalMode ? { knowledgeSessionKey: lease.runId } : {}),
       turnJobId: lease.jobFence !== undefined ? lease.runId : undefined,
       assertActive, knowledge, skills, classification: settings.classification,
-      searchKnowledge: async (query, signal) => {
+      pendingApproval: () => awaitingApproval ? { proposalId: awaitingApproval.proposalId, summary: awaitingApproval.title } : undefined,
+      searchKnowledge: (query, signal) => modelTool(async () => {
         await assertActive();
         if (externalMode) {
           try {
@@ -200,7 +214,7 @@ export class SupportHarness {
         const hits = await (this.deps.knowledge ?? knowledgeRuntime.retriever).search(knowledge, query, { audience: 'customer', plan: customer.plan });
         await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
         return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
-      },
+      }),
       customer: { name: customer.name, plan: customer.plan },
       business: { name: business.name, currency: business.currency, policy: business.policy, responseStyle: { language: settings.language, tone: settings.tone } },
       payments: await store.payments(customer.id, 10),
@@ -218,6 +232,7 @@ export class SupportHarness {
       return run;
     };
     const proposeNow = async ({ args: requestedArgs, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
+      if (awaitingApproval) return { status: 'denied', reasonCode: 'turn_awaiting_approval' };
       await assertActive();
       const prior = externalAction?.proposal ?? (lease.jobFence !== undefined ? (await store.proposals(caseId)).find(p => p.tool === 'external_action' && p.turnJobId === lease.runId) : undefined);
       const semantic = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([key])=>key!=='expiresAt'));
@@ -232,7 +247,12 @@ export class SupportHarness {
         if (claimed) proposal = (await this.executeExternal(claimed, assertActive)).proposal;
       }
       externalAction = { proposal, title };
-      return toolResult(proposal, title);
+      const result = toolResult(proposal, title);
+      if (result.status === 'awaiting_approval') {
+        awaitingApproval = { proposalId: result.proposalId, title };
+        finishPending(approvalPendingDecision(title));
+      }
+      return result;
     };
     const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose,
       rememberPolicy:(integrationId,manifestHash,connectionRevision,policyRevision)=>observedPolicies.set(integrationId,{manifestHash,connectionRevision,policyRevision}),
@@ -240,13 +260,11 @@ export class SupportHarness {
     ctx.businessTools = integrations?.listTools ? await integrations.listTools() : integrations?.tools ?? [];
     // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
     const evidence: string[] = [];
-    ctx.callBusinessTool = integrations ? async (integrationId, name, input, signal) => {
-      const result = await integrations.callTool(integrationId, name, input, signal);
-      collectStrings(result, evidence);
-      return result;
-    } : undefined;
+    ctx.callBusinessTool = integrations ? (integrationId, name, input, signal) => modelTool(async () => {
+      const result = await integrations.callTool(integrationId, name, input, signal);collectStrings(result, evidence);return result;
+    }).catch(error => { if (error instanceof ApprovalPendingToolError) return { status: 'denied', reasonCode: 'turn_awaiting_approval' };throw error; }) : undefined;
 
-    const { decision, source, model, classification } = await this.decide(caseId, ctx);
+    const { decision, source, model, classification } = await this.decide(caseId, ctx, terminal);
     await assertActive();
     await assertExternal();
     const sentiment = mergeSentiment(lexicalSentiment(body), decision.sentiment);
@@ -258,8 +276,8 @@ export class SupportHarness {
     await store.audit(caseId, 'agent.analyzed', `agent:${model}`, { intent: analysis.intent, sentiment: sentiment.label, priority: analysis.priority, source, classification: analysis.classification });
 
     let action = decision.action;
-    if(externalAction?.proposal.args.effect==='write') action=null;
-    if (!action && (sentiment.abusive || sentiment.escalationRisk >= 0.8)) {
+    if(awaitingApproval || externalAction?.proposal.args.effect==='write') action=null;
+    if (!awaitingApproval && !action && (sentiment.abusive || sentiment.escalationRisk >= 0.8)) {
       action = { tool: 'escalate_to_human', args: { reason: `High escalation risk (${sentiment.label})` } };
     }
     let proposal: Proposal | null = null;
@@ -286,7 +304,7 @@ export class SupportHarness {
     } finally { await store.releaseTurn(lease); }
   }
 
-  private async decide(caseId: string, ctx: AgentContext): Promise<{ decision: AgentDecision; source: Analysis['source']; model: string; classification: TicketClassification | null }> {
+  private async decide(caseId: string, ctx: AgentContext, terminal?: { wait: Promise<AgentDecision>; read: () => AgentDecision | undefined }): Promise<{ decision: AgentDecision; source: Analysis['source']; model: string; classification: TicketClassification | null }> {
     const { model, fallback, store, timeoutMs, classifier } = this.deps;
     const started = Date.now();
     const controller = new AbortController();
@@ -319,15 +337,25 @@ export class SupportHarness {
       // DSH settles only after its child and scoped gateway have closed. Keep the turn claim until then.
       const output = model.provider.startsWith('dsh:') ? await pending : await Promise.race([
         pending,
+        ...(terminal ? [terminal.wait.then(decision => ({ decision, steps: 1, toolCalls: ['call_business_tool'] }))] : []),
         new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error(`LLM timeout after ${timeoutMs} ms`)))),
       ]);
-      const decision = decisionSchema.parse(output.decision);
+      const applicationDecision = terminal?.read();
+      if (applicationDecision) controller.abort(new Error('Turn is awaiting operator approval'));
+      const decision = applicationDecision ?? decisionSchema.parse(output.decision);
       const classification = await classified(decision, model.provider === 'rules' ? 'fallback' : 'llm');
       await ctx.assertActive();
       await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: null });
       return { decision, source: model.provider === 'rules' ? 'fallback' : 'llm', model: model.model, classification };
     } catch (error) {
       await ctx.assertActive();
+      const applicationDecision = terminal?.read();
+      if (applicationDecision) {
+        controller.abort(new Error('Turn is awaiting operator approval'));
+        const classification = await classified(applicationDecision, 'fallback');
+        await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: 1, toolCalls: ['call_business_tool'], latencyMs: Date.now() - started, error: null });
+        return { decision: applicationDecision, source: 'fallback', model: model.model, classification };
+      }
       const message = error instanceof Error ? error.message.slice(0, 300) : 'Model failed';
       const output = await fallback.decide(ctx, new AbortController().signal);
       const classification = await classified(output.decision, 'fallback');

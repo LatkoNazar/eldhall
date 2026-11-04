@@ -95,6 +95,14 @@ export function apply(ctx) {
       integrationId: { type: 'string', required: true }, name: { type: 'string', required: true },
       input: { type: 'object', additionalProperties: true, required: true },
     },
-    output, execute: (args, exec) => call('call_business_tool', args, exec),
+    output,
+    async execute(args, exec) {
+      const result = await call('call_business_tool', args, exec);
+      if (result?.control?.endTurn === 'awaiting_approval') {
+        submitted = true;
+        exec.concludeTurn();
+      }
+      return result;
+    },
   }));
 }

@@ -235,10 +235,10 @@ The smoke overlay is for tests only: it contains a mock with a test-control rout
 `argsHash` covers all of it. An approval therefore binds to the exact operation, arguments and versions.
 
 **During the turn**, the catalog calls the harness `propose` callback:
-- `ask` creates a `pending` proposal. The model gets `awaiting_approval`, and the customer gets a server-composed "prepared, a specialist must confirm" reply. The model's own text is not used.
+- `ask` creates a `pending` proposal for a read or write and ends the bounded turn. The customer gets a server-composed "prepared, a specialist must confirm" reply. Further business tools, knowledge searches and builtin actions from that turn are blocked; the model's own text is not used. Human approval happens in a later operator request, with no model or worker lease waiting for it. Native DSH ends through application-owned control outside the business result; an upstream `status:"awaiting_approval"` cannot impersonate pending approval.
 - `auto` creates the proposal, claims it (`agent:auto`) and executes it immediately through the same path.
 
-**One action per turn.** The model may make at most one external action per durable turn. The unique `(turn_job_id, tool)` key enforces this in the DB across retries. A repeat with the same arguments returns the same proposal, and a different action returns `denied: one_external_action_per_turn`. Proposals within one turn are serialized, so parallel tool calls cannot race past this check (inline mode has no durable turn key). An in-turn `auto` dispatch runs the turn's ownership fence right before sending; a takeover stops it with nothing sent.
+**One action per turn.** The model may make at most one external action per durable turn. The unique `(turn_job_id, tool)` key enforces this in the DB across retries. An admission retry with the same arguments returns the same proposal, and a different action returns `denied: one_external_action_per_turn`. Once `ask` has latched a pending proposal, subsequent model tool calls receive the terminal pending denial instead. Model-facing tools and proposals are serialized, so parallel tool calls cannot race past the pending latch or action limit (inline mode has no durable turn key). An in-turn `auto` dispatch runs the turn's ownership fence right before sending; a takeover stops it with nothing sent. A confirmed write result received after takeover is still recorded durably, while stale model delivery remains fenced.
 
 **Reply guard.** Model prose that claims an action was performed ("I cancelled…", "cancelled successfully", "Скасування підтверджено") is always replaced; only server templates from a recorded proposal may say so. A claim about a resulting state ("your order is cancelled") is kept only when business data returned in this turn shows that state. The upstream `status` quoted in the "done" template is limited to a short plain token.
 
@@ -260,11 +260,16 @@ Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeove
 
 **Verification.**
 
-| Check | Covers | Run here? |
+| Check | Covers | Evidence |
 |---|---|---|
-| `tests/external-actions.test.ts` (memory store) | the ledger states | yes |
-| `npm run test:mcp-openapi` | real sidecar: execution, idempotent replay, the shipped-order guard, stale policy, foreign scope | yes |
-| A new case in `tests/postgres-store.integration.ts` | concurrent execute and the `external_action`-only auto claim | yes, in the CI `integration` job (`npm run test:postgres`) |
+| `tests/external-actions.test.ts` and `tests/integration-admin.test.ts` | memory ledger, operator lifecycle/CAS, ask read/write terminal behavior and dependent-action denial | included in the follow-up local API run: 192 tests, 191 passed, one local pgvector fixture skip |
+| `npm run test:runtime` | real pinned native DSH, parallel pending tools and raw upstream status/control spoofing | ten tests passed locally on the pending-turn follow-up |
+| `npm run test:mcp-openapi` | real sidecar execution/replay, shipped-order guard, stale policy, foreign scope, wrong target fingerprint/revision | six tests passed in ARM64 PR9 CI |
+| `npm run test:postgres`, including `tests/integration-state.integration.ts` | policy/restart persistence, admission/disable races, takeover/completion, recovery/dispatch races, expiry, unknown holds and reconciliation CAS | 29 tests passed in ARM64 PR9 CI; pgvector knowledge acceptance separately passed 13 tests |
+| `tests/support-queue.test.ts` and `tests/external-actions.test.ts` | coalesced/throttled maintenance, recovery/expiry, authenticated case-only refresh | local API suite; maintenance implementation also included in PR9 |
+| Standalone Compose gate | actual API/worker/sidecar build and startup, review/activate, auto/ask/deny, guard, idempotency, draining and restart | passed in ARM64 PR9 CI with synthetic Orders data and a scripted model |
+
+The immutable PR9 evidence is [run 41820645880](https://github.com/LatkoNazar/eldhall/actions/runs/41820645880); its Python suite passed 32 tests. The pending-turn follow-up has separate local evidence and is not implied by that earlier run. [STATUS](STATUS.md) identifies the current commit, merge state and production deployment result. These checks do not establish public image publication or a selected license.
 
 **Operations and recovery.** The operator API and UI manage policy, review, activation and draining. Changed policy/catalog/connection and ownership invalidate unexecuted proposals; expired snapshots are terminal and cannot execute. External outcomes, audit and completion messages are recorded durably with action-level deduplication. `unknown` remains locked; the authenticated reconciliation endpoint records an operator-verified result and reason. Automatic reconciliation polling is not provided. Upstream mapping is explicit deployment configuration, not model input. The operator bearer is deployment-wide; per-business staff ACLs and SSO are not implemented.
 

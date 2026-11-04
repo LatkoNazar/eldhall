@@ -19,6 +19,8 @@ export interface AgentContext {
   searchKnowledge: (query: string, signal?: AbortSignal) => Promise<{ id: string; title: string; content: string; version: number }[]>;
   businessTools?: { integrationId: string; name: string; description: string; inputSchema: Record<string, unknown> }[];
   callBusinessTool?: (integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+  /** Application-owned control state; never infer a pending proposal from business JSON. */
+  readonly pendingApproval?: () => { proposalId: string; summary: string } | undefined;
   customer: { name: string; plan: string };
   business: Pick<Business, 'name' | 'currency' | 'policy'> & { responseStyle?: { language: string; tone: string } };
   payments: Payment[];
