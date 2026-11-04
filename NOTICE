@@ -1,0 +1,11 @@
+Eldhall
+Copyright 2026 Eldhall contributors
+
+Project-authored software is licensed under the Apache License, Version 2.0.
+See the accompanying LICENSE and LICENSING.md for the scope and exclusions
+(LICENSING.md is under docs/ in the source tree).
+
+Third-party components retain their own copyright and licence terms.
+See THIRD_PARTY_NOTICES.md in the distributed legal directory and the
+upstream notices retained in installed dependencies. The project licence
+does not replace those terms or grant rights in third-party media or marks.

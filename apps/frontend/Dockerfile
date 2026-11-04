@@ -19,6 +19,8 @@ ENV PUBLIC_APP_URL=$PUBLIC_APP_URL \
 RUN npm run build
 
 FROM caddy:2.11.7-alpine AS production
+LABEL io.eldhall.project.license="Apache-2.0" \
+      io.eldhall.project.license-scope="Project-authored software; see /srv/licenses/LICENSING.md for third-party terms"
 RUN setcap -r /usr/bin/caddy
 COPY apps/frontend/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/apps/frontend/dist /srv

@@ -1,14 +1,15 @@
 # D00 — Перевірена база, залежності та критерії релізу
 
-**Дата:** 2026-11-01. **Snapshot:** `858985f38b82e4e26dafb563e4e794ff01cc9196`.  
-**Призначення:** дати спільний baseline для всіх планів у `todos/` та не змішувати наявні механізми з майбутніми обіцянками.  
+**Оновлено:** 2026-11-04. **Поточна база:** [`7728f5d7371e9cbaacb7d77fe3dab9923c52d995`](https://github.com/LatkoNazar/eldhall/commit/7728f5d7371e9cbaacb7d77fe3dab9923c52d995); runtime source — `2ba80ca4c727c8b52ac1a91e6f8296f287487efd`.
+**Історичний snapshot:** 2026-11-01, [`858985f38b82e4e26dafb563e4e794ff01cc9196`](https://github.com/LatkoNazar/eldhall/tree/858985f38b82e4e26dafb563e4e794ff01cc9196). Вихідний D00 опубліковано пізніше у [незмінному roadmap commit `295bce3`](https://github.com/LatkoNazar/eldhall/blob/295bce336afc67f07974bf60c276ac060f4a9201/todos/00-baseline-and-release-gates.md).
+**Призначення:** дати спільний baseline для всіх планів у `todos/` та не змішувати наявні механізми з майбутніми обіцянками.
 **Попередній етап:** [основний TODO](https://github.com/LatkoNazar/eldhall/blob/858985f38b82e4e26dafb563e4e794ff01cc9196/TODO.md).
 
 ## 1. Метод і межі перевірки
 
-План підготовлено за читанням source, deployment scripts, конфігурацій, tests та поточних GitHub Actions results. Під час підготовки цих документів application tests, benchmarks, live models і Docker containers повторно не запускалися. Наявні тести описують перевірювані сценарії; це не твердження про їх новий локальний запуск.
+Початковий план 1 листопада спирався на читання source і CI без нового запуску. Оновлення 4 листопада звіряє поточний source, permanent docs та фактичні CI/deployment reports із розділу 4. Це не новий benchmark, перевірка AMD64 або встановлення з Docker Hub.
 
-На baseline основний TODO вже записаний у main, але описує запланований OpenAPI/MCP permissions етап. Наступні файли припускають його завершення перед початком реалізації. Після цього потрібно звірити current main і прибрати дублювання вже виконаної роботи.
+Основний OpenAPI/MCP permissions етап завершено: [PR #9](https://github.com/LatkoNazar/eldhall/pull/9), [PR #10](https://github.com/LatkoNazar/eldhall/pull/10), [статус і перевірки](../docs/STATUS.md). Кореневий TODO видалено після перенесення контрактів у permanent docs. Передумова початку цієї roadmap виконана; задачі D01–D14 і рівні M1/M2 цим не завершені.
 
 Знайдені обмеження нижче є engineering gaps або питаннями, які треба перевірити. Наприклад, process-local lock сам по собі не доводить фактичну multi-worker race; для цього потрібні topology contract і process-level tests.
 
@@ -19,6 +20,7 @@
 - Approval відокремлений від execution, прив'язаний до hash; для платежів існує reservation і `unknown` outcome.
 - Model-facing tools контролює trusted gateway; scope походить від backend.
 - Є runtime tests із реальним DSH та fake model endpoint, MCP transport tests і PostgreSQL integration suites.
+- Є reviewed OpenAPI import, authenticated fixed-target MCP sidecar, PostgreSQL-authoritative permissions/review/activation, Integrations UI та durable external actions із expiry, invalidation і reconciliation.
 - Є standalone support Compose, optional UI і external PostgreSQL recipe.
 - Є release/deploy/rollback/backup scripts із чинними guards.
 - Є versioned knowledge, retrieval, classifications та Insights.
@@ -36,35 +38,32 @@
 | [backup.sh](../scripts/backup.sh) і helpers орієнтовані на starter/local DB | Support runtime state та external DB потребують recovery contract | D03 |
 | [app.ts](../apps/api/src/app.ts) має development Swagger/OpenAPI, route responses покриті нерівномірно | Потрібен повний versioned contract, release spec і SDK | D04 |
 | [support/routes.ts](../apps/api/src/modules/support/routes.ts) має polling/clientMessageId, але немає завершеного public events/webhook contract | Host product має самостійно організовувати отримання результату | D05 |
-| MCP integration/tests уже є; головний TODO додає writes/permissions | Потрібен authoring kit і спільна перевірка конекторів | D06 |
+| Reviewed OpenAPI reads/writes/permissions уже реалізовані; legacy MCP лишається read-only | Потрібен reusable authoring kit і спільна перевірка конекторів | D06 |
 | Один operator bearer і `operator:staff`; `/team` без invites/roles | Потрібні scoped service identities та customer session lifecycle | D07 |
-| Worker закриває компоненти; загальний bounded drain contract не визначений | Треба перевірити rollout/lease-loss поведінку як одного lifecycle | D08 |
+| Перехід старого Celery/RabbitMQ deployment до Node/BullMQ має перевірений bounded drain; загальний runtime lifecycle ще не визначений | Треба перевірити решту rollout/lease-loss поведінки | D08 |
 | DSH lock process-local, native sessions у filesystem | Потрібен явний supported multi-worker storage/ownership contract | D08 |
 | Logs/health/audit існують, але немає повного correlated operations contract | Важко діагностувати шлях message → run → tool → effect | D09 |
 | `policyContext` читає загальний listCases і окремі proposals; collections непагіновані | Потрібні targeted SQL, bounded reads і вимірювання | D10 |
 | Runtime fixture/live synthetic examples не є semantic benchmark | Потрібен dataset і якісні release reports | D11 |
-| `sourceRefs` консервативно охоплює all eligible KB, docs говорять про retrieved | Потрібні transitive dependencies і узгоджена документація | D12 |
-| Немає root LICENSE, README змішує product і starter, CLAUDE містить старі правила | Потрібні owner decisions, onboarding і maintenance process | D13 |
+| `sourceRefs` документовано як консервативний snapshot eligible KB; точного transitive provenance ще немає | Потрібні transitive dependencies і source lifecycle tests | D12 |
+| Owner обрав Apache-2.0 і public Docker Hub `latkonazar`; inventory/attribution, package metadata і public source access ще потребують release evidence | Потрібні license artifacts, onboarding і maintenance process | D13 |
 | `AgentModel`/provider config існують, DSH pinned alpha, немає повного verified matrix | Потрібні runtime capability/session/provider contracts | D14 |
 
 Кодова база вже має safeguards. Задачі про authorization, recovery чи limits не слід описувати у release notes як виправлення доведеної vulnerability без окремого підтвердження.
 
-## 4. Поточний CI: точний висновок
+## 4. Поточний CI та deployment: точний висновок
 
-Для baseline commit перевірено [run 41247159605](https://github.com/LatkoNazar/eldhall/actions/runs/41247159605):
+Для прийнятого runtime source [main run 41832367634](https://github.com/LatkoNazar/eldhall/actions/runs/41832367634) завершився успішно на ARM64: `check`, `integration`, `sidecar-compose` і production `deploy`. [Final source run 41831320974](https://github.com/LatkoNazar/eldhall/actions/runs/41831320974) також пройшов усі три mandatory jobs. Конкретні результати: PostgreSQL 29/29, pgvector knowledge 13/13, Python 32/32 та pinned Ruff, cross-language MCP 6/6; standalone Compose реально зібрано, запущено й перевірено з synthetic Orders і scripted model.
 
-- [`check` — success](https://github.com/LatkoNazar/eldhall/actions/runs/41247159605/job/124672861754).
-- [`deploy` — failure](https://github.com/LatkoNazar/eldhall/actions/runs/41247159605/job/124673960286) на `Configure verified SSH connection`.
+Production cutover зупинив старий ingress, дочекався нульових SQL/broker work, зупинив старий worker і перевірив відсутність consumers перед backup/migration. [Post-deployment diagnostics 41834098842](https://github.com/LatkoNazar/eldhall/actions/runs/41834098842) підтвердив `current`/`image.ref` для `2ba80ca`, здорові API/worker/frontend/dependencies, нульові pending RabbitMQ messages і consumers; одна стара queue, broker та storage збережені для rollback. Public readiness, `/operator` і `/chat` повернули 200, integration route без авторизації — 401. Це evidence приватного starter deployment, а не clean install із registry або ввімкненого production business connector.
 
-Отже, червоний загальний run не означає падіння тестів. Зі статусу кроку не встановлена точна внутрішня причина SSH-збою.
+Пізніші docs/TODO-only commits `5ef349c` і `7728f5d` не змінюють runtime. Їхній [main run 41835023200](https://github.com/LatkoNazar/eldhall/actions/runs/41835023200) для `7728f5d` завершив `check`, `integration`, `sidecar-compose` і production `deploy` успішно. Це останній підтверджений main rollout; runtime код лишився тим самим, що в `2ba80ca`.
 
-Окремі coverage gaps у workflow:
+Історичний [run 41247159605](https://github.com/LatkoNazar/eldhall/actions/runs/41247159605) на snapshot 1 листопада мав `check: success`, `deploy: failure` на SSH setup. Пізніші спроби [41822733941](https://github.com/LatkoNazar/eldhall/actions/runs/41822733941) зупинилися на missing deployment configuration; її виправили перед успішним rollout. Ці збої не є поточними blockers.
 
-- `npm test` запускає `tests/*.test.ts`; real PostgreSQL suites мають окремий `test:postgres`, який не викликається workflow.
-- Standalone support Compose перевіряється через parsing; container smoke орієнтований на starter recipe.
-- Published multi-platform registry image, pull-only installation, upgrade та restore не мають end-user release gates.
+Залишаються gates: AMD64 native runtime, фактично published images і перевірка їх digest/provenance, pull-only clean install без checkout, upgrade/restore та незалежний walkthrough. ARM64 source-build CI і авторський production deployment не доводять ці сценарії.
 
-Після D01 розділити code CI, trusted release publication і конкретний приватний deployment. Збій авторського SSH host не повинен робити сторонній OSS release нерозбірливим.
+Після D01 code CI, trusted release publication і приватний deployment мають окремі результати. Owner підтвердив public `docker.io/latkonazar/eldhall-server`, `eldhall-web`, `eldhall-mcp-openapi` й Apache-2.0; source visibility, inventory/attribution і publication evidence лишаються gates. [Distribution contract](../docs/distribution-contract.md) визначає proposed release metadata; не стверджує наявності образів або installer.
 
 ## 5. Контракти, які треба погодити першими
 
