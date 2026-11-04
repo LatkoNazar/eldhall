@@ -1,6 +1,24 @@
 # Current implementation status
 
-Updated 31 October 2026. Local integration combines the implemented support changes with team work through `2456f71`; source integration was committed on `codex/support-mvp` before final publication. Results below are local verification, not a claim of remote CI, cloud deployment or Docker container execution. Current guides: [implementation/start](implementation.md), [API contracts](API_CONTRACTS.md), [runtime/configuration](integrations-runtime.md). [TEAM_PROMPTS](TEAM_PROMPTS.md) is superseded historical context.
+Updated 4 November 2026. The OpenAPI implementation is being verified on `codex/complete-openapi-todo`; the root checklist remains until its final acceptance, PR and main conditions are met. Current guides: [implementation/start](implementation.md), [OpenAPI onboarding](OPENAPI_QUICKSTART.md), [API contracts](API_CONTRACTS.md), [runtime/configuration](integrations-runtime.md). [TEAM_PROMPTS](TEAM_PROMPTS.md) is superseded historical context.
+
+## OpenAPI integration checkpoint
+
+Implemented: deterministic local OpenAPI import and normalized artifacts; authenticated Python MCP sidecar with fixed target and registered guards; PostgreSQL-authoritative policy/review/activation; operator API and Integrations UI; durable external actions, completion deduplication, expiry/invalidation and manual reconciliation. A new operation starts disabled regardless of an integration/group auto rule. Legacy MCP connections retain their read-only contract.
+
+| Check | Local result |
+| --- | --- |
+| Full API suite, sequential file execution | 185 tests: 184 passed, zero failures, one pgvector test awaiting a PostgreSQL fixture |
+| API lint, typecheck, production build | Passed |
+| Frontend suite, lint, typecheck, production build | 80 tests passed; all checks passed |
+| Python importer/sidecar suite | 32 tests passed, zero skips |
+| Native DSH fixture suite | 8 tests passed (also part of the full API suite) |
+| Node → Python MCP → synthetic Orders API | 5 integration tests passed |
+| Config generator and JavaScript syntax | Validated against the compiled backend schema |
+
+PostgreSQL race/recovery tests and standalone Compose acceptance are mandatory CI gates on the configured ARM64 runner. Local Docker Desktop cannot start due to a broken service socket; these runtime gates must not be inferred from Compose parsing or the memory tests. No production deployment is claimed at this checkpoint. The standalone smoke uses only synthetic Orders data and a scripted model.
+
+## Previous baseline (31 October 2026)
 
 See [classification/configuration](integrations-runtime.md), [OpenRouter](openrouter.md) and [Insights](insights.md) for the implemented additions. The incoming [pitch deck](../deliverables/pitch/README.md) remains a historical draft until regenerated and verified against the current application. [Product analytics](ANALYTICS_PLAN.md) remains a plan; no new tracking integration is claimed.
 
@@ -25,6 +43,6 @@ Runtime, MCP and PostgreSQL counts describe their respective suites; do not add 
 - Payment effects are **SIMULATED**, identified by `SIM-RF-*`; no real money moves.
 - Knowledge retrieval is hybrid (BM25 + embeddings, RRF) with audience/plan scoping; embeddings are local by default or OpenAI/Google, stored in pgvector when the extension is present (`compose.knowledge.yaml`), otherwise in memory. See `docs/KNOWLEDGE_BASE.md`.
 - One configured operator bearer maps to the bootstrap staff principal; customers use opaque session bearers. OAuth/SSO, invitations and full RBAC are not implemented.
-- MCP supports configured reads only. Skills grant no executable code or permissions. The upstream server must enforce customer/business ownership.
+- Legacy MCP supports configured reads only; reviewed OpenAPI catalogs use a separate policy, approval and execution ledger for writes. Skills grant no executable code or permissions. The upstream server must enforce customer/business ownership and atomic business guards.
 - No Oracle/managed-cloud deployment or Docker container execution is claimed. Local integration commits do not establish remote CI or publication success.
 - License and managed-cloud packaging remain undecided. [The architecture review](architecture-review.md) remains a target proposal.

@@ -36,8 +36,9 @@ class ImporterTest(unittest.TestCase):
         self.assertEqual(status["DELETE /customers/{customer_id}"]["status"], "unreviewed")
         self.assertEqual(status["GET /orders/{order_id}"]["status"], "unsupported")
         self.assertIn("oneOf", status["GET /orders/{order_id}"]["reason"])
-        self.assertEqual([op["toolName"] for op in manifest["operations"]], ["cancel_order"])
-        self.assertEqual(report["diff"]["added"], ["POST /orders/{order_id}/cancel"])
+        self.assertEqual(manifest["operations"], [])
+        self.assertEqual(status["POST /orders/{order_id}/cancel"]["status"], "unsupported")
+        self.assertEqual(report["diff"]["added"], [])
 
     def test_rejects_wrong_versions_remote_refs_and_stale_review(self):
         spec, review = load("openapi.json"), load("review.json")
@@ -45,8 +46,8 @@ class ImporterTest(unittest.TestCase):
             build_manifest({**spec, "openapi": "2.0"}, review)
         remote = copy.deepcopy(spec)
         remote["paths"]["/orders/{order_id}"]["get"]["parameters"][0] = {"$ref": "https://evil.example/p.json"}
-        _, report = build_manifest(remote, review)
-        self.assertIn("non-local", report["operations"][0]["reason"])
+        with self.assertRaisesRegex(ValueError, "non-local"):
+            build_manifest(remote, review)
         with self.assertRaisesRegex(ValueError, "not in the spec"):
             build_manifest(spec, {**review, "operations": {**review["operations"], "GET /gone": {}}})
 
@@ -124,7 +125,18 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(str(seen[0].url), "http://upstream.test/orders/ORD-1001")
 
     def _call(self, handler, deadline=4.0):
-        upstream = httpx.AsyncClient(base_url="http://upstream.test", transport=httpx.MockTransport(handler))
+        reads = 0
+
+        async def guarded_handler(request):
+            nonlocal reads
+            if request.method == "GET":
+                reads += 1
+                if reads == 1:
+                    return httpx.Response(200, json={"order_id": "ORD-1001", "status": "paid"})
+            result = handler(request)
+            return await result if hasattr(result, "__await__") else result
+
+        upstream = httpx.AsyncClient(base_url="http://upstream.test", transport=httpx.MockTransport(guarded_handler))
 
         async def scenario():
             async with Client(create_server(load("manifest.json"), upstream, deadline)) as client:
@@ -151,7 +163,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(write, {"error": "outcome_unknown", "effect": "unknown"})
         self.assertEqual(read, {"error": "timeout", "effect": "none"})
 
-    def test_write_timeout_is_unknown_and_read_timeout_is_not(self):
+    def test_preflight_timeout_never_dispatches_the_write(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("slow", request=request)
 
@@ -161,7 +173,7 @@ class ServerTest(unittest.TestCase):
             async with Client(create_server(load("manifest.json"), upstream)) as client:
                 write = await client.call_tool("cancel_order", {"order_id": "ORD-1001", "eldhall": {"customerId": "c", "idempotencyKey": "a"}}, raise_on_error=False)
                 read = await client.call_tool("get_order_status", {"order_id": "ORD-1001", "eldhall": {"customerId": "c"}}, raise_on_error=False)
-                self.assertEqual(write.structured_content, {"error": "outcome_unknown", "effect": "unknown"})
+                self.assertEqual(write.structured_content, {"error": "timeout", "effect": "none"})
                 self.assertEqual(read.structured_content, {"error": "timeout", "effect": "none"})
 
         asyncio.run(scenario())

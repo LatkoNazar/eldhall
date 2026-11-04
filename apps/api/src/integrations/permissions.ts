@@ -97,11 +97,17 @@ const guard = (reasonCode: string, policyRevision: number | null): PermissionDec
 
 /**
  * sha256 over canonical JSON, ignoring formatting and key order; `omit` drops the top-level hash field itself.
- * Keys sort by code unit (not locale) so Python's `json.dumps(sort_keys=True, separators=(',', ':'), ensure_ascii=False)` matches.
+ * Object keys use UTF-16 ordering and numbers use ECMAScript serialization (RFC 8785).
+ * Serialize sorted keys directly: rebuilding an object would reorder integer-like keys.
  */
 export function fingerprint(value: unknown, omit?: string): string {
   const body = omit && value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== omit)) : value;
-  return createHash('sha256').update(JSON.stringify(canonical(body))).digest('hex');
+  return createHash('sha256').update(canonical(body)).digest('hex');
 }
-const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
-  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)])) : value;
+const canonical = (value: unknown): string => {
+  if(Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if(value&&typeof value==='object') return `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical((value as Record<string,unknown>)[key])}`).join(',')}}`;
+  if(typeof value==='number'&&!Number.isFinite(value)) throw new Error('Canonical JSON requires finite numbers');
+  if(value===null||['string','number','boolean'].includes(typeof value)) return JSON.stringify(value);
+  throw new Error('Canonical JSON requires JSON values');
+};

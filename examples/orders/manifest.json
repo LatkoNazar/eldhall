@@ -3,7 +3,7 @@
   "generatorVersion": "support-mcp-openapi/0.1.0",
   "adapterContractVersion": 1,
   "integrationId": "orders",
-  "specHash": "53844106da7be40938d60c967aaa9fb420093db6c899d58d92c0e3425dbba361",
+  "specHash": "0a8d8e65151c4d4b7937ba3b343dc2d7142420a84b61897ef60b80887af3b0a4",
   "operations": [
     {
       "operationKey": "GET /orders/{order_id}",
@@ -136,5 +136,5 @@
       "operationHash": "8e83254eaef51abfcdc055dec77de967eb777cdfeb8433021f61ee2168539d39"
     }
   ],
-  "manifestHash": "ff1d9828dd39396ee775f82b9e2b2281506ae7bbf98508ce6f28c22eede835af"
+  "manifestHash": "5db0c3f505fa52259836a233cccb79a742aec10d216a0eb11abe00f33ee0c4d9"
 }

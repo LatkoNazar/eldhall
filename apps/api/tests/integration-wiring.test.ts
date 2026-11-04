@@ -19,7 +19,7 @@ const fixture = async <T>(name: string) => JSON.parse(await readFile(new URL(nam
 const A = '10000000-0000-4000-8000-000000000001';
 const B = '20000000-0000-4000-8000-000000000002';
 // Port 9 (discard): anything that reaches the network surfaces as `unavailable`, never `denied`.
-const catalog = (manifest: Manifest, policy: IntegrationPolicy, businessId = A) => ({ businessId, url: 'http://127.0.0.1:9/mcp', credentialEnv: 'WIRING_TEST_SIDECAR_TOKEN', allowInsecureLoopback: true, manifest, policy: { ...policy, businessId } });
+const catalog = (manifest: Manifest, policy: IntegrationPolicy, businessId = A) => ({ businessId, url: 'http://127.0.0.1:9/mcp', upstreamTargetFingerprint:'a'.repeat(64),credentialEnv: 'WIRING_TEST_SIDECAR_TOKEN', allowInsecureLoopback: true, manifest, policy: { ...policy, businessId } });
 const legacy = (businessId: string, id: string) => ({ id, businessId, url: 'https://mcp.example.com/mcp', tools: [{ name: 'lookup_loyalty', description: 'Read loyalty points', access: 'read',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false }, scopeBindings: { businessId: 'business_id', customerId: 'customer_id' }, outputFields: ['points'] }] });
 const denied = (pattern: RegExp) => (error: unknown) => error instanceof IntegrationError && error.code === 'denied' && pattern.test(error.message);

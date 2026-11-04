@@ -3,11 +3,12 @@ import type { AcceptedTurn, AgentRun, AuditEvent, Business, CaseStatus, Customer
 import type { SeedData } from './seed.js';
 import { sameClassificationConfig } from '../agent/classification.js';
 import { canReplaceClassification, classificationState, storedClassification, visibleClassification, type ClassificationState, type StoredClassification } from './classification-storage.js';
+import { MemoryIntegrationStore, externalAdmissionReason, type IntegrationStore } from '../../integrations/state.js';
 type StoredSettings = Omit<SupportSettings, 'classification'> & { classification?: StoredClassification };
 
 export type NewProposal = Omit<Proposal, 'id' | 'createdAt' | 'decidedBy' | 'decidedAt' | 'result' | 'error'>;
 export type CasePatch = Partial<Pick<SupportCase, 'status' | 'priority' | 'intent' | 'analysis' | 'ownership' | 'assignedTo'>>;
-export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs'] }
+export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs']; completionActionId?: string; integrationRefs?: { integrationId:string;manifestHash:string;connectionRevision:string;policyRevision:number }[] }
 export class DuplicateRefund extends Error {}
 export class StaleTurn extends Error {}
 /** Tools a policy may run without operator approval: pending -> executing by `agent:auto`,
@@ -15,6 +16,10 @@ export class StaleTurn extends Error {}
 export const AUTO_CLAIMABLE = ['escalate_to_human', 'external_action'];
 export class VersionConflict extends Error {}
 export interface SupportStore {
+  readonly integrationStore: IntegrationStore;
+  markExternalDispatched(id: string): Promise<boolean>;
+  finishExternalAction(id: string, status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, message: string | null, actor: string, reconciliation?: boolean): Promise<Proposal>;
+  expireExternalActions(): Promise<void>;
   reset(seed: SeedData): Promise<void>;
   seedIfEmpty(seed: SeedData): Promise<void>;
   recoverInterruptedExecutions(): Promise<void>;
@@ -91,6 +96,13 @@ export class MemorySupportStore implements SupportStore {
   private settingRows = new Map<string, StoredSettings>();
   private turnJobs = new Map<string, SupportTurnJob>();
   private clientMessages = new Map<string, string>();
+  readonly integrationStore = new MemoryIntegrationStore((businessId, integrationId, reason) => {
+    for (const row of this.proposalRows.values()) if (row.tool === 'external_action' && this.cases.get(row.caseId)?.businessId === businessId && row.args.integrationId === integrationId && ['pending', 'approved'].includes(row.status)) {
+      Object.assign(row, { status: 'invalidated', error: reason });
+      this.terminalExternal(row,'action.invalidated',reason,`Запит «${String(row.args.title)}» відкликано через зміну налаштувань інтеграції. Його не виконано; звернення передано спеціалісту.`);
+    }
+  },(businessId,integrationId)=>[...this.externalExecutions.entries()].some(([id,execution])=>['admitted','dispatched','unknown'].includes(execution.status)&&this.cases.get(this.proposalRows.get(id)?.caseId??'')?.businessId===businessId&&this.proposalRows.get(id)?.args.integrationId===integrationId));
+  private externalExecutions = new Map<string, { status: 'admitted' | 'dispatched' | 'executed' | 'failed' | 'unknown'; messageId?: string }>();
   constructor(seed?: SeedData) { if (seed) void this.reset(seed); }
   async reset(seed: SeedData) {
     this.businesses = new Map(seed.businesses.map(b => [b.id, copy(b)]));
@@ -100,11 +112,16 @@ export class MemorySupportStore implements SupportStore {
     this.refundRows = []; this.auditRows = []; this.runRows = [];
     this.turns.clear(); this.executionPayments.clear(); this.knowledgeRows.clear(); this.knowledgeHistory = []; this.skillRows.clear(); this.settingRows.clear();
     this.turnJobs.clear(); this.clientMessages.clear();
+    this.integrationStore.clear(); this.externalExecutions.clear();
   }
   async seedIfEmpty(seed: SeedData) { if (!this.businesses.size) await this.reset(seed); }
   async recoverInterruptedExecutions() {
+    await this.expireExternalActions();
     for(const proposal of this.proposalRows.values()) if(proposal.status==='executing' && proposal.decidedAt && Date.now()-Date.parse(proposal.decidedAt)>180000) {
+      const external=this.externalExecutions.get(proposal.id);
+      if(external) { await this.finishExternalAction(proposal.id,external.status==='admitted'?'failed':'unknown',null,external.status==='admitted'?'interrupted_before_dispatch':'interrupted_after_dispatch','Результат зовнішньої дії потребує перевірки спеціалістом. Автоматичний повтор заблоковано.','system:recovery');continue; }
       Object.assign(proposal,{status:'unknown',error:'Execution confirmation was interrupted; manual reconciliation required'});
+      const execution = this.externalExecutions.get(proposal.id); if (execution) execution.status = 'unknown';
       await this.audit(proposal.caseId,'action.unknown','system:recovery',{proposalId:proposal.id});
     }
   }
@@ -235,6 +252,7 @@ export class MemorySupportStore implements SupportStore {
   }
   async completeTurn(lease: TurnLease, patch: CasePatch, body: string, sourceRefs: Message['sourceRefs'] = [], context?: TurnContext) {
     if (!this.activeTurn(lease)) return null;
+    if(context?.integrationRefs?.some(ref=>{const state=this.integrationStore.peek(this.cases.get(lease.caseId)!.businessId,ref.integrationId);return !state||!state.enabled||state.draining||state.activeManifestHash!==ref.manifestHash||state.connectionRevision!==ref.connectionRevision||state.policy.policyRevision!==ref.policyRevision;})) return null;
     if (sourceRefs.some(ref=>{ const source=this.knowledgeRows.get(ref.id); return !source || source.version!==ref.version || source.status!=='published' || source.businessId!==this.cases.get(lease.caseId)?.businessId; })) return null;
     if(context && (JSON.stringify(this.businesses.get(this.cases.get(lease.caseId)!.businessId)?.policy)!==JSON.stringify(context.policy) || context.skills.some(ref=>{const skill=this.skillRows.get(ref.id);return !skill || !skill.enabled || skill.revision!==ref.revision;}))) return null;
     if (context && !sameClassificationConfig(visibleClassification(this.settingRows.get(this.cases.get(lease.caseId)!.businessId)?.classification), context.classification)) return null;
@@ -244,8 +262,10 @@ export class MemorySupportStore implements SupportStore {
       row.ownershipVersion++; row.assignedTo='queue:tier-2';
       for(const proposal of this.proposalRows.values()) if(proposal.caseId===lease.caseId && ['pending','approved'].includes(proposal.status)) Object.assign(proposal,{status:'rejected',error:'Conversation handed to staff'});
     }
-    const message: Message={id:randomUUID(),caseId:lease.caseId,role:'assistant',body,createdAt:now(),sourceRefs:copy(sourceRefs),externalSourceRefs:copy(context?.externalSourceRefs ?? [])};
-    this.messageRows.push(message); const reply=copy(message);
+    const completionId=context?.completionActionId?this.externalExecutions.get(context.completionActionId)?.messageId:undefined;
+    const existingMessage=completionId?this.messageRows.find(message=>message.id===completionId&&message.caseId===lease.caseId):undefined;
+    const message: Message=existingMessage??{id:randomUUID(),caseId:lease.caseId,role:'assistant',body,createdAt:now(),sourceRefs:copy(sourceRefs),externalSourceRefs:copy(context?.externalSourceRefs ?? [])};
+    if(!existingMessage) this.messageRows.push(message); const reply=copy(message);
     if (lease.jobFence !== undefined) {
       Object.assign(this.turnJobs.get(lease.runId)!, { status: 'completed', workerId: null, leaseExpiresAt: null, updatedAt: now() });
       this.turns.delete(lease.caseId);
@@ -270,23 +290,71 @@ export class MemorySupportStore implements SupportStore {
   async decideProposal(id: string, argsHash: string, decision:'approved'|'rejected', actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.status!=='pending' || row.argsHash!==argsHash) return null;
+    if (row.tool === 'external_action' && decision === 'approved' && !this.admitExternal(row, false)) return null;
     Object.assign(row,{status:decision,decidedBy:actor,decidedAt:now()}); return copy(row);
   }
   async claimExecution(id:string,argsHash:string,actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.argsHash!==argsHash || row.status!=='approved' || !row.decidedAt || Date.now()-Date.parse(row.decidedAt)>15*60*1000) return null;
+    if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
     if (row.tool==='refund_payment') {
       const paymentId=String(row.args.payment_id);
       if (this.executionPayments.has(paymentId)) return null;
       this.executionPayments.set(paymentId,row.id);
     }
-    row.status='executing'; row.decidedBy=actor; row.decidedAt=now(); return copy(row);
+    row.status='executing'; row.decidedBy=actor; row.decidedAt=now(); if(row.tool==='external_action') row.authorizationOrigin='operator_approval'; return copy(row);
   }
   async claimProposal(id:string,argsHash:string,to:'executing'|'rejected',actor:string) {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
     const row=this.proposalRows.get(id);
     if (!row || !AUTO_CLAIMABLE.includes(row.tool) || row.policy.requiresApproval!==false || row.status!=='pending' || row.argsHash!==argsHash) return null;
+    if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
+    if(row.tool==='external_action') row.authorizationOrigin='policy_auto';
     Object.assign(row,{status:to,decidedBy:actor,decidedAt:now()}); return copy(row);
+  }
+  private admitExternal(row: Proposal, claim: boolean,actor='system') {
+    const supportCase = this.cases.get(row.caseId);
+    const unresolved=[...this.externalExecutions.entries()].some(([id,execution])=>id!==row.id&&execution.status==='unknown'&&this.proposalRows.get(id)?.caseId===row.caseId);
+    const reason = unresolved?'unknown_execution_pending':supportCase ? externalAdmissionReason(row, supportCase, this.integrationStore.peek(supportCase.businessId, String(row.args.integrationId))) : 'case_removed';
+    if (reason) { Object.assign(row, { status: reason === 'approval_expired' ? 'expired' : 'invalidated', error: reason });this.terminalExternal(row,reason==='approval_expired'?'action.expired':'action.invalidated',reason,reason==='approval_expired'?`Строк погодження дії «${String(row.args.title)}» минув. Дію не виконано; звернення передано спеціалісту.`:`Дію «${String(row.args.title)}» не виконано: дозвіл змінився або попередній результат потребує перевірки спеціалістом.`);return false; }
+    if (claim) { if (this.externalExecutions.has(row.id)) return false; this.externalExecutions.set(row.id, { status: 'admitted' });this.auditRows.push({id:randomUUID(),caseId:row.caseId,type:'action.claimed',actor,data:{proposalId:row.id,integrationId:row.args.integrationId,operationKey:row.args.operationKey,manifestHash:row.args.manifestHash,connectionRevision:row.args.connectionRevision,policyRevision:row.args.policyRevision,argsHash:row.argsHash,origin:actor==='agent:auto'?'policy_auto':'operator_approval'},createdAt:now()}); }
+    return true;
+  }
+  async markExternalDispatched(id: string) {
+    const execution = this.externalExecutions.get(id);
+    const proposal=this.proposalRows.get(id);
+    if (!execution || execution.status !== 'admitted'||proposal?.status!=='executing') return false;
+    execution.status = 'dispatched';this.auditRows.push({id:randomUUID(),caseId:proposal.caseId,type:'action.dispatched',actor:proposal.decidedBy??'system',data:{proposalId:id,integrationId:proposal.args.integrationId,operationKey:proposal.args.operationKey,manifestHash:proposal.args.manifestHash,connectionRevision:proposal.args.connectionRevision,policyRevision:proposal.args.policyRevision,argsHash:proposal.argsHash,origin:proposal.authorizationOrigin},createdAt:now()});return true;
+  }
+  async expireExternalActions() {
+    for (const row of this.proposalRows.values()) if(row.tool==='external_action' && ['pending','approved'].includes(row.status) && typeof row.args.expiresAt==='string' && Date.parse(row.args.expiresAt)<=Date.now()) {
+      Object.assign(row,{status:'expired',error:'approval_expired'});this.terminalExternal(row,'action.expired','approval_expired',`Строк погодження дії «${String(row.args.title)}» минув. Дію не виконано; звернення передано спеціалісту.`);
+    }
+  }
+  private terminalExternal(row:Proposal,event:string,reason:string,message:string) {
+    const supportCase=this.cases.get(row.caseId);if(!supportCase) return;
+    Object.assign(supportCase,{status:'escalated',ownership:'staff',ownershipVersion:supportCase.ownershipVersion+1,assignedTo:'queue:tier-2',updatedAt:now()});
+    this.turns.delete(row.caseId);
+    for(const job of this.turnJobs.values()) if(job.caseId===row.caseId&&['queued','running'].includes(job.status)) Object.assign(job,{status:'cancelled',workerId:null,leaseExpiresAt:null,updatedAt:now()});
+    for(const other of this.proposalRows.values()) if(other.caseId===row.caseId&&['pending','approved'].includes(other.status)) Object.assign(other,{status:other.tool==='external_action'?'invalidated':'rejected',error:'Conversation handed to staff'});
+    this.messageRows.push({id:randomUUID(),caseId:row.caseId,role:'assistant',body:message,createdAt:now()});
+    this.auditRows.push({id:randomUUID(),caseId:row.caseId,type:event,actor:'system:integration',data:{proposalId:row.id,integrationId:row.args.integrationId,reasonCode:reason},createdAt:now()});
+  }
+  async finishExternalAction(id: string, status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, message: string | null, actor: string, reconciliation = false) {
+    const row = this.proposalRows.get(id); const execution = this.externalExecutions.get(id);
+    if (!row || !execution) throw new Error('External execution not found');
+    if(reconciliation&&row.status!=='unknown') throw new VersionConflict('Execution was already reconciled');
+    if (!reconciliation&&row.status!=='executing') return copy(row);
+    Object.assign(row, { status, result: copy(result), error }); execution.status = status;
+    if (message && (!execution.messageId || reconciliation)) {
+      const reply: Message = { id: randomUUID(), caseId: row.caseId, role: 'assistant', body: message, createdAt: now() };
+      this.messageRows.push(reply); execution.messageId = reply.id;
+    }
+    const supportCase = this.cases.get(row.caseId)!;
+    Object.assign(supportCase, { status: status === 'executed' ? supportCase.ownership==='staff'?supportCase.status:'resolved' : 'escalated', updatedAt: now() });
+    if (message && (status==='unknown'||(status!=='executed'&&actor!=='agent:auto'))) { supportCase.ownership='staff';supportCase.ownershipVersion++;supportCase.assignedTo=actor;this.turns.delete(row.caseId); }
+    this.auditRows.push({id:randomUUID(),caseId:row.caseId,type:reconciliation?'action.reconciled':`action.${status}`,actor,data:{proposalId:id,operationKey:row.args.operationKey,origin:row.authorizationOrigin,reasonCode:error,guard:result?.guard??row.args.guard??null},createdAt:now()});
+    return copy(row);
   }
   async finishProposal(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null) {
     const row=this.proposalRows.get(id); if (!row) throw new Error('Proposal not found');
@@ -310,7 +378,7 @@ export class MemorySupportStore implements SupportStore {
     const count=<K extends string>(keys:K[],values:K[])=>Object.fromEntries(keys.map(k=>[k,values.filter(v=>v===k).length])) as Record<K,number>;
     const timed=this.runRows.filter(r=>r.status!=='failed');
     return { cases:cases.length,byStatus:count<CaseStatus>(['open','awaiting_approval','escalated','resolved'],cases.map(c=>c.status)),byPriority:count<Priority>(['P1','P2','P3'],cases.map(c=>c.priority)),
-      proposals:count<ProposalStatus>(['pending','approved','executing','executed','rejected','failed','denied','unknown'],[...this.proposalRows.values()].map(p=>p.status)),
+      proposals:count<ProposalStatus>(['pending','approved','executing','executed','rejected','failed','denied','unknown','expired','invalidated'],[...this.proposalRows.values()].map(p=>p.status)),
       refundsIssuedCents:this.refundRows.reduce((s,r)=>s+r.amountCents,0),agentRuns:this.runRows.length,fallbackRuns:this.runRows.filter(r=>r.status==='fallback').length,
       avgAgentLatencyMs:timed.length?Math.round(timed.reduce((s,r)=>s+r.latencyMs,0)/timed.length):null };
   }

@@ -8,7 +8,7 @@ export type Intent = 'duplicate_charge' | 'refund_request' | 'billing_question' 
 export type CaseStatus = 'open' | 'awaiting_approval' | 'escalated' | 'resolved';
 export type Priority = 'P1' | 'P2' | 'P3';
 export type MessageRole = 'customer' | 'assistant' | 'operator' | 'system';
-export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown';
+export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown' | 'expired' | 'invalidated';
 export type Risk = 'low' | 'high';
 
 export interface Policy {
@@ -82,6 +82,7 @@ export interface PolicyCheck { name: string; passed: boolean; detail: string }
 export interface PolicyResult { allowed: boolean; requiresApproval: boolean; checks: PolicyCheck[] }
 
 export interface Proposal {
+  authorizationOrigin?: 'policy_auto' | 'operator_approval' | null;
   turnJobId?: string | null;
   id: string; caseId: string; tool: string; args: Record<string, unknown>; argsHash: string;
   risk: Risk; status: ProposalStatus; policy: PolicyResult;

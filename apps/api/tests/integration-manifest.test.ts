@@ -22,7 +22,7 @@ const issues = (raw: unknown) => {
 
 test('Orders fixture: manifest verifies, spec hash matches, policy resolves read auto / cancel ask / delete denied', async () => {
   const manifest = manifestSchema.parse(await fixture('manifest.json'));
-  assert.equal(manifest.specHash, fingerprint(await fixture('openapi.json')));
+  assert.equal(manifest.specHash, fingerprint(await fixture('normalized.openapi.json')));
   const policy = await fixture('policy.json') as { businessId: string };
   const decide = (index: number) => {
     const op = manifest.operations[index]!;

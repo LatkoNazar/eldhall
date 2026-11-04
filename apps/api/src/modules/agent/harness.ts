@@ -160,6 +160,7 @@ export class SupportHarness {
       if (!externalMode) return;
       if (externalFailed || externalSignal.aborted || !await external!.validate({ businessId: customer.businessId, plan: customer.plan }, [...externalRefs.values()], externalSignal).catch(() => false)) throw new StaleTurn('External knowledge changed or is unavailable');
     };
+    const observedPolicies=new Map<string,{manifestHash:string;connectionRevision:string;policyRevision:number}>();
     const assertActive = async () => {
       if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
       if (externalMode) {
@@ -173,6 +174,7 @@ export class SupportHarness {
       if (JSON.stringify((await store.business(customer.businessId))?.policy) !== JSON.stringify(business.policy)) throw new StaleTurn('Business policy changed');
       if (!sameClassificationConfig((await store.settings(customer.businessId)).classification, settings.classification)) throw new StaleTurn('Classification taxonomy changed');
       if (externalFailed) throw new StaleTurn('External knowledge is unavailable');
+      for(const [integrationId,observed] of observedPolicies) { const state=await store.integrationStore.get(customer.businessId,integrationId);if(!state||!state.enabled||state.draining||state.activeManifestHash!==observed.manifestHash||state.connectionRevision!==observed.connectionRevision||state.policy.policyRevision!==observed.policyRevision) throw new StaleTurn('Integration policy changed'); }
     };
     const ctx: AgentContext = {
       conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
@@ -211,23 +213,27 @@ export class SupportHarness {
       proposing = run.catch(() => undefined);
       return run;
     };
-    const proposeNow = async ({ args, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
+    const proposeNow = async ({ args: requestedArgs, mode, title }: ExternalActionRequest): Promise<BusinessToolResult> => {
       await assertActive();
-      const hash = argsHash(caseId, 'external_action', args);
       const prior = externalAction?.proposal ?? (lease.jobFence !== undefined ? (await store.proposals(caseId)).find(p => p.tool === 'external_action' && p.turnJobId === lease.runId) : undefined);
-      if (prior && prior.argsHash !== hash) return { status: 'denied', reasonCode: 'one_external_action_per_turn' };
+      const semantic = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([key])=>key!=='expiresAt'));
+      if (prior && argsHash(caseId,'external_action',semantic(prior.args)) !== argsHash(caseId,'external_action',semantic(requestedArgs))) return { status: 'denied', reasonCode: 'one_external_action_per_turn' };
+      const args = prior?.args ?? requestedArgs;
+      const hash = argsHash(caseId, 'external_action', args);
       let proposal = prior ?? await store.createProposal({ caseId, tool: 'external_action', args, argsHash: hash, risk: 'high', status: 'pending',
         policy: { allowed: true, requiresApproval: mode === 'ask', checks: [{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease);
       if (!prior) await store.audit(caseId, 'action.proposed', 'agent', { proposalId: proposal.id, tool: 'external_action', operationKey: args.operationKey, mode });
       if (mode === 'auto' && proposal.status === 'pending') {
         const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
-        if (claimed) proposal = (await this.executeExternal(claimed, false, assertActive)).proposal;
+        if (claimed) proposal = (await this.executeExternal(claimed, assertActive)).proposal;
       }
       externalAction = { proposal, title };
       return toolResult(proposal, title);
     };
-    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive, propose });
-    ctx.businessTools = integrations?.tools ?? [];
+    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose,
+      rememberPolicy:(integrationId,manifestHash,connectionRevision,policyRevision)=>observedPolicies.set(integrationId,{manifestHash,connectionRevision,policyRevision}),
+    });
+    ctx.businessTools = integrations?.listTools ? await integrations.listTools() : integrations?.tools ?? [];
     // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
     const evidence: string[] = [];
     ctx.callBusinessTool = integrations ? async (integrationId, name, input, signal) => {
@@ -248,6 +254,7 @@ export class SupportHarness {
     await store.audit(caseId, 'agent.analyzed', `agent:${model}`, { intent: analysis.intent, sentiment: sentiment.label, priority: analysis.priority, source, classification: analysis.classification });
 
     let action = decision.action;
+    if(externalAction?.proposal.args.effect==='write') action=null;
     if (!action && (sentiment.abusive || sentiment.escalationRisk >= 0.8)) {
       action = { tool: 'escalate_to_human', args: { reason: `High escalation risk (${sentiment.label})` } };
     }
@@ -256,7 +263,7 @@ export class SupportHarness {
     let escalated = proposal?.status === 'executed' && proposal.tool === 'escalate_to_human';
     if (externalAction) externalAction.proposal = (await store.proposal(externalAction.proposal.id)) ?? externalAction.proposal;
     // An unconfirmed external effect needs a person to reconcile it before anything else happens.
-    if (externalAction?.proposal.status === 'unknown') escalated = true;
+    if (externalAction && ['unknown','failed','expired','invalidated'].includes(externalAction.proposal.status)) escalated = true;
     if (proposal?.status === 'denied' && proposal.tool !== 'escalate_to_human') {
       const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` }, lease);
       escalated = handoff.status === 'executed';
@@ -266,7 +273,7 @@ export class SupportHarness {
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
     await assertExternal();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()]});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()],completionActionId:externalAction?.proposal.id,integrationRefs:[...observedPolicies].map(([integrationId,ref])=>({integrationId,...ref}))});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -395,7 +402,7 @@ export class SupportHarness {
 
   /** Executes a claimed (status=executing) proposal. Re-validates policy against current state first. */
   private async execute(proposal: Proposal) {
-    if (proposal.tool === 'external_action') return this.executeExternal(proposal, true);
+    if (proposal.tool === 'external_action') return this.executeExternal(proposal);
     const { store, provider } = this.deps;
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
@@ -436,29 +443,26 @@ export class SupportHarness {
   }
 
   /** Dispatches a claimed external action once; the outcome is recorded before anyone is told about it. */
-  private async executeExternal(proposal: Proposal, notify: boolean, assertActive: () => Promise<void> = async () => undefined) {
+  private async executeExternal(proposal: Proposal, assertActive: () => Promise<void> = async () => undefined) {
     const { store } = this.deps;
     const supportCase = (await store.getCase(proposal.caseId))!;
     const customer = (await store.customer(supportCase.customerId))!;
     let scoped: ReturnType<BusinessIntegrations['forContext']> | undefined;
     try {
       // In a turn, the turn's ownership fence runs right before dispatch; a takeover stops the write.
-      scoped = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, assertActive });
+      scoped = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId: supportCase.id, ownershipVersion: supportCase.ownershipVersion,
+        assertActive: async()=>{ await assertActive(); const current=await store.getCase(proposal.caseId); if(!current || current.ownership!=='bot' || current.ownershipVersion!==proposal.args.ownershipVersion) throw new StaleTurn('Conversation ownership changed'); },
+        markDispatched:async()=>{ if(!await store.markExternalDispatched(proposal.id)) throw new StaleTurn('Execution already dispatched'); },
+      });
     } catch { scoped = undefined; }
     const outcome: ActionOutcome = scoped?.executeAction
       // An executor crash after a possible dispatch must not look like a clean failure.
       ? await scoped.executeAction(proposal.args, proposal.id).catch(() => ({ status: 'unknown' as const, reasonCode: 'executor_error' }))
       : { status: 'failed', reasonCode: 'integration_unavailable' };
-    const done = outcome.status === 'executed'
-      ? await store.finishProposal(proposal.id, 'executed', { data: outcome.data }, null)
-      : await store.finishProposal(proposal.id, outcome.status, null, outcome.reasonCode);
-    await store.audit(proposal.caseId, `action.${outcome.status === 'executed' ? 'executed' : outcome.status === 'unknown' ? 'unknown' : 'failed'}`, proposal.decidedBy ?? 'system', {
-      proposalId: proposal.id, operationKey: proposal.args.operationKey, origin: proposal.decidedBy === 'agent:auto' ? 'policy_auto' : 'operator_approval',
-      ...(outcome.status === 'executed' ? {} : { reasonCode: outcome.reasonCode }) });
-    if (!notify) return { proposal: done, case: supportCase };
-    await store.addMessage(proposal.caseId, 'assistant', externalMessage(done, true));
-    if (outcome.status !== 'executed') await store.setOwnership(proposal.caseId, 'staff', proposal.decidedBy ?? 'queue:tier-2');
-    return { proposal: done, case: await store.updateCase(proposal.caseId, { status: outcome.status === 'executed' ? 'resolved' : 'escalated' }) };
+    const result=outcome.status==='executed'?{data:outcome.data,...(outcome.guard?{guard:outcome.guard}:{})}:outcome.guard?{guard:outcome.guard}:null;
+    const error=outcome.status==='executed'?null:outcome.reasonCode;
+    const done=await store.finishExternalAction(proposal.id,outcome.status,result,error,externalMessage({...proposal,status:outcome.status,result,error},true),proposal.decidedBy??'system');
+    return {proposal:done,case:(await store.getCase(proposal.caseId))!};
   }
 
   private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = []): string {

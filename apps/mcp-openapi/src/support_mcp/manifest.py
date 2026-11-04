@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any
+import rfc8785
 
 MANIFEST_SCHEMA_VERSION = 1
 ADAPTER_CONTRACT_VERSION = 1
@@ -15,15 +17,15 @@ RESERVED_KEYS = {"__proto__", "constructor", "prototype", "eldhall"}
 SCHEMA_TYPES = {"object", "array", "string", "number", "integer", "boolean", "null"}
 # Keywords copied to the bounded model schema; ignorable ones are dropped; anything else makes the operation unsupported.
 KEPT = {"type", "description", "enum", "maxLength", "maxItems", "minimum", "maximum", "properties", "required", "items", "additionalProperties"}
-IGNORED = {"title", "example", "examples", "default", "format", "minLength", "minItems", "pattern", "readOnly", "writeOnly", "deprecated", "nullable"}
+IGNORED = {"title", "example", "examples", "deprecated"}
 
 
-class Unsupported(Exception):
+class Unsupported(ValueError):
     """The operation cannot be represented faithfully; it is reported, never silently widened."""
 
 
 def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return rfc8785.dumps(value).decode("utf-8")
 
 
 def fingerprint(value: Any, omit: str | None = None) -> str:
@@ -32,20 +34,11 @@ def fingerprint(value: Any, omit: str | None = None) -> str:
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
-def _ints(value: Any) -> Any:
-    """Integral floats must serialize like JavaScript (1, not 1.0) or the hashes diverge."""
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, list):
-        return [_ints(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _ints(v) for k, v in value.items()}
-    return value
-
-
 def _resolve(spec: dict, node: Any, seen: tuple[str, ...] = ()) -> Any:
     if not isinstance(node, dict) or "$ref" not in node:
         return node
+    if set(node) != {"$ref"}:
+        raise Unsupported("$ref siblings require explicit normalization")
     ref = node["$ref"]
     if not isinstance(ref, str) or not ref.startswith("#/"):
         raise Unsupported(f"non-local $ref {ref!r}")
@@ -76,7 +69,7 @@ def _schema(spec: dict, node: Any, depth: int = 0) -> dict:
     if isinstance(node.get("description"), str) and node["description"]:
         out["description"] = node["description"][:500]
     if kind == "object":
-        if node.get("additionalProperties") not in (None, False):
+        if node.get("additionalProperties") is not None and node.get("additionalProperties") is not False:
             raise Unsupported("open-ended objects are not supported")
         props = node.get("properties", {})
         if not isinstance(props, dict) or len(props) > 30:
@@ -86,15 +79,25 @@ def _schema(spec: dict, node: Any, depth: int = 0) -> dict:
             if not SAFE_KEY.match(key) or key in RESERVED_KEYS:
                 raise Unsupported(f"unsafe property name {key!r}")
             out["properties"][key] = _schema(spec, sub, depth + 1)
-        required = [k for k in node.get("required", []) if k in out["properties"]]
+        required = node.get("required", [])
+        if not isinstance(required, list) or any(not isinstance(k, str) or k not in props for k in required) or len(set(required)) != len(required):
+            raise Unsupported("required must contain distinct declared properties")
         if required:
             out["required"] = required
         out["additionalProperties"] = False
     if kind == "array":
         out["items"] = _schema(spec, node.get("items"), depth + 1)
-        out["maxItems"] = min(int(node.get("maxItems", 50)), 50)
-    if kind == "string" and "maxLength" in node:
-        out["maxLength"] = min(int(node["maxLength"]), 4000)
+        limit = node.get("maxItems", 50)
+        if type(limit) is not int or limit < 0:
+            raise Unsupported("maxItems must be a nonnegative integer")
+        out["maxItems"] = min(limit, 50)
+    if kind == "string":
+        limit = node.get("maxLength", 4000)
+        if type(limit) is not int or limit < 0:
+            raise Unsupported("maxLength must be a nonnegative integer")
+        # Missing limits retain TS's implicit bound without changing existing fingerprints.
+        if "maxLength" in node:
+            out["maxLength"] = min(limit, 4000)
     if "enum" in node:
         enum = node["enum"]
         if not isinstance(enum, list) or not 0 < len(enum) <= 50 or any(not (v is None or isinstance(v, (str, int, float, bool))) for v in enum):
@@ -102,8 +105,10 @@ def _schema(spec: dict, node: Any, depth: int = 0) -> dict:
         out["enum"] = enum
     for bound in ("minimum", "maximum"):
         if bound in node and kind in ("number", "integer"):
+            if type(node[bound]) not in (int, float) or not math.isfinite(node[bound]):
+                raise Unsupported(f"{bound} must be finite")
             out[bound] = node[bound]
-    return _ints(out)
+    return out
 
 
 def tool_name(operation_id: str | None, method: str, path: str) -> str:
@@ -113,6 +118,8 @@ def tool_name(operation_id: str | None, method: str, path: str) -> str:
 
 def _operation(spec: dict, method: str, path: str, path_item: dict, op: dict, review: dict) -> dict:
     key = f"{method.upper()} {path}"
+    if op.get("callbacks"):
+        raise Unsupported("callbacks are not supported")
     scope = review.get("scope")
     if not isinstance(scope, dict) or "customerId" not in scope:
         raise Unsupported("review must bind trusted scope.customerId")
@@ -145,6 +152,8 @@ def _operation(spec: dict, method: str, path: str, path_item: dict, op: dict, re
         if not SAFE_KEY.match(name) or name in RESERVED_KEYS:
             raise Unsupported(f"unsafe parameter name {name!r}")
         properties[name] = _schema(spec, p.get("schema"))
+        if properties[name]["type"] not in ("string", "number", "integer", "boolean") or "content" in p or "style" in p or "explode" in p or p.get("allowReserved"):
+            raise Unsupported("parameter serialization requires an explicit adapter; only default scalar path/query parameters are supported")
         if p.get("description") and "description" not in properties[name]:
             properties[name]["description"] = p["description"][:500]
         mapping[name] = where
@@ -159,12 +168,18 @@ def _operation(spec: dict, method: str, path: str, path_item: dict, op: dict, re
         schema = _schema(spec, content["application/json"].get("schema"))
         if schema["type"] != "object":
             raise Unsupported("request body must be a JSON object")
+        if not body.get("required") and schema.get("required"):
+            raise Unsupported("optional body with conditionally required fields needs an explicit adapter")
         for name, sub in schema["properties"].items():
-            if name in properties or name in scope_names:
+            if name in properties:
                 raise Unsupported(f"body field {name!r} collides with a parameter or scope")
+            if name in scope_names:
+                if not any(b["in"] == "body" and b["name"] == name for b in scope.values()):
+                    raise Unsupported(f"body field {name!r} collides with scope")
+                continue
             properties[name] = sub
             mapping[name] = "body"
-            if body.get("required") and name in schema.get("required", []):
+            if name in schema.get("required", []):
                 required.append(name)
 
     input_schema: dict[str, Any] = {"type": "object", "properties": properties, "additionalProperties": False}
@@ -198,6 +213,11 @@ def _operation(spec: dict, method: str, path: str, path_item: dict, op: dict, re
         "reconciliation": review.get("reconciliation"),
     }
     result["operationHash"] = fingerprint(result)
+    from .validation import validate_operation
+    try:
+        validate_operation(result)
+    except (ValueError, TypeError, KeyError) as error:
+        raise Unsupported(f"invalid reviewed operation: {error}") from None
     return result
 
 
@@ -207,10 +227,20 @@ def build_manifest(spec: dict, review: dict, previous: dict | None = None) -> tu
     if not re.match(r"^3\.[01]\.\d+$", version):
         raise ValueError(f"OpenAPI {version or '?'} is not supported; expected 3.0.x or 3.1.x")
     reviews = review.get("operations", {})
+    if not isinstance(reviews, dict) or not isinstance(spec.get("paths", {}), dict):
+        raise ValueError("paths and review.operations must be objects")
     operations: list[dict] = []
     report: list[dict] = []
-    for path, path_item in spec.get("paths", {}).items():
-        path_item = _resolve(spec, path_item)
+    if spec.get("webhooks"):
+        raise ValueError("webhooks are not supported")
+    for path, path_item in sorted(spec.get("paths", {}).items()):
+        try:
+            path_item = _resolve(spec, path_item)
+            if not isinstance(path_item, dict):
+                raise Unsupported("path item must be an object")
+        except Unsupported as error:
+            report.append({"operationKey": path, "status": "unsupported", "reason": str(error)})
+            continue
         for method in METHODS:
             if method not in path_item:
                 continue
@@ -220,7 +250,7 @@ def build_manifest(spec: dict, review: dict, previous: dict | None = None) -> tu
                 continue
             try:
                 operation = _operation(spec, method, path, path_item, path_item[method], reviews[key])
-            except Unsupported as error:
+            except (Unsupported, TypeError, KeyError, AttributeError) as error:
                 report.append({"operationKey": key, "status": "unsupported", "reason": str(error)})
                 continue
             operations.append(operation)
@@ -228,6 +258,18 @@ def build_manifest(spec: dict, review: dict, previous: dict | None = None) -> tu
     for key in reviews:
         if key not in {row["operationKey"] for row in report}:
             raise ValueError(f"review references {key}, which is not in the spec")
+    by_key = {op["operationKey"]: op for op in operations}
+    for operation in list(operations):
+        reconciliation = operation["reconciliation"]
+        if reconciliation:
+            target = by_key.get(reconciliation["operationKey"])
+            if target is None or target["effect"] != "read" or target["guard"] is not None:
+                operations.remove(operation)
+                row = next(row for row in report if row["operationKey"] == operation["operationKey"])
+                row.update(status="unsupported", reason="reconciliation requires an included unguarded read")
+                row.pop("effect", None)
+    operations.sort(key=lambda op: (METHODS.index(op["method"].lower()), op["path"]))
+    report.sort(key=lambda row: (METHODS.index(row["operationKey"].split(" ", 1)[0].lower()) if row["operationKey"].split(" ", 1)[0].lower() in METHODS else len(METHODS), row["operationKey"]))
     names = [op["toolName"] for op in operations]
     if len(set(names)) != len(names):
         raise ValueError("duplicate toolName; set distinct operationIds")
@@ -236,10 +278,11 @@ def build_manifest(spec: dict, review: dict, previous: dict | None = None) -> tu
         "generatorVersion": GENERATOR_VERSION,
         "adapterContractVersion": ADAPTER_CONTRACT_VERSION,
         "integrationId": review["integrationId"],
-        "specHash": fingerprint(spec),
+        "specHash": fingerprint(normalize_spec(spec)),
         "operations": operations,
     }
     manifest["manifestHash"] = fingerprint(manifest)
+    verify(manifest)
     return manifest, {"integrationId": review["integrationId"], "specHash": manifest["specHash"], "operations": report, "diff": diff(previous, manifest)}
 
 
@@ -256,10 +299,89 @@ def diff(previous: dict | None, current: dict) -> dict[str, list[str]]:
 
 def verify(manifest: dict) -> None:
     """Refuse to serve a manifest whose content no longer matches its own hashes."""
-    if manifest.get("schemaVersion") != MANIFEST_SCHEMA_VERSION or manifest.get("adapterContractVersion") != ADAPTER_CONTRACT_VERSION:
+    from .validation import validate_manifest
+    try:
+        validate_manifest(manifest)
+    except (KeyError, TypeError, AttributeError):
+        raise ValueError("invalid manifest shape") from None
+    if manifest["schemaVersion"] != MANIFEST_SCHEMA_VERSION or manifest["adapterContractVersion"] != ADAPTER_CONTRACT_VERSION:
         raise ValueError("unsupported manifest schema or adapter contract version")
     for op in manifest["operations"]:
         if fingerprint(op, "operationHash") != op["operationHash"]:
             raise ValueError(f"operationHash mismatch for {op['operationKey']}")
     if fingerprint(manifest, "manifestHash") != manifest["manifestHash"]:
         raise ValueError("manifestHash mismatch")
+
+
+def normalize_spec(spec: dict) -> dict:
+    """Expand only local references into a bounded, canonical deployment artifact."""
+    budget = 100_000
+
+    def visit(value: Any, depth: int = 0, refs: tuple[str, ...] = ()) -> Any:
+        nonlocal budget
+        budget -= 1
+        if budget < 0 or depth > 50:
+            raise ValueError("normalized specification exceeds depth or expansion budget")
+        if isinstance(value, dict):
+            if "$ref" in value:
+                reference = value["$ref"]
+                if reference in refs:
+                    raise ValueError("cyclic specification reference")
+                return visit(_resolve(spec, value), depth + 1, (*refs, reference))
+            return {key: visit(item, depth + 1, refs) for key, item in sorted(value.items())}
+        if isinstance(value, list):
+            return [visit(item, depth + 1, refs) for item in value]
+        return value
+
+    normalized = visit(spec)
+    if len(canonical(normalized).encode("utf-8")) > 5_000_000:
+        raise ValueError("normalized specification exceeds 5 MB")
+    return normalized
+
+
+def compile_inventory(spec: dict, manifest: dict) -> list[str]:
+    """Mechanically compile reviewed routes with FastMCP, then validate wrapper inventory.
+
+    The compiled server is never served or called. Runtime uses only our scoped,
+    guarded wrappers; spec.servers is replaced and the client's transport denies I/O.
+    Missing/misnamed generated tools abort the deployment import.
+    """
+    import asyncio
+    from copy import deepcopy
+    import httpx2
+    from fastmcp import FastMCP
+    from fastmcp.server.providers.openapi import MCPType, RouteMap
+
+    filtered = deepcopy(spec)
+    filtered["servers"] = [{"url": "https://import.invalid"}]
+    filtered["paths"] = {}
+    names = {}
+    for operation in manifest["operations"]:
+        if operation["effect"] == "unknown":
+            continue
+        path, method = operation["path"], operation["method"].lower()
+        source = deepcopy(spec["paths"][path])
+        candidate = deepcopy(source[method])
+        candidate["operationId"] = operation["operationId"] or operation["toolName"]
+        names[candidate["operationId"]] = operation["toolName"]
+        route = filtered["paths"].setdefault(path, {k: v for k, v in source.items() if k not in METHODS})
+        route[method] = candidate
+
+    async def compile_tools() -> list[str]:
+        def deny_io(request: Any) -> Any:
+            raise RuntimeError("importer does not make network requests")
+
+        async with httpx2.AsyncClient(base_url="https://import.invalid", transport=httpx2.MockTransport(deny_io)) as client:
+            server = FastMCP.from_openapi(openapi_spec=filtered, client=client, mcp_names=names,
+                                          route_maps=[RouteMap(mcp_type=MCPType.TOOL)], validate_output=False)
+            tools = await server.list_tools()
+            actual = sorted(tool.name for tool in tools)
+            if actual != sorted(names.values()):
+                raise ValueError("FastMCP generated inventory does not match reviewed operations")
+            for tool in tools:
+                operation = next(op for op in manifest["operations"] if op["toolName"] == tool.name)
+                if not set(operation["parameters"]).issubset(tool.parameters.get("properties", {})):
+                    raise ValueError("FastMCP generated input omits reviewed parameters")
+            return actual
+
+    return asyncio.run(compile_tools())

@@ -9,6 +9,7 @@ import asyncio
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import sys
@@ -24,7 +25,8 @@ from mcp.types import TextContent, ToolAnnotations
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from .manifest import verify
+from .manifest import fingerprint, verify
+from .adapters import GuardRejected, check_guard
 
 RESERVED = "eldhall"
 SCOPE_SCHEMA = {
@@ -99,9 +101,9 @@ def project(value: Any, fields: list[str]) -> Any:
         clean = {}
         for field in fields:
             v = item.get(field, ...)
-            if isinstance(v, Scalar) and v is not ...:
+            if isinstance(v, Scalar) and v is not ... and not (isinstance(v, float) and not math.isfinite(v)):
                 clean[field] = v
-            elif isinstance(v, list) and len(v) <= 50 and all(isinstance(x, Scalar) for x in v):
+            elif isinstance(v, list) and len(v) <= 50 and all(isinstance(x, Scalar) and not (isinstance(x, float) and not math.isfinite(x)) for x in v):
                 clean[field] = v
         return clean
     if isinstance(value, list):
@@ -119,6 +121,7 @@ class OperationTool(Tool):
     operation: dict
     upstream: Any  # httpx.AsyncClient; pydantic cannot validate it
     deadline: float = 4.0  # total seconds for the upstream call; httpx timeouts are per phase
+    catalog: dict[str, dict]
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
         op = self.operation
@@ -127,13 +130,50 @@ class OperationTool(Tool):
         except Rejected as error:
             return _error(error.code, effect=False)
         write = op["effect"] == "write"
+        dispatched = False
+
+        async def bounded_request(request: dict) -> httpx.Response:
+            request["headers"] = {"Accept-Encoding": "identity", **request.get("headers", {})}
+            async with self.upstream.stream(**request) as response:
+                # Avoid decompression allocating an unbounded buffer before our
+                # iterator sees a chunk. The reviewed adapter accepts plain JSON.
+                if response.headers.get("content-encoding", "identity").lower() not in ("", "identity"):
+                    raise Rejected("invalid_output")
+                chunks = bytearray()
+                async for chunk in response.aiter_bytes():
+                    if len(chunks) + len(chunk) > MAX_UPSTREAM_BYTES:
+                        raise Rejected("invalid_output")
+                    chunks.extend(chunk)
+                # Decoded bytes are already bounded; remove content-encoding so httpx does not decode twice.
+                headers = {k: v for k, v in response.headers.items() if k.lower() not in ("content-encoding", "content-length")}
+                return httpx.Response(response.status_code, headers=headers, content=bytes(chunks))
+
+        async def read_guard(target: dict, inputs: dict) -> Any:
+            response = await bounded_request(build_request(target, inputs))
+            if not 200 <= response.status_code < 300:
+                raise GuardRejected("ownership_unconfirmed")
+            try:
+                return response.json()
+            except ValueError:
+                raise GuardRejected("ownership_unconfirmed") from None
+
+        async def execute() -> httpx.Response:
+            nonlocal dispatched
+            await check_guard(op, arguments, self.catalog, read_guard)
+            dispatched = True
+            return await bounded_request(request)
+
         try:
-            response = await asyncio.wait_for(self.upstream.request(**request), self.deadline)
+            response = await asyncio.wait_for(execute(), self.deadline)
+        except GuardRejected as error:
+            return _error(error.code, effect=False, guard=op["guard"])
+        except Rejected as error:
+            return _error(error.code, effect=None if write and dispatched else False)
         except (httpx.TimeoutException, TimeoutError):
             # A write may have committed upstream; only reconciliation can tell.
-            return _error("outcome_unknown" if write else "timeout", effect=None if write else False)
+            return _error("outcome_unknown" if write and dispatched else "timeout", effect=None if write and dispatched else False)
         except httpx.HTTPError:
-            return _error("outcome_unknown" if write else "unavailable", effect=None if write else False)
+            return _error("outcome_unknown" if write and dispatched else "unavailable", effect=None if write and dispatched else False)
         if response.status_code >= 500:
             return _error("outcome_unknown" if write else "unavailable", effect=None if write else False)
         if write and (300 <= response.status_code < 400 or response.status_code == 408):
@@ -142,24 +182,34 @@ class OperationTool(Tool):
         if response.status_code >= 300:
             # Confirmed rejection without effect. Raw upstream bodies/headers never leave this process.
             return _error(_status_code(response.status_code), effect=False)
-        if len(response.content) > MAX_UPSTREAM_BYTES:
-            return _error("invalid_output", effect=None if write else False)
         try:
             data = project(response.json() if response.content else {}, op["outputFields"])
         except (ValueError, Rejected):
             return _error("invalid_output", effect=None if write else False)
-        text = json.dumps(data, ensure_ascii=False)
+        text = json.dumps(data, ensure_ascii=False, allow_nan=False)
         return ToolResult(content=[TextContent(type="text", text=text)], structured_content=data if isinstance(data, dict) else None)
 
 
-def _error(code: str, effect: bool | None) -> ToolResult:
+def _error(code: str, effect: bool | None, guard: str | None = None) -> ToolResult:
     """effect False = confirmed no change; None = unknown (writes only)."""
     payload = {"error": code, "effect": "none" if effect is False else "unknown"}
+    if guard:
+        payload["guard"] = {"id": guard, "status": "rejected"}
     return ToolResult(content=[TextContent(type="text", text=json.dumps(payload))], structured_content=payload, is_error=True)
 
 
-def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float = 4.0) -> FastMCP:
+def _connection_settings(revision: str, principal: str) -> None:
+    if not isinstance(revision, str) or not re.fullmatch(r"[1-9][0-9]{0,14}", revision):
+        raise ValueError("MCP_CONNECTION_REVISION must be a positive decimal of at most 15 digits")
+    if not isinstance(principal, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", principal):
+        raise ValueError("UPSTREAM_PRINCIPAL_ID must be an ASCII label of 1..100 letters, digits, dots, colons, underscores or hyphens")
+
+
+def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float = 4.0,
+                  connection_revision: str = "1", principal_id: str = "default") -> FastMCP:
     verify(manifest)
+    _connection_settings(connection_revision, principal_id)
+    target_fingerprint = fingerprint({"baseUrl": str(httpx.URL(upstream.base_url)).rstrip("/"), "principalId": principal_id})
     mcp = FastMCP(name=f"eldhall-{manifest['integrationId']}", mask_error_details=True)
     for op in manifest["operations"]:
         if op["effect"] not in ("read", "write"):
@@ -170,6 +220,7 @@ def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float =
         read = op["effect"] == "read"
         mcp.add_tool(OperationTool(
             name=op["toolName"], description=op["description"], parameters=schema, operation=op, upstream=upstream, deadline=deadline,
+            catalog={item["operationKey"]: item for item in manifest["operations"]},
             annotations=ToolAnnotations(read_only_hint=read, destructive_hint=not read, idempotent_hint=read or bool(op["idempotency"]), open_world_hint=True),
         ))
     catalog = {op["toolName"]: op["operationHash"] for op in manifest["operations"] if op["effect"] in ("read", "write")}
@@ -177,7 +228,8 @@ def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float =
     @mcp.tool(name="get_connector_manifest", annotations=ToolAnnotations(read_only_hint=True))
     def get_connector_manifest() -> dict:
         """Backend-only compatibility check: loaded manifest and tool fingerprints."""
-        return {"integrationId": manifest["integrationId"], "manifestHash": manifest["manifestHash"], "adapterContractVersion": manifest["adapterContractVersion"], "tools": catalog}
+        return {"integrationId": manifest["integrationId"], "manifestHash": manifest["manifestHash"], "adapterContractVersion": manifest["adapterContractVersion"], "tools": catalog,
+                "connectionRevision": connection_revision, "upstreamTargetFingerprint": target_fingerprint}
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(_: Request) -> Response:
@@ -206,7 +258,8 @@ class ServiceAuth:
 # Keep the upstream timeout below the backend's MCP call timeout (catalog.ts, 5 s by default):
 # otherwise a slow upstream success arrives after the backend gave up and is recorded as `unknown`.
 def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, service_token: str, timeout: float = 4.0,
-              allowed_hosts: tuple[str, ...] = (), allow_insecure_upstream: bool = False) -> Any:
+              allowed_hosts: tuple[str, ...] = (), allow_insecure_upstream: bool = False,
+              connection_revision: str = "1", principal_id: str = "default") -> Any:
     if len(service_token) < 16:
         raise ValueError("MCP_SERVICE_TOKEN must be at least 16 characters")
     upstream = urlsplit(upstream_url)
@@ -224,7 +277,7 @@ def build_app(manifest: dict, upstream_url: str, upstream_token: str | None, ser
     headers = {"authorization": f"Bearer {upstream_token}"} if upstream_token else {}
     client = httpx.AsyncClient(base_url=upstream_url, headers=headers, timeout=timeout, follow_redirects=False)
     # Host header validation (DNS rebinding): localhost names plus the service name the backend dials (MCP_ALLOWED_HOSTS).
-    app = create_server(manifest, client, timeout).http_app(path="/mcp", json_response=True, stateless_http=True,
+    app = create_server(manifest, client, timeout, connection_revision, principal_id).http_app(path="/mcp", json_response=True, stateless_http=True,
                                                           host_origin_protection=True, allowed_hosts=list(allowed_hosts))
     return ServiceAuth(app, service_token)
 
@@ -247,7 +300,9 @@ def _settings(env: os._Environ[str] | dict[str, str]) -> dict[str, Any]:
     insecure = env.get("UPSTREAM_ALLOW_INSECURE_HTTP", "false")
     if insecure not in ("true", "false"):
         raise ValueError("UPSTREAM_ALLOW_INSECURE_HTTP must be true or false")
-    return {"timeout": timeout, "port": port, "hosts": hosts, "insecure": insecure == "true"}
+    revision, principal = env.get("MCP_CONNECTION_REVISION", "1"), env.get("UPSTREAM_PRINCIPAL_ID", "default")
+    _connection_settings(revision, principal)
+    return {"timeout": timeout, "port": port, "hosts": hosts, "insecure": insecure == "true", "revision": revision, "principal": principal}
 
 
 def main() -> None:
@@ -256,7 +311,7 @@ def main() -> None:
         settings = _settings(env)
         with open(env["MANIFEST_PATH"], encoding="utf-8") as file:
             manifest = json.load(file)
-        app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], settings["timeout"], settings["hosts"], settings["insecure"])
+        app = build_app(manifest, env["UPSTREAM_BASE_URL"], env.get("UPSTREAM_TOKEN"), env["MCP_SERVICE_TOKEN"], settings["timeout"], settings["hosts"], settings["insecure"], settings["revision"], settings["principal"])
     except (OSError, ValueError) as error:
         # The reason is printed so an operator can act on it; it contains setting names or file errors, no secrets.
         print(f"MCP sidecar configuration invalid: {error}", file=sys.stderr)

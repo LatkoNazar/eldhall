@@ -7,6 +7,7 @@ import { useResource } from '../lib/useResource'
 import { CaseWorkspace } from './Inbox'
 import { Actions } from './Actions'
 import { Insights } from './Insights'
+import { Integrations } from './Integrations'
 import { Knowledge, Settings, Team } from './Resources'
 import { AppLink } from '../components/AppLink'
 
@@ -15,6 +16,7 @@ const navigation = [
   { id: 'actions', label: 'Дії AI', icon: 'spark', href: '/operator/actions' },
   { id: 'analytics', label: 'Аналітика', icon: 'chart', href: '/operator/analytics' },
   { id: 'knowledge', label: 'База знань', icon: 'book', href: '/operator/knowledge' },
+  { id: 'integrations', label: 'Інтеграції', icon: 'settings', href: '/operator/integrations' },
   { id: 'team', label: 'Команда', icon: 'team', href: '/operator/team' },
   { id: 'settings', label: 'Налаштування', icon: 'settings', href: '/operator/settings' },
 ]
@@ -68,6 +70,7 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
         {page === 'actions' && <Actions key={routeKey} token={token} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
         {page === 'analytics' && <AnalyticsWorkspace key={routeKey} token={token} />}
         {page === 'knowledge' && <Knowledge key={routeKey} token={token} />}
+        {page === 'integrations' && <Integrations key={routeKey} token={token} />}
         {page === 'team' && <Team key={routeKey} token={token} />}
         {page === 'settings' && <Settings key={routeKey} token={token} />}
       </main>

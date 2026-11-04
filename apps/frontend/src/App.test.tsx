@@ -17,7 +17,7 @@ function detail(status: ProposalStatus = 'pending'): CaseDetail {
     audit: [], runs: [], refunds: [],
   }
 }
-const metrics: Metrics = { cases: 1, byStatus: { open: 0, awaiting_approval: 1, escalated: 0, resolved: 0 }, byPriority: { P1: 1, P2: 0, P3: 0 }, proposals: { pending: 1, approved: 0, executing: 0, executed: 0, rejected: 0, denied: 0, failed: 0, unknown: 0 }, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null }
+const metrics: Metrics = { cases: 1, byStatus: { open: 0, awaiting_approval: 1, escalated: 0, resolved: 0 }, byPriority: { P1: 1, P2: 0, P3: 0 }, proposals: { pending: 1, approved: 0, executing: 0, executed: 0, rejected: 0, denied: 0, failed: 0, unknown: 0, expired: 0, invalidated: 0 }, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null }
 
 beforeEach(() => { sessionStorage.clear(); window.history.replaceState({}, '', '/operator') })
 function operatorSession() { sessionStorage.setItem('support.operator', 'test-operator-token') }

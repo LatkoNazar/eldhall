@@ -1,6 +1,6 @@
 # Integration manifest and permissions contract
 
-Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python OpenAPI importer (`apps/mcp-openapi/`) and the TypeScript backend share.
+This is the permanent contract shared by the Python OpenAPI importer (`apps/mcp-openapi/`) and the TypeScript backend. Follow the [installation and activation walkthrough](OPENAPI_QUICKSTART.md) to connect an existing API.
 
 **Implemented and tested:**
 - TS side:
@@ -10,10 +10,7 @@ Stages A–C of [TODO.md](../TODO.md). It fixes the formats that the Python Open
   - wiring: `catalogs` in the support config file, loaded by `factory.ts` through `createSupportIntegrations`, which serves legacy read-only MCP integrations and catalogs side by side and routes every call by business + `integrationId`.
 - Python side: the importer and the scoped sidecar (`apps/mcp-openapi`).
 
-**Not wired yet:**
-- `ask` proposals and writes outside a support turn (no ledger), which fail closed with `denied`;
-- DB-held policy and the admin API (Stage D);
-- mapping Eldhall customer ids to upstream ids: today the backend's `customerId` is sent as is.
+The production factory uses PostgreSQL-held policy, review and activation state. The operator API and Integrations UI manage these with optimistic revisions. A deployment-controlled customer ID map is optional; if configured, missing mappings deny execution. Calls that require a proposal outside a support turn (without a ledger) fail closed.
 
 Reference fixture: [`examples/orders/`](../examples/orders/). It contains a synthetic OpenAPI file, the matching manifest and policy, and a mock upstream API (`mock-api.mjs`) that enforces customer ownership.
 
@@ -26,19 +23,25 @@ A catalog is one entry of `catalogs` in the operator-controlled support config (
   "businessId": "<business uuid>",
   "url": "https://mcp-openapi.internal/mcp",
   "credentialEnv": "ORDERS_SIDECAR_TOKEN",
+  "connectionRevision": "1",
+  "upstreamTargetFingerprint": "<sha256 of normalized upstream URL and nonsecret principal label>",
   "timeoutMs": 5000,
   "manifest": { "...": "importer output (manifest.json)" },
   "policy": { "...": "policy.json with the same businessId and manifestHash" }
 }] }
 ```
 
-Startup refuses a catalog whose manifest hashes do not verify, whose policy belongs to another business or integration or was reviewed against another `manifestHash`, whose `integrationId` repeats within the business (legacy MCP integrations included), or whose credential variable is missing. Changing the manifest or policy currently means editing this file and restarting; the database-held policy with optimistic revisions is S1-4. `url` must be HTTPS, loopback HTTP with `allowInsecureLoopback` for tests, or plain HTTP to a private service origin that the deployment allowlists exactly (see the Compose section below).
+Startup refuses a catalog whose manifest hashes do not verify, whose bootstrap policy belongs to another business or integration or names another `manifestHash`, whose `integrationId` repeats within the business (legacy MCP integrations included), or whose credential variable is missing. First import is disabled and unreviewed with default deny. The file never overwrites operator edits or re-enables revoked access. A catalog or connection change requires disable/drain, matching deployment artifacts and process restart followed by review and activation. Policy-only changes use the operator API and take effect from the shared database. `url` must be HTTPS, loopback HTTP with `allowInsecureLoopback` for tests, or plain HTTP to a private service origin that the deployment allowlists exactly (see the Compose section below).
+
+`connectionRevision` is a positive decimal string, default `"1"`. Increase it for an endpoint, credential principal reference or trusted identity mapping change. `customerIdMap` maps authenticated support customer IDs to upstream IDs; `upstreamBusinessId` optionally maps the business. The connection fingerprint excludes secret values. An old revision cannot restore a newer target mapping.
+
+`upstreamTargetFingerprint` binds the sidecar's actual deployment URL and nonsecret principal label: SHA-256 of canonical `{baseUrl,principalId}`, where the parsed URL omits trailing slashes. The generator computes it from `--upstream-url` and `--upstream-principal`. The sidecar reports the same fingerprint plus `MCP_CONNECTION_REVISION`; readiness and every invocation verify both. `MCP_UPSTREAM_PRINCIPAL_ID` must identify the upstream account selected by the secret; opaque token introspection is outside this adapter.
 
 ## Canonical hashing
 
 `sha256` over the UTF-8 bytes of canonical JSON:
 
-- object keys sorted by code point;
+- object keys sorted by UTF-16 code units;
 - no whitespace;
 - non-ASCII characters left unescaped;
 - the object's own hash field omitted.
@@ -46,13 +49,13 @@ Startup refuses a catalog whose manifest hashes do not verify, whose policy belo
 | Language | Implementation |
 |---|---|
 | TypeScript | `fingerprint(value, omit)` |
-| Python | `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` |
+| Python | RFC 8785 `rfc8785.dumps(value)` |
 
-The importer must emit integral numbers as integers. Python's `1.0` and JavaScript's `1` serialize differently, so a float like `1.0` changes the hash.
+Number encoding matches ECMAScript JSON, including integral floats and exponent formatting. Nonfinite and non-interoperable integers are rejected. Operations are ordered deterministically by supported method rank (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) and path; object-key reordering therefore never reorders the catalog.
 
 | Hash | Covers |
 |---|---|
-| `specHash` | The imported OpenAPI document as parsed JSON |
+| `specHash` | The normalized local OpenAPI artifact with expanded local refs |
 | `operationHash` | Every field of the operation except `operationHash` |
 | `manifestHash` | Every field of the manifest, including all operations and their hashes, except `manifestHash` |
 
@@ -121,16 +124,18 @@ How the importer works:
 - **Unreviewed operations.** Operations without a review entry are reported as `unreviewed` and left out of the manifest.
 - **Unsupported constructs.** These are reported as `unsupported` and never widened:
   - `oneOf`/`anyOf`/`allOf`;
-  - remote or cyclic `$ref`;
   - binary or non-JSON bodies;
   - open-ended objects;
   - required non-scope headers.
+- **Invalid references.** Remote or cyclic refs, excessive expansion and malformed JSON reject the whole local import before any executable artifact is published.
+- **Artifacts.** The command writes the manifest, normalized OpenAPI and optional review report. `--normalized-spec` selects the normalized artifact path; its default is `<manifest stem>.normalized.openapi.json`.
 - **Repeat imports.** `--previous` adds an added/changed/unchanged/removed diff of the operations.
 - **Fixture.** The committed fixture manifest is the importer's own output, and a test checks that it reproduces exactly.
 
 Sidecar:
 - **Implementation.** FastMCP 4, Streamable HTTP on `/mcp`, plus an open `/health`.
-- **Tools.** It registers one tool per manifest operation with effect `read` or `write`, built explicitly from the manifest. `FastMCP.from_openapi()` is not used because it would expose every route. It also serves a backend-only `get_connector_manifest` tool.
+- **Tools.** Import mechanically compiles a candidate inventory through `FastMCP.from_openapi()` with only reviewed non-unknown routes and a deny-I/O client. Runtime registers bounded reviewed wrappers for those operations; no unreviewed generated route becomes executable. A backend-only `get_connector_manifest` tool reports the catalog and contract fingerprints. Activation and every call verify exact schemas as well as hashes.
+- **Guards.** Named guards must exist in the code registry; unknown names fail startup. `orders.cancel_before_shipment` performs a scoped status read before dispatch; the upstream must still atomically enforce ownership, cancellation state and idempotency. An already cancelled order may only reach upstream to resolve its reviewed idempotency key, not to bypass the upstream state guard.
 - **Authentication.** Every MCP request needs the service bearer `MCP_SERVICE_TOKEN`.
 - **Upstream.** The upstream target comes only from `UPSTREAM_BASE_URL` and `UPSTREAM_TOKEN`; the spec's `servers` field is ignored. Redirects are off.
 - **Path values.** Values placed into the path are percent-encoded as one segment; `""`, `.` and `..` are rejected (`invalid_path_value`), because HTTP clients normalize dot segments and `/orders/../cancel` would reach `/cancel`.
@@ -141,8 +146,8 @@ Sidecar:
 TS boundary, in the order of checks:
 1. The resolver decides `auto`, `ask` or `deny`.
 2. Input is checked against the reviewed schema; the reserved `eldhall` key and scope fields are rejected.
-3. The sidecar must advertise the tool as read-only.
-4. `get_connector_manifest` must return the same `manifestHash` and `operationHash`.
+3. The sidecar must advertise the reviewed effect and exact tool input schema, including reserved trusted scope.
+4. `get_connector_manifest` must return the same `manifestHash`, `operationHash` and adapter contract version.
 5. The call goes out with backend scope.
 6. The output is projected to `outputFields`.
 
@@ -168,6 +173,8 @@ Add to the private `.env.support` (never commit it):
 | `MCP_SERVICE_TOKEN` | Bearer shared by api, worker and the sidecar, at least 16 characters. Use `"credentialEnv": "MCP_SERVICE_TOKEN"` in the catalog. |
 | `MCP_UPSTREAM_BASE_URL` | Base URL of the business API the sidecar calls. The spec's `servers` field is ignored. |
 | `MCP_UPSTREAM_TOKEN` | Optional bearer for that API. |
+| `MCP_UPSTREAM_PRINCIPAL_ID` | Nonsecret label of the credential's upstream principal, default `default`; must match the reviewed target fingerprint. |
+| `MCP_CONNECTION_REVISION` | Reviewed positive decimal revision, default `1`; must match the catalog. |
 | `MCP_UPSTREAM_ALLOW_INSECURE_HTTP` | Default `false`. Plain `http://` is accepted only for a single-label service name or loopback; set `true` only for a trusted private network. |
 | `MCP_MEMORY_LIMIT` | Sidecar memory limit, default `256m`; `pids_limit` is 128. |
 | `MCP_UPSTREAM_TIMEOUT_SECONDS` | Total upstream deadline, default 4. It must stay below the catalog's `timeoutMs`. |
@@ -209,13 +216,13 @@ What the overlay enforces:
 - that one customer cannot read another customer's order;
 - that `ask` → approve → execute changes the upstream exactly once (the mock counts writes), and a second execute is refused and sends nothing.
 
-The job is a PR check; it does not gate `deploy`, which ships the root stack.
+The job gates `deploy` together with ordinary checks and PostgreSQL/cross-language integration tests. Release bundles contain the sidecar image, Compose overlays, scripts and versioned example artifacts; private deployment configuration and credentials remain explicit mounts.
 
 The smoke overlay is for tests only: it contains a mock with a test-control route.
 
 ## External actions (Stage C)
 
-`ask` operations of any effect, and `auto` writes, go through the existing proposal ledger as `tool: "external_action"`. They need no new tables.
+`ask` operations of any effect, and `auto` writes, go through proposals as `tool: "external_action"`, with integration state, immutable manifests and the execution ledger added by migration `0008_integrations.sql`.
 
 **Snapshot.** The proposal `args` are the immutable `ExternalActionSnapshot`:
 - `integrationId`, `toolName`, `operationKey` and `title`;
@@ -223,6 +230,7 @@ The smoke overlay is for tests only: it contains a mock with a test-control rout
 - `effect`;
 - `customerId`;
 - the normalized `input`.
+- business/case identity, ownership version, connection revision, expiry and tags used by permission resolution.
 
 `argsHash` covers all of it. An approval therefore binds to the exact operation, arguments and versions.
 
@@ -258,8 +266,4 @@ Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeove
 | `npm run test:mcp-openapi` | real sidecar: execution, idempotent replay, the shipped-order guard, stale policy, foreign scope | yes |
 | A new case in `tests/postgres-store.integration.ts` | concurrent execute and the `external_action`-only auto claim | yes, in the CI `integration` job (`npm run test:postgres`) |
 
-**Gaps.**
-- No admin API or UI shows external actions or edits policy; Stage D will add them.
-- `unknown` outcomes are resolved by hand; automatic reconciliation through `reconciliation.operationKey` is not implemented yet.
-- Expired approvals simply cannot be executed; they get no explicit terminal state.
-- Eldhall customer ids reach the upstream unmapped.
+**Operations and recovery.** The operator API and UI manage policy, review, activation and draining. Changed policy/catalog/connection and ownership invalidate unexecuted proposals; expired snapshots are terminal and cannot execute. External outcomes, audit and completion messages are recorded durably with action-level deduplication. `unknown` remains locked; the authenticated reconciliation endpoint records an operator-verified result and reason. Automatic reconciliation polling is not provided. Upstream mapping is explicit deployment configuration, not model input. The operator bearer is deployment-wide; per-business staff ACLs and SSO are not implemented.

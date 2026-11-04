@@ -9,9 +9,12 @@ import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
 import { importFromFile, importFromUrl, KnowledgeImportError, knowledgeRuntime } from '../knowledge/runtime.js';
+import type { BusinessIntegrations } from '../../integrations/mcp.js';
+import { integrationRoutes } from '../../integrations/routes.js';
 
 export interface SupportDependencies {
   harness: SupportHarness; store: SupportStore;
+  integrations?: BusinessIntegrations;
   execution?: 'inline' | 'worker';
   capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
     classification?: { provider: string; model: string; credentialsConfigured: boolean } };
@@ -33,6 +36,7 @@ async function guard(reply: FastifyReply, run: () => Promise<unknown>) {
 
 export async function supportRoutes(app: FastifyInstance, { support, operatorToken, demoResetEnabled }: Options) {
   const { harness, store } = support;
+  await app.register(integrationRoutes, { support, operatorToken });
 
   // Customer channel: identity comes only from the X-Customer-Session header, never from message text.
   await app.register(async chat => {

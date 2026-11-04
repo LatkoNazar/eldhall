@@ -18,6 +18,8 @@ import { MemorySupportStore } from '../src/modules/support/store.js';
 import type { Manifest } from '../src/integrations/manifest.js';
 import { IntegrationError, type ExternalActionRequest } from '../src/integrations/mcp.js';
 import { fingerprint } from '../src/integrations/permissions.js';
+import { MemoryIntegrationStore } from '../src/integrations/state.js';
+import type { IntegrationPolicy } from '../src/integrations/permissions.js';
 // @ts-expect-error plain .mjs fixture without type declarations
 import { createOrdersApi } from '../../../examples/orders/mock-api.mjs';
 
@@ -35,6 +37,7 @@ const code = (expected: IntegrationError['code'], message?: RegExp) => (error: u
 let upstream: Server;
 let sidecar: ChildProcess;
 let sidecarUrl = '';
+let upstreamTargetFingerprint='';
 
 const freePort = () => new Promise<number>(resolve => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as AddressInfo; s.close(() => resolve(port)); }); });
 
@@ -42,6 +45,7 @@ before(async () => {
   upstream = createOrdersApi({ token: 'upstream-token', customers: { olena: OLENA, taras: TARAS } }) as Server;
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const port = await freePort();
+  upstreamTargetFingerprint=fingerprint({baseUrl:`http://127.0.0.1:${(upstream.address() as AddressInfo).port}`,principalId:'default'});
   sidecarUrl = `http://127.0.0.1:${port}/mcp`;
   sidecar = spawn('uv', ['run', '--quiet', '--project', fileURLToPath(new URL('../../mcp-openapi/', import.meta.url)), 'support-mcp-server'], {
     env: { ...process.env, MANIFEST_PATH: fileURLToPath(new URL('manifest.json', orders)), UPSTREAM_BASE_URL: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`, UPSTREAM_TOKEN: 'upstream-token', MCP_SERVICE_TOKEN: serviceToken, PORT: String(port) },
@@ -69,6 +73,17 @@ after(async () => {
 const integration = (overrides: Partial<Parameters<typeof createCatalogIntegration>[0]> = {}) => createCatalogIntegration({
   businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, timeoutMs: 5000, manifest, policy, ...overrides,
 }).forContext(context);
+
+test('managed catalog refuses wrong upstream target or connection revision before any business operation',async()=>{
+  for(const expected of [{upstreamTargetFingerprint:'b'.repeat(64),connectionRevision:'1'},{upstreamTargetFingerprint,connectionRevision:'2'}]) {
+    const registry=new MemoryIntegrationStore();const reviewedPolicy=policy as IntegrationPolicy;
+    await registry.bootstrap({businessId:policy.businessId,manifest,policy:reviewedPolicy,connectionRevision:expected.connectionRevision,connectionHash:'c'.repeat(64)});
+    const initial=(await registry.get(policy.businessId,'orders'))!;await registry.change(policy.businessId,'orders',initial.version,'test','integration.activated',state=>({...state,enabled:true,activeManifestHash:manifest.manifestHash,policy:{...reviewedPolicy,enabled:true}}));
+    const connector=createCatalogIntegration({businessId:policy.businessId,url:sidecarUrl,credential:serviceToken,allowInsecureLoopback:true,manifest,policy,registry,...expected});
+    await assert.rejects(connector.verifyCatalog!(policy.businessId,'orders',manifest.manifestHash,expected.connectionRevision),code('denied',/upstream connection/));
+    await assert.rejects(connector.forContext(context).callTool('orders','get_order_status',{order_id:'ORD-1002'}),code('denied',/upstream connection/));
+  }
+});
 
 test('auto read: own order through sidecar, reviewed fields only; ask/deny not executable', async () => {
   const scoped = integration();
@@ -113,25 +128,25 @@ test('ask write: snapshot only, then executeAction with idempotency key; replay 
 
   const actionId = randomUUID();
   const first = await scoped.executeAction!(requests[0]!.args, actionId);
-  assert.deepEqual(first, { status: 'executed', data: { order_id: 'ORD-1001', status: 'cancelled' } });
+  assert.deepEqual(first, { status: 'executed', data: { order_id: 'ORD-1001', status: 'cancelled' },guard:{id:'orders.cancel_before_shipment',status:'passed'} });
   assert.equal(await status('ORD-1001'), 'cancelled');
   assert.deepEqual(await scoped.executeAction!(requests[0]!.args, actionId), first); // delivery retry: same key, same result
-  assert.deepEqual(await scoped.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'conflict' });
+  assert.deepEqual(await scoped.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'conflict',guard:{id:'orders.cancel_before_shipment',status:'unknown'} });
 
   await scoped.callTool('orders', 'cancel_order', { order_id: 'ORD-1002' });
-  assert.deepEqual(await scoped.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'conflict' }); // shipped
+  assert.deepEqual(await scoped.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'not_cancellable',guard:{id:'orders.cancel_before_shipment',status:'rejected'} }); // shipped
   assert.equal(await status('ORD-1002'), 'shipped');
 
   const later = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy: { ...policy, policyRevision: 2 } }).forContext(context);
   assert.deepEqual(await later.executeAction!(requests[1]!.args, randomUUID()), { status: 'failed', reasonCode: 'stale_snapshot' });
   const taras = createCatalogIntegration({ businessId: policy.businessId, url: sidecarUrl, credential: serviceToken, allowInsecureLoopback: true, manifest, policy }).forContext({ ...context, customerId: TARAS });
   assert.deepEqual(await taras.executeAction!(requests[0]!.args, randomUUID()), { status: 'failed', reasonCode: 'scope_mismatch' });
-  assert.deepEqual(await scoped.executeAction!({ ...requests[1]!.args, input: { order_id: 'ORD-2001' } }, randomUUID()), { status: 'failed', reasonCode: 'not_found' });
+  assert.deepEqual(await scoped.executeAction!({ ...requests[1]!.args, input: { order_id: 'ORD-2001' } }, randomUUID()), { status: 'failed', reasonCode: 'ownership_unconfirmed',guard:{id:'orders.cancel_before_shipment',status:'rejected'} });
 });
 
 test('live wiring: configured catalog → harness → sidecar: auto read grounds the reply, ask cancel runs only after approve + execute', async () => {
   // Same reviewed manifest/policy, assigned to the seeded business, loaded through the real config schema and factory helper.
-  const config = supportConfigSchema.parse({ catalogs: [{ businessId: NOVAPAY, url: sidecarUrl, credentialEnv: 'ORDERS_SIDECAR_TOKEN', allowInsecureLoopback: true, manifest, policy: { ...policy, businessId: NOVAPAY } }] });
+  const config = supportConfigSchema.parse({ catalogs: [{ businessId: NOVAPAY, url: sidecarUrl,upstreamTargetFingerprint, credentialEnv: 'ORDERS_SIDECAR_TOKEN', allowInsecureLoopback: true, manifest, policy: { ...policy, businessId: NOVAPAY } }] });
   const integrations = createSupportIntegrations(config, { ORDERS_SIDECAR_TOKEN: serviceToken });
   const store = new MemorySupportStore();
   await store.reset(seedData());

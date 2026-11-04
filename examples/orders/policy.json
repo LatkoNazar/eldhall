@@ -2,7 +2,7 @@
   "integrationId": "orders",
   "businessId": "10000000-0000-4000-8000-000000000001",
   "enabled": true,
-  "manifestHash": "ff1d9828dd39396ee775f82b9e2b2281506ae7bbf98508ce6f28c22eede835af",
+  "manifestHash": "5db0c3f505fa52259836a233cccb79a742aec10d216a0eb11abe00f33ee0c4d9",
   "policyRevision": 1,
   "defaultMode": "deny",
   "groups": [

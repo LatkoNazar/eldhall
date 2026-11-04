@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import type { ActionOutcome, BusinessIntegrations, BusinessToolResult } from '../src/integrations/mcp.js';
+import type { ActionOutcome, BusinessIntegrationContext, BusinessIntegrations, BusinessToolResult } from '../src/integrations/mcp.js';
 import { HarnessError, SupportHarness } from '../src/modules/agent/harness.js';
 import { RulesModel, ScriptedModel, type AgentDecision } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
@@ -11,6 +12,8 @@ const OLENA = 'demo-olena';
 const decision = (patch: Partial<AgentDecision> = {}): AgentDecision => ({
   intent: 'other', summary: 's', reasoning: 'r', sentiment: { label: 'calm', urgency: 'low' }, reply: 'Ваше замовлення вже скасовано!', action: null, ...patch,
 });
+const requestArgs=(ctx:BusinessIntegrationContext,input:Record<string,unknown>)=>({integrationId:'orders',operationKey:'POST /orders/{order_id}/cancel',title:'Cancel order',policyRevision:1,
+  businessId:ctx.businessId,customerId:ctx.customerId,caseId:ctx.caseId,ownershipVersion:ctx.ownershipVersion,expiresAt:new Date(Date.now()+900000).toISOString(),effect:'write',managed:false,input});
 
 /** Integration double: the catalog's contract (propose during a turn, executeAction afterwards) without a network. */
 function setup(mode: 'ask' | 'auto', outcomes: (() => Promise<ActionOutcome>)[], inputs: Record<string, unknown>[] = [{ order_id: 'ORD-1001' }]) {
@@ -21,8 +24,8 @@ function setup(mode: 'ask' | 'auto', outcomes: (() => Promise<ActionOutcome>)[],
   const integrations: BusinessIntegrations = { forContext(ctx) {
     return {
       tools: [{ integrationId: 'orders', name: 'cancel_order', description: 'Cancel order', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }],
-      callTool: async (_integrationId, _name, input) => ctx.propose!({ mode, title: 'Cancel order', args: { integrationId: 'orders', operationKey: 'POST /orders/{order_id}/cancel', title: 'Cancel order', policyRevision: 1, customerId: ctx.customerId, input } }),
-      executeAction: async (args, actionId) => { executed.push({ args, actionId }); return outcomes.shift()!(); },
+      callTool: async (_integrationId, _name, input) => ctx.propose!({ mode, title: 'Cancel order', args: requestArgs(ctx,input) }),
+      executeAction: async (args, actionId) => { await ctx.markDispatched?.();executed.push({ args, actionId }); return outcomes.shift()!(); },
     };
   } };
   const model = new ScriptedModel(async ctx => {
@@ -103,11 +106,12 @@ test('auto: same ledger, executed inside the turn, recorded as policy_auto; unkn
   assert.equal((await h.store.auditEvents(caseId)).find(row => row.type === 'action.executed')!.data.origin, 'policy_auto');
 
   const unsure = setup('auto', [async () => ({ status: 'unknown', reasonCode: 'outcome_unknown' })]);
-  const second = await turn(unsure);
-  assert.equal(second.proposal.status, 'unknown');
-  assert.equal(second.result.case.status, 'escalated');
-  assert.equal(second.result.case.ownership, 'staff');
-  assert.match(second.result.reply!.body, /не підтверджено/);
+  const second=await unsure.harness.openCase(OLENA);
+  await assert.rejects(unsure.harness.runTurn(OLENA,second.id,'Скасуйте замовлення'),(error:unknown)=>error instanceof HarnessError&&error.status===409);
+  assert.equal((await unsure.store.proposals(second.id))[0]!.status,'unknown');
+  assert.equal((await unsure.store.getCase(second.id))!.status,'escalated');
+  assert.equal((await unsure.store.getCase(second.id))!.ownership,'staff');
+  assert.match((await unsure.store.messages(second.id)).at(-1)!.body,/не підтверджено/);
 });
 
 test('one external action per turn: a second different action is denied, a repeat returns the same proposal', async () => {
@@ -125,7 +129,7 @@ test('store: agent:auto can claim only proposals recorded without approval; ask 
   assert.equal(await h.store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto'), null);
   assert.equal((await h.store.proposal(proposal.id))!.status, 'pending');
   const policy = { ...proposal.policy, requiresApproval: false };
-  const auto = await h.store.createProposal({ caseId, tool: 'external_action', args: { n: 2 }, argsHash: 'b'.repeat(64), risk: 'high', status: 'pending', policy });
+  const auto = await h.store.createProposal({ caseId, tool: 'external_action', args: { ...proposal.args,input:{n:2} }, argsHash: 'b'.repeat(64), risk: 'high', status: 'pending', policy });
   assert.equal((await h.store.claimProposal(auto.id, auto.argsHash, 'executing', 'agent:auto'))?.status, 'executing');
   const refund = await h.store.createProposal({ caseId, tool: 'refund_payment', args: { payment_id: 'x' }, argsHash: 'c'.repeat(64), risk: 'high', status: 'pending', policy });
   assert.equal(await h.store.claimProposal(refund.id, refund.argsHash, 'executing', 'agent:auto'), null);
@@ -206,7 +210,7 @@ test('in-turn auto dispatch is fenced by the turn: a takeover before dispatch st
   const integrations: BusinessIntegrations = { forContext(ctx) {
     return {
       tools: [{ integrationId: 'orders', name: 'cancel_order', description: 'Cancel order', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }],
-      callTool: async (_i, _n, input) => ctx.propose!({ mode: 'auto', title: 'Cancel order', args: { integrationId: 'orders', operationKey: 'POST /orders/{order_id}/cancel', title: 'Cancel order', policyRevision: 1, customerId: ctx.customerId, input } }),
+      callTool: async (_i, _n, input) => ctx.propose!({ mode: 'auto', title: 'Cancel order', args: requestArgs(ctx,input) }),
       // Mirrors catalog.ts: the context fence runs right before dispatch; failing it means nothing was sent.
       executeAction: async () => {
         const caseId = (await store.listCases())[0]!.id;
@@ -231,4 +235,36 @@ test('customer template quotes only a short plain upstream status', async () => 
     const { result } = await turn(h);
     assert.equal(result.reply!.body.includes('(статус:'), shown, status);
   }
+});
+
+test('auto completion survives takeover after the effect and is recorded exactly once',async()=>{
+  let takeover:()=>Promise<void>=async()=>undefined;
+  const h=setup('auto',[async()=>{await takeover();return done();}]);
+  const opened=await h.harness.openCase(OLENA);takeover=async()=>{await h.store.setOwnership(opened.id,'staff','operator:takeover');};
+  await assert.rejects(h.harness.runTurn(OLENA,opened.id,'Скасуйте замовлення'),(error:unknown)=>error instanceof HarnessError&&error.status===409);
+  const proposal=(await h.store.proposals(opened.id))[0]!;assert.equal(proposal.status,'executed');assert.equal((await h.store.getCase(opened.id))!.ownership,'staff');
+  assert.equal((await h.store.messages(opened.id)).filter(row=>row.role==='assistant').length,1);
+  await h.store.finishExternalAction(proposal.id,'unknown',null,'late_error','Wrong duplicate','system');
+  assert.equal((await h.store.messages(opened.id)).filter(row=>row.role==='assistant').length,1);
+  const audit=await h.store.auditEvents(opened.id);for(const event of ['action.claimed','action.dispatched','action.executed']) assert.equal(audit.filter(row=>row.type===event).length,1);
+});
+
+test('durable turn retry after a crash reuses the action identity and completion message',async()=>{
+  const h=setup('auto',[done]);const opened=await h.harness.openCase(OLENA);
+  const accepted=await h.store.enqueueTurn(opened.id,(await h.store.customerBySession(OLENA))!.id,'Скасуйте замовлення',randomUUID());
+  const first=(await h.store.claimTurnJob(accepted.job!.id,'worker:first'))!;
+  const complete=h.store.completeTurn.bind(h.store);h.store.completeTurn=async()=>{throw new Error('simulated crash before final turn commit');};
+  await assert.rejects(h.harness.runQueued(first.job,first.lease),/simulated crash/);h.store.completeTurn=complete;
+  const action=(await h.store.proposals(opened.id))[0]!;assert.equal(action.status,'executed');assert.equal(h.executed.length,1);
+  assert.equal((await h.store.messages(opened.id)).filter(row=>row.role==='assistant').length,1);
+  await h.store.failTurnJob(first.lease,'simulated crash',true);await new Promise(resolve=>setTimeout(resolve,1010));
+  const retry=(await h.store.claimTurnJob(accepted.job!.id,'worker:retry'))!;assert.ok(retry);const recovered=await h.harness.runQueued(retry.job,retry.lease);
+  assert.equal(h.executed.length,1);assert.equal((await h.store.proposals(opened.id)).length,1);assert.equal((await h.store.messages(opened.id)).filter(row=>row.role==='assistant').length,1);assert.match(recovered.reply!.body,/виконано/);
+});
+
+test('expiry first discovered by approval is terminal, audited and visible without a later scan',async()=>{
+  const h=setup('ask',[]);const {caseId,proposal}=await turn(h);h.store.proposalRows.get(proposal.id)!.args.expiresAt=new Date(Date.now()-1000).toISOString();
+  await assert.rejects(h.harness.approve(proposal.id,'operator',proposal.argsHash),(error:unknown)=>error instanceof HarnessError&&error.status===409);
+  assert.equal((await h.store.proposal(proposal.id))!.status,'expired');assert.equal((await h.store.getCase(caseId))!.status,'escalated');assert.equal((await h.store.getCase(caseId))!.ownership,'staff');
+  const messages=(await h.store.messages(caseId)).length;await h.store.expireExternalActions();assert.equal((await h.store.messages(caseId)).length,messages);assert.equal((await h.store.auditEvents(caseId)).filter(row=>row.type==='action.expired').length,1);
 });

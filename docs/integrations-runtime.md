@@ -1,5 +1,7 @@
 # Runtime configuration and business MCP tools
 
+For imported OpenAPI catalogs, use the [manifest, activation and permissions guide](integrations-manifest.md). The `integrations` entries described below retain their legacy read-only contract. Imported `catalogs` use the backend's reviewed policy and durable action pipeline, including approved writes; they are not an extension of `access: "read"` to arbitrary writes.
+
 The API runs headless. React is an optional operator and customer client. Set `SUPPORT_CONFIG_FILE` to an operator-controlled JSON file to mount businesses, ticket classes, reviewed documents, prose skills, and MCP read tools without rebuilding the image. The default is an empty configuration and makes no external MCP connections. JSON is the only supported config format in this MVP.
 
 Copy `examples/support.config.json`, replace the sample MCP URL with your server, and provide `ORDERS_MCP_TOKEN` through the API environment. The example creates a new business; it contains no customers or session credentials. Provision customer sessions through the authenticated operator API. For a docs-only deployment, remove the `integrations` entry and its unused credential variable. A file with no integrations needs no MCP credentials.

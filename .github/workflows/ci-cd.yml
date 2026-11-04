@@ -236,7 +236,7 @@ jobs:
           $COMPOSE down --volumes --remove-orphans || true
 
   deploy:
-    needs: [check, integration]
+    needs: [check, integration, sidecar-compose]
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 25
@@ -319,9 +319,11 @@ jobs:
           docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/api
           docker build -f apps/frontend/Dockerfile --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build --target production --tag "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" apps/mcp-openapi
           mkdir -p .deploy
-          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
-          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/api/scripts/smoke.mjs
+          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
+          printf 'SUPPORT_SERVER_IMAGE=%s:%s\nSUPPORT_WEB_IMAGE=%s-frontend:%s\nSUPPORT_MCP_IMAGE=%s-mcp-openapi:%s\n' "$PROJECT_NAME" "$GITHUB_SHA" "$PROJECT_NAME" "$GITHUB_SHA" "$PROJECT_NAME" "$GITHUB_SHA" > support-images.env
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml support-images.env infra scripts deploy examples/orders docs apps/api/scripts/smoke.mjs
       - name: Upload release and deploy
         run: |
           set -euo pipefail

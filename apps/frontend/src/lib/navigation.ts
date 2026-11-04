@@ -84,7 +84,7 @@ export function useAppLocation() {
 }
 export function isAppDestination(url: URL) {
   const pathname = url.pathname.replace(/\/$/, '') || '/'
-  return url.origin === window.location.origin && (pathname === '/' || pathname === '/chat' || /^\/operator(?:\/(?:actions|analytics|knowledge|team|settings))?$/.test(pathname))
+  return url.origin === window.location.origin && (pathname === '/' || pathname === '/chat' || /^\/operator(?:\/(?:actions|analytics|knowledge|integrations|team|settings))?$/.test(pathname))
 }
 export function navigate(href: string, replace = false) {
   const target = new URL(href, window.location.href)

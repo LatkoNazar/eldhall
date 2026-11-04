@@ -25,6 +25,8 @@ services:
       # Plain http is refused for dotted hosts unless this is true (trusted private network only).
       UPSTREAM_ALLOW_INSECURE_HTTP: ${MCP_UPSTREAM_ALLOW_INSECURE_HTTP:-false}
       MCP_SERVICE_TOKEN: ${MCP_SERVICE_TOKEN:?Set MCP_SERVICE_TOKEN (at least 16 characters) shared by api, worker and the sidecar}
+      MCP_CONNECTION_REVISION: ${MCP_CONNECTION_REVISION:-1}
+      UPSTREAM_PRINCIPAL_ID: ${MCP_UPSTREAM_PRINCIPAL_ID:-default}
       # Accepted Host values: this service name, localhost names and the container's own address; a rebinding
       # attacker's hostname gets 421. The service bearer is still required on every route except /health.
       MCP_ALLOWED_HOSTS: mcp-openapi

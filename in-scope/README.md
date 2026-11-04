@@ -8,7 +8,7 @@
 
 ## Порядок роботи
 
-1. Спочатку завершити [головний TODO](../TODO.md): OpenAPI → MCP, permissions, proposals, execution та audit.
+1. Спочатку завершити головний OpenAPI → MCP план, зберігши [постійний контракт](../docs/integrations-manifest.md) і [перевірений onboarding](../docs/OPENAPI_QUICKSTART.md): permissions, proposals, execution та audit. До проходження acceptance gates кореневий `TODO.md` залишається чинним checklist.
 2. Планувати продуктову готовність за [roadmap у `/todos`](../todos/README.md). Номери файлів позначають теми, а залежності визначають порядок реалізації.
 3. Реалізувати IS01 разом із відповідними частинами [D06 — конектори](../todos/06-connectors-and-extension-contracts.md) та [D11 — якість агента](../todos/11-agent-quality-and-evaluations.md). Спільні runner, contracts і fixtures мають бути одні, без паралельної дублюючої системи тестів.
 4. Після реалізації перенести підтверджені API, формати й інструкції до постійної документації, додати посилання на перевірки та змінити статус специфікації. Перед запланованим видаленням кореневого `TODO.md` оновити посилання на його постійну заміну.

@@ -176,7 +176,7 @@ it('exposes the insights view through keyboard-accessible Analytics tabs', async
   expect(insights).toHaveFocus()
   expect(insights).toHaveAttribute('aria-selected', 'true')
   expect(await screen.findByRole('heading', { name: 'Проблеми тікетів і KB' })).toBeInTheDocument()
-  expect(within(screen.getByRole('navigation', { name: 'Головна навігація' })).getAllByRole('link')).toHaveLength(6)
+  expect(within(screen.getByRole('navigation', { name: 'Головна навігація' })).getAllByRole('link')).toHaveLength(7)
 })
 
 it('opens the cited case even when it is outside the current queue page', async () => {

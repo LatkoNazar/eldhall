@@ -16,21 +16,29 @@ export type BusinessToolResult =
   | { status: 'failed'; actionId?: string; reasonCode: string }
   | { status: 'unknown'; actionId: string; reasonCode: string };
 /** Outcome of dispatching one recorded action. `unknown` = the upstream effect may have happened. */
-export type ActionOutcome = { status: 'executed'; data: unknown } | { status: 'failed' | 'unknown'; reasonCode: string };
+export type ActionGuardEvaluation = { id: string | null; status: 'not_required' | 'passed' | 'rejected' | 'unknown' };
+export type ActionOutcome = ({ status: 'executed'; data: unknown } | { status: 'failed' | 'unknown'; reasonCode: string }) & { guard?: ActionGuardEvaluation };
 /** Immutable snapshot stored as proposal args; its hash binds approval to the exact operation and versions. */
 export interface ExternalActionRequest { args: Record<string, unknown>; mode: 'auto' | 'ask'; title: string }
 export interface BusinessIntegrationContext {
   businessId: string; customerId: string; assertActive: () => Promise<void>;
+  caseId?: string; ownershipVersion?: number;
+  markDispatched?: () => Promise<void>;
+  rememberPolicy?: (integrationId: string, manifestHash: string, connectionRevision: string, policyRevision: number) => void;
   /** Supplied by the harness during a turn: records the action durably (and runs it for `auto`). */
   propose?: (request: ExternalActionRequest) => Promise<BusinessToolResult>;
 }
 export interface ScopedBusinessTools {
   tools: BusinessTool[];
+  listTools?(): Promise<BusinessTool[]>;
   callTool(integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
   /** Re-checks the snapshot against current policy/manifest, then dispatches with `actionId` as idempotency key. */
   executeAction?(args: Record<string, unknown>, actionId: string, signal?: AbortSignal): Promise<ActionOutcome>;
 }
-export interface BusinessIntegrations { forContext(context: BusinessIntegrationContext): ScopedBusinessTools }
+export interface BusinessIntegrations {
+  forContext(context: BusinessIntegrationContext): ScopedBusinessTools;
+  verifyCatalog?(businessId: string, integrationId: string, manifestHash: string, connectionRevision: string): Promise<void>;
+}
 export class IntegrationError extends Error {
   constructor(readonly code: 'denied' | 'invalid_input' | 'unavailable' | 'timeout' | 'invalid_output', message: string) { super(message); this.name = 'IntegrationError'; }
 }
@@ -85,7 +93,7 @@ export interface McpTarget { url: string; timeoutMs: number; credential?: string
 export type McpCallOptions = { signal: AbortSignal; timeout: number };
 
 /** One bounded, single-endpoint MCP session. SDK/server errors are masked; only IntegrationError codes escape. */
-export async function withMcpClient<T>(target: McpTarget, context: BusinessIntegrationContext, signal: AbortSignal | undefined, run: (client: Client, options: McpCallOptions) => Promise<T>): Promise<T> {
+export async function withMcpClient<T>(target: McpTarget, context: BusinessIntegrationContext, signal: AbortSignal | undefined, run: (client: Client, options: McpCallOptions) => Promise<T>, preserveReceivedResult = false): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), target.timeoutMs);
   const activeSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
@@ -103,8 +111,7 @@ export async function withMcpClient<T>(target: McpTarget, context: BusinessInteg
     const options = { signal: activeSignal, timeout: target.timeoutMs };
     await client.connect(transport, options);
     const result = await run(client, options);
-    activeSignal.throwIfAborted();
-    await context.assertActive();
+    if(!preserveReceivedResult) { activeSignal.throwIfAborted(); await context.assertActive(); }
     return result;
   } catch (error) {
     if (activeSignal.aborted) throw new IntegrationError('timeout', 'Business tool deadline or run cancellation reached');
@@ -141,7 +148,11 @@ async function invoke(integration: McpIntegrationConfig, tool: McpIntegrationCon
 
 /** One registry per business: routes each call to the integration that owns `integrationId`, never by tool name alone. */
 export function combineIntegrations(parts: { owns: readonly (readonly [businessId: string, integrationId: string])[]; integrations: BusinessIntegrations }[]): BusinessIntegrations {
-  return { forContext(context) {
+  return { async verifyCatalog(businessId, integrationId, manifestHash, connectionRevision) {
+    const owner = parts.find(part => part.owns.some(([business, id]) => business === businessId && id === integrationId));
+    if (!owner?.integrations.verifyCatalog) throw new IntegrationError('denied', 'Catalog is not loaded');
+    await owner.integrations.verifyCatalog(businessId, integrationId, manifestHash, connectionRevision);
+  }, forContext(context) {
     const scoped = parts
       .map(part => ({ ids: part.owns.filter(([businessId]) => businessId === context.businessId).map(([, integrationId]) => integrationId), part }))
       .filter(entry => entry.ids.length)
@@ -149,6 +160,7 @@ export function combineIntegrations(parts: { owns: readonly (readonly [businessI
     const route = (integrationId: unknown) => typeof integrationId === 'string' ? scoped.find(entry => entry.ids.includes(integrationId))?.tools : undefined;
     return {
       tools: scoped.flatMap(entry => entry.tools.tools),
+      async listTools() { return (await Promise.all(scoped.map(entry => entry.tools.listTools ? entry.tools.listTools() : entry.tools.tools))).flat(); },
       async callTool(integrationId, name, input, signal) {
         const owner = route(integrationId);
         if (!owner) throw new IntegrationError('denied', 'Business tool is not allowlisted');

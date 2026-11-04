@@ -1,10 +1,11 @@
 import { AppLink } from '../components/AppLink'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
-import { dateTime, errorText, money, request, toolLabels } from '../lib/api'
+import { dateTime, errorText, money, request } from '../lib/api'
 import type { CaseDetail, Metrics, Proposal, ProposalStatus, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
-import { ActionCard } from './Inbox'
+import { ActionCard } from '../components/ActionCard'
+import { actionEventLabel, proposalTitle } from '../lib/external-actions'
 
 type Phase = 'pending' | 'running' | 'history'
 interface ActionRow { proposal: Proposal; detail: CaseDetail; stale: boolean }
@@ -60,7 +61,7 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
   const restoreFocusRef = useRef<string | null>(null)
   const resource = useActionRows(token, (cases ?? []).slice(0, limit).map(item => item.id).sort())
   const query = search.trim().toLocaleLowerCase('uk-UA')
-  const matching = resource.rows.filter(row => `${row.detail.customer.name} ${row.proposal.id} ${row.detail.case.id} ${toolLabels[row.proposal.tool] ?? row.proposal.tool}`.toLocaleLowerCase('uk-UA').includes(query))
+  const matching = resource.rows.filter(row => `${row.detail.customer.name} ${row.proposal.id} ${row.detail.case.id} ${proposalTitle(row.proposal)}`.toLocaleLowerCase('uk-UA').includes(query))
   const visible = matching.filter(row => phaseOf(row.proposal.status) === phase)
   const counts = { pending: matching.filter(row => phaseOf(row.proposal.status) === 'pending').length, running: matching.filter(row => phaseOf(row.proposal.status) === 'running').length, history: matching.filter(row => phaseOf(row.proposal.status) === 'history').length }
   const selected = selectedId === null ? undefined : resource.rows.find(row => row.proposal.id === selectedId) ?? (selectedId === undefined ? visible[0] : undefined)
@@ -93,8 +94,8 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
       <section className="card actions-table-card" ref={tableRegion} tabIndex={-1} aria-label="Список дій AI">
         <div className="tabs actions-tabs" aria-label="Фази дій AI">{(['pending', 'running', 'history'] as const).map(value => <button key={value} className={phase === value ? 'active' : ''} aria-pressed={phase === value} onClick={() => changePhase(value)}>{phaseLabels[value]} <span>{loaded ? counts[value] : '—'}</span></button>)}</div>
         {visible.length ? <div className="table-scroll"><table className="actions-table"><caption className="sr-only">Дії AI: {phaseLabels[phase]}. Кожен рядок — окрема пропозиція.</caption><thead><tr><th scope="col">Клієнт</th><th scope="col">Запропонована дія</th><th scope="col">Сума</th><th scope="col">Статус</th><th scope="col">Час</th></tr></thead><tbody>{visible.map(row => <tr key={row.proposal.id} className={row.proposal.id === selected?.proposal.id ? 'selected-row' : ''}>
-          <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={`Відкрити дію ${toolLabels[row.proposal.tool] ?? row.proposal.tool} для ${row.detail.customer.name}, ${row.proposal.id}`} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} seed={`${row.detail.customer.businessId}:${row.detail.customer.id}`} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
-          <td><strong>{toolLabels[row.proposal.tool] ?? row.proposal.tool}</strong><small>{row.proposal.risk === 'high' ? 'Високий ризик' : 'Низький ризик'}{row.stale ? ' · застарілі дані' : ''}</small></td>
+          <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={`Відкрити дію ${proposalTitle(row.proposal)} для ${row.detail.customer.name}, ${row.proposal.id}`} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} seed={`${row.detail.customer.businessId}:${row.detail.customer.id}`} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
+          <td><strong>{proposalTitle(row.proposal)}</strong><small>{row.proposal.risk === 'high' ? 'Високий ризик' : 'Низький ризик'}{row.stale ? ' · застарілі дані' : ''}</small></td>
           <td className="action-table-amount">{proposalAmount(row.proposal, row.detail)}</td><td><Badge value={row.proposal.status} /></td><td><time dateTime={row.proposal.createdAt} title={`${dateTime(row.proposal.createdAt)} (Київ)`}>{dateTime(row.proposal.createdAt)}</time></td>
         </tr>)}</tbody></table></div> : <Empty icon="spark" title={!loaded ? 'Завантажуємо дії…' : resource.failed ? 'Частину дій не вдалося завантажити' : query ? 'Дій за цим запитом не знайдено' : phase === 'pending' ? 'Немає дій, що очікують рішення' : phase === 'running' ? 'Зараз жодна дія не виконується' : 'Історія дій поки порожня'}>{loaded && !query && !resource.failed ? 'Звернення без запропонованих дій до цього списку не потрапляють.' : 'Змініть пошук або оновіть дані.'}</Empty>}
         <div className="actions-table-footer"><span>{loaded ? `${visible.length} дій у цій вкладці` : 'Очікуємо дані'}{resource.checkedAt && ` · Оновлено ${dateTime(resource.checkedAt)}`}</span>{incomplete && <button onClick={() => setLimit(previous => previous + 50)}>Завантажити ще звернення</button>}</div>
@@ -134,4 +135,3 @@ function proposalAmount(proposal: Proposal, detail: CaseDetail) {
   const payment = detail.payments.find(item => item.id === proposal.args.payment_id)
   return payment ? money(proposal.args.amount_cents, payment.currency) : `${proposal.args.amount_cents} мін. од.`
 }
-function actionEventLabel(type: string) { return ({ 'action.proposed': 'Дію запропоновано', 'action.denied': 'Дію не дозволено', 'action.approved': 'Дію погоджено', 'action.rejected': 'Погодження відхилено', 'action.executed': 'Дію виконано', 'action.failed': 'Виконання потребує уваги' } as Record<string, string>)[type] ?? type }

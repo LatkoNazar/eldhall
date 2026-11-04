@@ -10,6 +10,7 @@
 // from the environment and never printed.
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 const BUSINESS = { id: '50000000-0000-4000-8000-000000000001', slug: 'orders-smoke', name: 'Orders Smoke', currency: 'UAH',
   policy: { refundLimitCents: 10000, duplicateWindowMinutes: 10, enabledTools: ['escalate_to_human'] } };
@@ -21,7 +22,10 @@ async function prepare() {
   if (!out || !url) throw new Error('prepare needs --out and --url');
   const manifest = JSON.parse(await readFile(new URL('manifest.json', orders), 'utf8'));
   const policy = { ...JSON.parse(await readFile(new URL('policy.json', orders), 'utf8')), businessId: BUSINESS.id };
-  const catalog = { businessId: BUSINESS.id, url, credentialEnv: 'MCP_SERVICE_TOKEN', allowInsecureLoopback: process.argv.includes('--loopback'), timeoutMs: 8000, manifest, policy };
+  const upstreamUrl = new URL(arg('--upstream-url') ?? 'http://orders-mock:8090').href.replace(/\/+$/, '');
+  const upstreamTargetFingerprint = createHash('sha256').update(JSON.stringify({ baseUrl: upstreamUrl, principalId: 'default' })).digest('hex');
+  const catalog = { businessId: BUSINESS.id, url, credentialEnv: 'MCP_SERVICE_TOKEN', connectionRevision: '1', upstreamTargetFingerprint,
+    allowInsecureLoopback: process.argv.includes('--loopback'), timeoutMs: 8000, manifest, policy };
   await writeFile(out, JSON.stringify({ businesses: [BUSINESS], catalogs: [catalog] }, null, 2));
   console.log(`smoke config written: business ${BUSINESS.id}, catalog ${manifest.integrationId}`);
 }
@@ -39,6 +43,36 @@ async function run() {
   };
   const order = async orderId => (await fetch(`${control}/__test/orders/${orderId}`, { headers: { 'x-test-control': controlToken } })).json();
   const upstream = async orderId => (await order(orderId)).status;
+
+  // A deployment artifact never activates its own tools. Review exact hashes and set permissions through
+  // the same operator endpoints as the UI; the worker observes DB changes without a restart.
+  const integrationPath = `/api/v1/integrations/orders`;
+  const scoped = suffix => `${integrationPath}${suffix}?businessId=${BUSINESS.id}`;
+  const readPolicy = async () => {
+    const response = await call('GET', scoped('/policy'), { operatorAuth: true });
+    assert.equal(response.status, 200, 'read integration policy');
+    return response.json;
+  };
+  const edit = async (suffix, body, method = 'POST') => {
+    const current = await readPolicy();
+    const response = await call(method, scoped(suffix), { operatorAuth: true, body: { version: current.integration.version, ...body } });
+    assert.equal(response.status, 200, `${suffix}: ${JSON.stringify(response.json)}`);
+    return response.json;
+  };
+  const catalog = await call('GET', scoped('/operations'), { operatorAuth: true });
+  assert.equal(catalog.status, 200);
+  assert.equal(catalog.json.integration.enabled, false, 'fresh integration starts disabled');
+  assert.ok(catalog.json.operations.every(op => !op.enabled && !op.reviewedOperationHash), 'imported operations start unreviewed');
+  assert.equal((await call('GET', scoped('/policy'))).status, 401, 'operator policy cannot be read by anonymous clients');
+  const initial = await readPolicy();
+  await edit('/policy', { defaultMode: 'deny', groups: [{ id: 'orders', selector: { tag: 'Orders' }, mode: 'ask' }],
+    operations: [{ operationKey: 'GET /orders/{order_id}', mode: 'auto' }, { operationKey: 'POST /orders/{order_id}/cancel', mode: 'inherit' }] }, 'PATCH');
+  assert.equal((await call('PATCH', scoped('/policy'), { operatorAuth: true, body: { version: initial.integration.version, defaultMode: 'auto' } })).status, 409, 'stale policy edit rejected');
+  await edit('/review', { manifestHash: catalog.json.integration.loadedManifestHash,
+    operations: catalog.json.operations.filter(op => op.effect !== 'unknown').map(op => ({ operationKey: op.operationKey, operationHash: op.operationHash, enabled: true })) });
+  const reviewed = await readPolicy();
+  await edit('/activate', { manifestHash: reviewed.integration.loadedManifestHash, connectionRevision: reviewed.integration.connectionRevision });
+  console.log('operator activation: ok (disabled import, exact review, policy CAS and live sidecar verification)');
 
   // Customers are created through the operator API; the mock upstream then owns its orders under those ids
   // (the Eldhall → upstream id mapping is S1-3).
@@ -107,6 +141,30 @@ async function run() {
   const messages = (await call('GET', `/api/v1/chat/cases/${ask.caseId}`, { session: olena.session })).json.messages;
   assert.equal(messages.at(-1).body, 'Дію «Cancel order» виконано (статус: cancelled).');
   console.log('ask → approve → execute: ok (one upstream effect, second execute refused)');
+
+  // 4. The same guarded cancellation runs in explicit auto mode via the same durable ledger.
+  await edit('/policy', { operations: [{ operationKey: 'POST /orders/{order_id}/cancel', mode: 'auto' }] }, 'PATCH');
+  const automatic = await turn(olena, 'Скасуйте, будь ласка, замовлення ORD-1003');
+  const autoDetail = (await call('GET', `/api/v1/cases/${automatic.caseId}`, { operatorAuth: true })).json;
+  const autoProposal = autoDetail.proposals.find(row => row.tool === 'external_action');
+  assert.equal(autoProposal?.status, 'executed', await explain(automatic.caseId, automatic.reply));
+  assert.equal(await upstream('ORD-1003'), 'cancelled');
+  assert.equal((await order('ORD-1003')).writes, 1);
+  assert.ok(autoDetail.audit.some(event => event.data?.origin === 'policy_auto'), 'automatic origin is recorded honestly');
+  console.log('auto write: ok (same execution ledger, one effect, policy_auto audit)');
+
+  // 5. Guards apply in auto mode, and deny blocks a direct facade call before the upstream mutation.
+  const shippedBefore = (await order('ORD-1002')).cancelRequests;
+  await turn(olena, 'Скасуйте, будь ласка, замовлення ORD-1002');
+  assert.equal(await upstream('ORD-1002'), 'shipped', 'shipped order guard remains enforced');
+  assert.equal((await order('ORD-1002')).writes, 0);
+  await edit('/policy', { operations: [{ operationKey: 'POST /orders/{order_id}/cancel', mode: 'deny' }] }, 'PATCH');
+  await turn(olena, 'Скасуйте, будь ласка, замовлення ORD-1002');
+  assert.equal((await order('ORD-1002')).cancelRequests, shippedBefore, 'guarded and denied operations sent no cancel request');
+  console.log('guard and deny: ok (no forbidden mutation reached upstream)');
+  await edit('/disable', { draining: true });
+  assert.equal((await readPolicy()).integration.draining, true);
+  console.log('draining: ok (new calls disabled)');
   console.log('MCP sidecar smoke OK');
 }
 

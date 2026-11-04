@@ -58,6 +58,10 @@ const integrationSchema = z.object({
 // policy are embedded so the single read-only config mount carries them; credentials stay in the environment.
 const catalogSchema = z.object({
   businessId: id,
+  connectionRevision: z.string().regex(/^[1-9]\d{0,14}$/).default('1'),
+  upstreamTargetFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  upstreamBusinessId: z.string().min(1).max(200).optional(),
+  customerIdMap: z.record(id, z.string().min(1).max(200)).optional(),
   url: z.string().url().max(1000),
   credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/),
   allowInsecureLoopback: z.boolean().default(false),

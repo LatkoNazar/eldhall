@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { fingerprint, resolvePermission, type CatalogOperation, type IntegrationPolicy } from '../src/integrations/permissions.js';
 
@@ -76,4 +77,8 @@ test('fingerprint ignores key order and formatting, excludes its own hash field,
   assert.equal(fingerprint({ b: 1, a: { d: [1, 2], c: 'x' } }), fingerprint(JSON.parse('{ "a": {"c":"x", "d":[1,2]},\n "b": 1 }')));
   assert.equal(fingerprint({ a: 1, manifestHash: 'x' }, 'manifestHash'), fingerprint({ a: 1, manifestHash: 'y' }, 'manifestHash'));
   assert.notEqual(fingerprint({ a: { d: [1, 2] } }), fingerprint({ a: { d: [2, 1] } }));
+  assert.equal(fingerprint({'2':'two','10':'ten'}),createHash('sha256').update('{"10":"ten","2":"two"}').digest('hex'));
+  assert.equal(fingerprint({small:1e-7}),createHash('sha256').update('{"small":1e-7}').digest('hex'));
+  assert.equal(fingerprint({large:1e20,zero:-0}),createHash('sha256').update('{"large":100000000000000000000,"zero":0}').digest('hex'));
+  for(const number of [NaN,Infinity]) assert.throws(()=>fingerprint({number}),/finite/);
 });
