@@ -1,6 +1,7 @@
+import { currentAnalytics } from '@eldhall/analytics'
 import { useEffect, useState } from 'react'
 import { Badge, Icon, Notice } from './ui'
-import { dateTime, errorText, money, request } from '../lib/api'
+import { ApiError, dateTime, errorText, money, request } from '../lib/api'
 import type { CaseDetail, Proposal } from '../lib/api'
 import { externalInput, isExternalAction, proposalDeadline, proposalTitle } from '../lib/external-actions'
 
@@ -32,11 +33,13 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
       const latest = await request<CaseDetail>(`/cases/${encodeURIComponent(detail.case.id)}`, token)
       const current = latest.proposals.find(item => item.id === proposal.id)
       if (!current || current.argsHash !== proposal.argsHash || current.status !== proposal.status) throw new Error('Стан або аргументи змінилися. Дані оновлено — перегляньте дію ще раз.')
-      await request(`/proposals/${encodeURIComponent(proposal.id)}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
+      const result = await request(`/proposals/${encodeURIComponent(proposal.id)}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
+      trackDecision(action, proposal.tool, result)
       setLockedStatus(proposal.status)
       setNotice(action === 'approve' ? 'Погоджено. Виконання потребує окремої дії.' : action === 'execute' ? 'Сервер підтвердив завершення запиту. Результат — у статусі дії та журналі.' : 'Погодження відхилено.')
       setRejecting(false)
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 502) trackDecision(action, proposal.tool, cause.payload)
       setError(errorText(cause))
       if (action === 'execute' && !(cause instanceof Error && cause.message.includes('Стан або аргументи'))) setUncertain(true)
     } finally { setBusy(false); onChanged() }
@@ -65,6 +68,21 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
     {proposal.status === 'executed' && proposal.tool === 'refund_payment' && <p className="small muted">Повернення виконано симульованим провайдером.</p>}
     {proposal.status === 'executed' && external && proposal.result && <details><summary>Підтверджений результат операції</summary><pre>{JSON.stringify(proposal.result, null, 2)}</pre></details>}
   </section>
+}
+
+// Only confirmed builtin outcomes use the enum-only public event contract.
+// Conflicts, stale reads and external operation identifiers never become events.
+function trackDecision(action: 'approve' | 'execute' | 'reject', tool: string, result: unknown) {
+  if (tool !== 'refund_payment' && tool !== 'escalate_to_human') return
+  if (!result || typeof result !== 'object' || !('proposal' in result)) return
+  const proposal = result.proposal
+  if (!proposal || typeof proposal !== 'object' || !('status' in proposal)) return
+  try {
+    const analytics = currentAnalytics()
+    if (action === 'approve' && proposal.status === 'approved') analytics.track('approval_granted', { tool })
+    if (action === 'execute' && proposal.status === 'executed') analytics.track('action_executed', { tool })
+    if (action === 'execute' && (proposal.status === 'failed' || proposal.status === 'unknown')) analytics.track('action_failed', { tool, outcome: proposal.status })
+  } catch { /* Telemetry never changes the decision or its error/retry protection. */ }
 }
 
 function ExternalActionDetails({ proposal }: { proposal: Proposal }) {

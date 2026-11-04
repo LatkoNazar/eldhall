@@ -25,4 +25,4 @@ const year = document.querySelector('[data-year]')
 if (year) year.textContent = String(new Date().getFullYear())
 
 initUi()
-initScenario()
+initScenario(document, (event, scenario) => analytics.track(event, { scenario }))
