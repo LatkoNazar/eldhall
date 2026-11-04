@@ -16,6 +16,31 @@ SPEC.loader.exec_module(diagnostics)
 
 
 class DeploymentDiagnosticsTests(unittest.TestCase):
+    def legacy_docker(self, sql=None, broker="0\t0\t1\n", absent=False, invalid_service=None,
+                      selection=None, failed_probe=None):
+        calls = []
+        ids = {"rabbitmq": "a" * 64, "postgres": "b" * 64}
+        counts = {"total": 7, "queued": 0, "running": 0, "succeeded": 6, "failed": 1, "other": 0}
+
+        def run(arguments):
+            calls.append(arguments)
+            if arguments[1] == "ps":
+                service = next(arg.rsplit("=", 1)[1] for arg in arguments if arg.startswith("label=com.docker.compose.service="))
+                value = ("" if absent and service == "rabbitmq" else selection if selection is not None else ids[service])
+            elif arguments[1] == "inspect":
+                service = next(key for key, value in ids.items() if value == arguments[-1])
+                value = json.dumps({"id": ids[service], "running": True, "project": "foreign" if invalid_service == service else "starter", "service": service})
+            elif arguments[1] == "exec":
+                service = next(key for key, value in ids.items() if value == arguments[2])
+                if service == failed_probe:
+                    return subprocess.CompletedProcess(arguments, 1, "private-probe-output", "private-probe-error")
+                value = (json.dumps(counts) if sql is None else sql) if service == "postgres" else broker
+            else:
+                raise AssertionError("Unexpected Docker operation")
+            return subprocess.CompletedProcess(arguments, 0, value, "")
+
+        return run, calls
+
     def docker(self, containers=None, labelled=(), named=(), failure=False):
         calls = []
 
@@ -135,6 +160,90 @@ class DeploymentDiagnosticsTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue()), {"report": "deploy-diagnostics-v1", "status": "unavailable", "filesystem_metadata": "unavailable"})
         self.assertEqual(error.getvalue(), "")
         self.assertNotIn("private", output.getvalue())
+
+    def test_legacy_counts_are_aggregated_without_names_payloads_or_credentials(self):
+        counts = {"total": 10, "queued": 2, "running": 1, "succeeded": 6, "failed": 1, "other": 0}
+        run, calls = self.legacy_docker(sql=json.dumps(counts), broker="3\t2\t1\n4\t0\t2\n")
+        result = diagnostics.legacy_queue_status("starter", run)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["pending_work"])
+        self.assertTrue(result["snapshot_only"])
+        self.assertEqual(result["postgres"], {"status": "ok", **counts})
+        self.assertEqual(result["rabbitmq"], {"status": "ok", "queues": 2, "messages_ready": 7,
+                                             "messages_unacknowledged": 2, "consumers": 3})
+        executions = [call for call in calls if call[1] == "exec"]
+        self.assertEqual(len(executions), 2)
+        self.assertEqual(executions[0][2], "b" * 64)
+        self.assertEqual(executions[1][2], "a" * 64)
+        self.assertEqual(executions[0][3:], ["sh", "-ec", diagnostics.SQL_COUNTS])
+        self.assertEqual(executions[1][3:], ["sh", "-ec", diagnostics.RABBIT_COUNTS])
+        self.assertIn("default_transaction_read_only=on", executions[0][-1])
+        self.assertIn('"${POSTGRES_USER:?}"', executions[0][-1])
+        self.assertIn('"${RABBITMQ_DEFAULT_VHOST:?}"', executions[1][-1])
+        self.assertNotIn("PASSWORD", " ".join(executions[0]))
+        self.assertNotIn("name", executions[1][-1])
+        self.assertNotIn("payload", executions[1][-1])
+        serialized = json.dumps(result)
+        for forbidden in ("a" * 64, "b" * 64, "starter", "POSTGRES", "RABBITMQ"):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_zero_legacy_snapshot_is_not_a_cutover_or_absence_claim(self):
+        run, _ = self.legacy_docker(broker="")
+        result = diagnostics.legacy_queue_status("starter", run)
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["legacy_container_present"])
+        self.assertFalse(result["pending_work"])
+        self.assertTrue(result["snapshot_only"])
+        self.assertEqual(result["rabbitmq"]["queues"], 0)
+        self.assertNotIn("cutover_safe", result)
+        run, calls = self.legacy_docker(absent=True)
+        absent = diagnostics.legacy_queue_status("starter", run)
+        self.assertEqual(absent["status"], "no_legacy_container")
+        self.assertFalse(absent["legacy_container_present"])
+        self.assertIsNone(absent["pending_work"])
+        self.assertFalse(any(call[1] == "exec" for call in calls))
+
+    def test_legacy_probe_failures_and_corrupt_counts_never_become_zero_work(self):
+        invalid_sql = ("private-invalid-json", '{"total":0}',
+                       json.dumps({"total": 0, "queued": True, "running": 0, "succeeded": 0, "failed": 0, "other": 0}),
+                       json.dumps({"total": 0, "queued": 1, "running": 0, "succeeded": 0, "failed": 0, "other": 0}))
+        for value in invalid_sql:
+            with self.subTest(sql=value):
+                run, _ = self.legacy_docker(sql=value)
+                result = diagnostics.legacy_queue_status("starter", run)
+                self.assertEqual(result["status"], "unavailable")
+                self.assertIsNone(result["pending_work"])
+                self.assertEqual(result["postgres"], {"status": "unavailable"})
+                self.assertNotIn("private", json.dumps(result))
+        for broker in ("queue-private-name\t0\t0\t1", "0 -1 1", "0 0", "9" * 20 + " 0 0"):
+            with self.subTest(broker=broker):
+                run, _ = self.legacy_docker(broker=broker)
+                result = diagnostics.legacy_queue_status("starter", run)
+                self.assertEqual(result["status"], "unavailable")
+                self.assertIsNone(result["pending_work"])
+                self.assertNotIn("private", json.dumps(result))
+        for service in ("postgres", "rabbitmq"):
+            with self.subTest(failed=service):
+                run, _ = self.legacy_docker(failed_probe=service)
+                result = diagnostics.legacy_queue_status("starter", run)
+                self.assertEqual(result["status"], "unavailable")
+                self.assertIsNone(result["pending_work"])
+                self.assertNotIn("private", json.dumps(result))
+
+    def test_legacy_exec_requires_one_full_id_and_verified_selected_project_labels(self):
+        for selection in ("private-injected-id", "a" * 12, "a" * 64 + "\n" + "b" * 64):
+            with self.subTest(selection=selection):
+                run, calls = self.legacy_docker(selection=selection)
+                result = diagnostics.legacy_queue_status("starter", run)
+                self.assertEqual(result["status"], "unavailable")
+                self.assertFalse(any(call[1] == "exec" for call in calls))
+        for service in ("rabbitmq", "postgres"):
+            with self.subTest(labels=service):
+                run, calls = self.legacy_docker(invalid_service=service)
+                result = diagnostics.legacy_queue_status("starter", run)
+                self.assertEqual(result["status"], "unavailable")
+                self.assertFalse(any(call[1] == "exec" and call[2] == ("a" if service == "rabbitmq" else "b") * 64 for call in calls))
+                self.assertNotIn("foreign", json.dumps(result))
 
 
 if __name__ == "__main__":

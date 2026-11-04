@@ -1,7 +1,8 @@
 """Read deployment status without evaluating .env or changing files, containers or volumes.
 
 Run over SSH with ``python3 - /absolute/deploy/root project-name < this-file``.
-Only selected key-presence flags, container names/status and a release SHA are emitted.
+Only selected key-presence flags, container names/status, a release SHA and aggregate
+legacy work counts are emitted. A zero-work snapshot does not quiesce ingress.
 Docker stderr, environment values, image references and filesystem paths stay private.
 """
 
@@ -29,6 +30,15 @@ ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 PS_FORMAT = '{"name":{{json .Names}},"state":{{json .State}},"status":{{json .Status}}}'
+CONTAINER_ID = re.compile(r"[a-f0-9]{64}\Z")
+IDENTITY_FORMAT = ('{"id":{{json .Id}},"running":{{json .State.Running}},'
+                   '"project":{{json (index .Config.Labels "com.docker.compose.project")}},'
+                   '"service":{{json (index .Config.Labels "com.docker.compose.service")}}}')
+# Values are expanded only by the selected container's shell. No host .env parsing,
+# passwords, queue names or payloads enter argv or the public report.
+SQL_COUNTS = '''exec env PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=5000' psql -X -w -U "${POSTGRES_USER:?}" -d "${POSTGRES_DB:?}" -A -t -v ON_ERROR_STOP=1 -c "SELECT json_build_object('total',count(*),'queued',count(*) FILTER (WHERE status='queued'),'running',count(*) FILTER (WHERE status='running'),'succeeded',count(*) FILTER (WHERE status='succeeded'),'failed',count(*) FILTER (WHERE status='failed'),'other',count(*) FILTER (WHERE status NOT IN ('queued','running','succeeded','failed') OR status IS NULL)) FROM public.jobs"'''
+RABBIT_COUNTS = ('exec rabbitmqctl --silent --timeout 8 list_queues '
+                 '-p "${RABBITMQ_DEFAULT_VHOST:?}" messages_ready messages_unacknowledged consumers')
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
@@ -136,6 +146,85 @@ def current_release_status(root: Path, project: str) -> dict:
     return result
 
 
+def selected_container(project: str, service: str, run: Runner) -> tuple[str, str | None]:
+    """Resolve one existing Compose service and recheck labels before any exec."""
+    selected = run(["docker", "ps", "--all", "--no-trunc", "--filter",
+                    f"label=com.docker.compose.project={project}", "--filter",
+                    f"label=com.docker.compose.service={service}", "--format", "{{.ID}}"])
+    if selected.returncode or len(selected.stdout) > 4096:
+        return "unavailable", None
+    ids = selected.stdout.splitlines()
+    if not ids:
+        return "not_present", None
+    if len(ids) != 1 or not CONTAINER_ID.fullmatch(ids[0]):
+        return "unavailable", None
+    identity = run(["docker", "inspect", "--format", IDENTITY_FORMAT, ids[0]])
+    try:
+        if identity.returncode or len(identity.stdout) > 4096:
+            raise ValueError()
+        item = json.loads(identity.stdout)
+        if not isinstance(item, dict) or item.get("running") is not True or item != {"id": ids[0], "running": True, "project": project, "service": service}:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return "unavailable", None
+    return "ok", ids[0]
+
+
+def legacy_queue_status(project: str, run: Runner) -> dict:
+    """Read old Celery/RabbitMQ work only; never drain, acknowledge or migrate it."""
+    result = {"status": "unavailable", "legacy_container_present": None,
+              "pending_work": None, "snapshot_only": True,
+              "postgres": {"status": "not_queried"}, "rabbitmq": {"status": "not_queried"}}
+    rabbit_status, rabbit = selected_container(project, "rabbitmq", run)
+    if rabbit_status == "not_present":
+        result.update(status="no_legacy_container", legacy_container_present=False)
+        result["rabbitmq"] = {"status": "not_present"}
+        return result
+    if rabbit_status != "ok":
+        result["rabbitmq"] = {"status": "unavailable"}
+        return result
+    result["legacy_container_present"] = True
+    postgres_status, postgres = selected_container(project, "postgres", run)
+    result["postgres"] = {"status": "unavailable"}
+    if postgres_status == "ok":
+        sql = run(["docker", "exec", postgres, "sh", "-ec", SQL_COUNTS])
+        try:
+            if sql.returncode or len(sql.stdout) > 4096:
+                raise ValueError()
+            counts = json.loads(sql.stdout)
+            keys = {"total", "queued", "running", "succeeded", "failed", "other"}
+            if not isinstance(counts, dict) or counts.keys() != keys or any(type(value) is not int or value < 0 or value > 2**63 - 1 for value in counts.values()):
+                raise ValueError()
+            if counts["total"] != sum(counts[key] for key in keys - {"total"}):
+                raise ValueError()
+            result["postgres"] = {"status": "ok", **counts}
+        except (ValueError, TypeError):
+            pass
+    broker = run(["docker", "exec", rabbit, "sh", "-ec", RABBIT_COUNTS])
+    result["rabbitmq"] = {"status": "unavailable"}
+    try:
+        if broker.returncode or len(broker.stdout) > 1_048_576:
+            raise ValueError()
+        totals = [0, 0, 0]
+        rows = [line.split() for line in broker.stdout.splitlines() if line.strip()]
+        for row in rows:
+            if len(row) != 3 or any(not re.fullmatch(r"[0-9]{1,19}", field) for field in row):
+                raise ValueError()
+            for index, field in enumerate(row):
+                totals[index] += int(field)
+                if totals[index] > 2**63 - 1:
+                    raise ValueError()
+        result["rabbitmq"] = {"status": "ok", "queues": len(rows),
+                              "messages_ready": totals[0], "messages_unacknowledged": totals[1], "consumers": totals[2]}
+    except (ValueError, TypeError):
+        pass
+    if result["postgres"]["status"] == result["rabbitmq"]["status"] == "ok":
+        result["status"] = "ok"
+        result["pending_work"] = bool(result["postgres"]["queued"] + result["postgres"]["running"]
+                                      + result["postgres"]["other"] + totals[0] + totals[1])
+    return result
+
+
 def collect(root: Path, project: str, run: Runner = readonly_command) -> dict:
     markers = {name: (root / f".{name}").is_file() for name in ("use-caddy", "use-public-sites")}
     required = set(REQUIRED_KEYS)
@@ -146,7 +235,7 @@ def collect(root: Path, project: str, run: Runner = readonly_command) -> dict:
     return {"report": "deploy-diagnostics-v1", "project": project, "root_exists": root.is_dir(),
             "environment": environment_presence(root / ".env", required), "markers": markers,
             "docker": container_status(project, run), "analytics_volume": analytics_volume_status(project, run),
-            "current_release": current_release_status(root, project)}
+            "current_release": current_release_status(root, project), "legacy_queue": legacy_queue_status(project, run)}
 
 
 def main(arguments: list[str] | None = None) -> int:
