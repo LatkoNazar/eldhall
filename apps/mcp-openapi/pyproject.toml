@@ -9,6 +9,9 @@ dependencies = [
     "rfc8785>=0.1.4",
 ]
 
+[dependency-groups]
+dev = ["ruff==0.17.3"]
+
 [project.scripts]
 support-mcp-import = "support_mcp.import_openapi:main"
 support-mcp-server = "support_mcp.server:main"
@@ -19,3 +22,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/support_mcp"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

@@ -20,6 +20,8 @@ PostgreSQL race/recovery tests and standalone Compose acceptance are mandatory C
 
 [Main run](https://github.com/LatkoNazar/eldhall/actions/runs/41822733941) passed the code, PostgreSQL and standalone sidecar jobs. Its production deployment stopped before service startup because the server configuration lacked the required Umami secrets; the previous release remained active. Production success is not established by a healthy endpoint from that previous release. The starter rollout does not enable a business connector automatically: the MCP overlay, reviewed artifacts and activation remain explicit deployment steps.
 
+[Configuration initialization](https://github.com/LatkoNazar/eldhall/actions/runs/41830073651) added only the absent Umami secrets and operator token, with a private backup. [Post-initialization diagnostics](https://github.com/LatkoNazar/eldhall/actions/runs/41830423400) confirmed their presence, the unchanged old release, and zero pending SQL/broker work. A snapshot is not a cutover guarantee: the deployment now stops old ingress, drains verified legacy work and stops old consumers before backup and migration. The replacement release still requires successful rollout verification.
+
 ## Previous baseline (31 October 2026)
 
 See [classification/configuration](integrations-runtime.md), [OpenRouter](openrouter.md) and [Insights](insights.md) for the implemented additions. The incoming [pitch deck](../deliverables/pitch/README.md) remains a historical draft until regenerated and verified against the current application. [Product analytics](ANALYTICS_PLAN.md) remains a plan; no new tracking integration is claimed.
@@ -47,4 +49,4 @@ Runtime, MCP and PostgreSQL counts describe their respective suites; do not add 
 - One configured operator bearer maps to the bootstrap staff principal; customers use opaque session bearers. OAuth/SSO, invitations and full RBAC are not implemented.
 - Legacy MCP supports configured reads only; reviewed OpenAPI catalogs use a separate policy, approval and execution ledger for writes. Skills grant no executable code or permissions. The upstream server must enforce customer/business ownership and atomic business guards.
 - ARM64 container execution is verified in CI. The current production rollout status is recorded above; public registry publication and AMD64 runtime support still require their own release evidence.
-- License and managed-cloud packaging remain undecided. [The architecture review](architecture-review.md) remains a target proposal.
+- The owner selected Apache-2.0 for the code and public Docker Hub images under `latkonazar`. License/attribution inventory and public publication remain release tasks; no public image is claimed here. [The architecture review](architecture-review.md) remains a target proposal.

@@ -87,4 +87,11 @@ Release bundles include the sidecar image, standalone Compose overlays, Orders a
 
 ## Verification
 
-Run API lint, typecheck, build and tests, Python unittest discovery, real PostgreSQL integration tests and `npm --prefix apps/api run test:mcp-openapi`. The CI `sidecar-compose` job builds the standalone support composition with a synthetic upstream and scripted model. It covers disabled import, review, live schema validation, policy CAS, scoped reads, `ask` approval and execution, `auto` cancellation, guard/deny and draining. It uses no real customer data or paid model calls. Platform support is reported from actual build/runtime evidence; one platform's passing test does not establish another's support.
+From `apps/mcp-openapi`, run the pinned correctness lint rules (`E9`, `F63`, `F7`, `F82`) and Python tests:
+
+```sh
+uv run --locked ruff check src tests
+uv run --locked python -m unittest discover -s tests -v
+```
+
+Run API lint, typecheck, build and tests, real PostgreSQL integration tests and `npm --prefix apps/api run test:mcp-openapi`. The CI `sidecar-compose` job builds the standalone support composition with a synthetic upstream and scripted model. It covers disabled import, review, live schema validation, policy CAS, scoped reads, `ask` approval and execution, `auto` cancellation, guard/deny and draining. It uses no real customer data or paid model calls. Platform support is reported from actual build/runtime evidence; one platform's passing test does not establish another's support.

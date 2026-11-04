@@ -33,9 +33,9 @@
 5. **Реальна дія** — refund змінює стан у БД (провайдер симульований — кажемо прямо).
 6. **Безпека** — LLM не пише в БД; policy engine; human approval прив'язаний до argsHash; atomic claim + UNIQUE; honest failures; sentiment ≠ авторизація.
 7. **Перевірки** — лише виміряні результати зі STATUS. Не використовувати запланований eval, вигадані accuracy чи економію кліків як готовий результат.
-8. **Архітектура** — діаграма з [ARCHITECTURE](ARCHITECTURE.md): Fastify API + worker, PostgreSQL, Redis/BullMQ, native DSH та optional React. JSON/KB/prose-skills/read-only MCP; пошук лексичний. Oracle/cloud і container startup не підтверджені.
+8. **Архітектура** — діаграма з [ARCHITECTURE](ARCHITECTURE.md): Fastify API + worker, PostgreSQL, Redis/BullMQ, native DSH та optional React. Versioned KB, prose-skills, legacy read-only MCP та reviewed OpenAPI-операції з permissions/approval/ledger; пошук гібридний. ARM64 container startup перевірений у CI; актуальний результат production rollout брати зі STATUS.
 9. **Live demo** — вбудоване відео.
-10. **Межі й потенціал** — ліцензію ще не обрано, managed cloud не розгорнуто; roadmap: реальні провайдери, SSO/RBAC, канали. Поточна автентифікація — один staff bearer та opaque customer session.
+10. **Межі й потенціал** — власник обрав Apache-2.0; license inventory й публічні images ще готуються, managed-cloud provisioning не входить у поставку. Roadmap: реальні провайдери, SSO/RBAC, канали. Поточна автентифікація — один staff bearer та opaque customer session.
 
 ## Здача
 `git archive HEAD` включає лише committed-файли й не містить незакомічену реалізацію. Перед створенням пакета звір перевірений checkout і склад архіву; не додавай `.env`, node_modules чи приватні `.omc`-артефакти. Не стверджуй, що ZIP, слайди або відео готові, доки їх не створено й не перевірено. Цей сценарій не дозволяє автоматичний commit, push чи deploy.

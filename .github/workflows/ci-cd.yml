@@ -179,7 +179,9 @@ jobs:
         run: node --import tsx --test tests/knowledge.test.ts
       - name: Python OpenAPI importer and MCP sidecar
         working-directory: apps/mcp-openapi
-        run: uv run --locked python -m unittest discover -s tests -v
+        run: |
+          uv run --locked ruff check src tests
+          uv run --locked python -m unittest discover -s tests -v
       - name: OpenAPI → MCP end to end (mock upstream, real sidecar)
         working-directory: apps/api
         run: npm run test:mcp-openapi
