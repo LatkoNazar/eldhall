@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: ci-deploy-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -195,6 +195,10 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.11.8"
+          enable-cache: true
+          cache-dependency-glob: apps/mcp-openapi/uv.lock
+          cache-local-path: ${{ runner.temp }}/eldhall-uv-cache
+          prune-cache: true
       - name: Install locked dependencies
         run: |
           npm --prefix apps/api ci
