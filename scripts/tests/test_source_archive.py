@@ -23,7 +23,7 @@ class SourceArchiveTests(unittest.TestCase):
         self.repo.mkdir()
         self.git("init", "--quiet")
         self.git("config", "core.autocrlf", "false")
-        for name in source_archive.REQUIRED:
+        for name in source_archive.REQUIRED | source_archive.ESSENTIAL_DOCS:
             self.write(name, b"synthetic source\n")
         self.write("apps/api/src/main.ts", b"export const marker = 'committed';\r\n")
         self.write("apps/mcp-openapi/src/support_mcp/server.py", b"print('fixture')\n")
@@ -153,6 +153,98 @@ class SourceArchiveTests(unittest.TestCase):
         self.git("add", "--all")
         with self.assertRaisesRegex(ValueError, "Reserved generated manifest"):
             self.archive(self.commit_tree())
+
+    def test_named_product_guides_are_required_and_internal_guides_remain_excluded(self):
+        for name in ("OPENAPI_QUICKSTART.md", "NATIVE_RECEIPTS.md", "RELEASE_STATUS.md", "INSTALLATION_INIT.md", "CLI.md"):
+            self.assertIn(name, source_archive.DOCS)
+            self.assertIn("docs/" + name, source_archive.ESSENTIAL_DOCS)
+            (self.repo / "docs" / name).unlink()
+            self.git("add", "--all")
+            with self.assertRaisesRegex(ValueError, "essential product documentation"):
+                self.archive(self.commit_tree(), name=name)
+            self.assertFalse((self.root / ".omc" / name).exists())
+            self.write("docs/" + name, b"synthetic source\n")
+        for path in ("README.starter.md", "docs/STARTER_DEVELOPMENT.md", "docs/STATUS.md", "docs/integrations.md", "docs/TEAM_PROMPTS.md", "todos/README.md", "demos/README.md", "docs/design-system/references/example.png"):
+            self.assertIsNotNone(source_archive.exclusion(path, "100644"))
+
+    def test_documentation_links_close_over_exact_included_targets_without_network_or_code_fakes(self):
+        files = {name: b"synthetic source\n" for name in source_archive.ESSENTIAL_DOCS}
+        files["apps/api/README.md"] = b"# Package\n"
+        files["schemas/config.json"] = b"{}\n"
+        files["README.md"] = b"""# Product
+[guide](docs/API_CONTRACTS.md#heading-not-checked "Guide")
+[directory](apps/api/)
+[same](#this-heading-is-deliberately-not-validated)
+[external](https://unreachable.example.invalid/missing)
+[mail](mailto:nobody@example.invalid)
+[phone](tel:+100000000)
+[protocol-relative](//unreachable.example.invalid/missing)
+`[inline fake](missing.md)`
+``[fake](also-missing.md)``
+```markdown
+[fenced fake](excluded.md)
+```
+~~~html
+<img src="excluded.png">
+~~~
+<!-- [comment fake](excluded.md) -->
+"""
+        files["docs/API_CONTRACTS.md"] = b"""[read][API]
+![read][api]
+[API]: <../README.md> "Product"
+[api][]
+<a href="CLI.md#not-checked">CLI</a><img src="../schemas/config.json">
+[encoded](%43LI.md?view=local#not-checked)
+[root directory](../)
+"""
+        source_archive.verify_documentation(files)
+
+    def test_missing_excluded_ambiguous_and_unsafe_documentation_targets_are_refused(self):
+        files = {name: b"synthetic source\n" for name in source_archive.ESSENTIAL_DOCS}
+        cases = (
+            "[missing](missing.md)", "[excluded](STATUS.md)", "[case](cli.md)",
+            "[escape](../../README.md)", "[encoded escape](%2e%2e/%2e%2e/README.md)",
+            "[absolute](/README.md)", "[encoded absolute](%2fREADME.md)",
+            "[backslash](..%5cREADME.md)", "[nul](CLI.md%00)", "[control](CLI.md%0a)",
+            "[drive](C:/README.md)", "[scheme](file:///README.md)", "[scheme](javascript:alert)",
+            "[no index](../apps/api/)", "[file as directory](CLI.md/)", "[file as directory](CLI.md/.)", "[file as directory](CLI.md/%2e)", "[missing][undefined]", "[missing][]",
+            "[ref]: missing.md", "[ref]: CLI.md\n[ref]: API_CONTRACTS.md",
+            "![image](excluded.png)", '<img src="excluded.png">', '<a href="missing.md">link</a>',
+            "[unsupported](<broken target)",
+        )
+        for case in cases:
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                source_archive.verify_documentation({**files, "docs/API_CONTRACTS.md": case.encode()})
+
+    def test_missing_documentation_target_fails_before_any_archive_output_or_automatic_inclusion(self):
+        self.write("README.md", b"[not exported](docs/STATUS.md)\n")
+        self.write("docs/STATUS.md", b"internal historical material stays private\n")
+        self.git("add", "--all")
+        with self.assertRaisesRegex(ValueError, "missing or excluded"):
+            self.archive(self.commit_tree())
+        self.assertFalse((self.root / ".omc/out").exists())
+        self.assertEqual((self.repo / "docs/STATUS.md").read_bytes(), b"internal historical material stays private\n")
+
+    def test_exact_ignore_file_is_shipped_but_forced_private_installation_outputs_are_excluded(self):
+        ignore = SCRIPT.parents[1].joinpath(".gitignore").read_bytes()
+        self.write(".gitignore", ignore)
+        private = ("support.env", "support.json", "installation.json", "apps/api/config/support.env", "apps/api/config/support.json", "apps/api/config/installation.json", "apps/api/.runtime/state.json")
+        ignored = self.git("check-ignore", "--stdin", data=("\n".join(private) + "\n").encode()).decode().splitlines()
+        self.assertEqual(ignored, list(private))
+        for name in private:
+            self.write(name, b"synthetic-private-installation-value\n")
+        self.write("examples/support.config.json", b"{}\n")
+        self.write("examples/support.qdrant.config.json", b"{}\n")
+        self.git("add", "--force", "--all")
+        commit = self.commit_tree()
+        _, path = self.archive(commit)
+        with tarfile.open(path) as archive:
+            prefix = "eldhall-source-" + commit + "/"
+            self.assertEqual(archive.extractfile(prefix + ".gitignore").read(), ignore)
+            for name in private:
+                self.assertNotIn(prefix + name, archive.getnames())
+            for name in ("examples/support.config.json", "examples/support.qdrant.config.json"):
+                self.assertIn(prefix + name, archive.getnames())
 
 
 if __name__ == "__main__":

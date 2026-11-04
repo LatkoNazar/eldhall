@@ -12,7 +12,7 @@ This is the permanent contract shared by the Python OpenAPI importer (`apps/mcp-
 
 The production factory uses PostgreSQL-held policy, review and activation state. The operator API and Integrations UI manage these with optimistic revisions. A deployment-controlled customer ID map is optional; if configured, missing mappings deny execution. Calls that require a proposal outside a support turn (without a ledger) fail closed.
 
-Reference fixture: [`examples/orders/`](../examples/orders/). It contains a synthetic OpenAPI file, the matching manifest and policy, and a mock upstream API (`mock-api.mjs`) that enforces customer ownership.
+Reference fixture: [`examples/orders/openapi.json`](../examples/orders/openapi.json). The same source directory contains the matching manifest and policy, and a mock upstream API (`mock-api.mjs`) that enforces customer ownership.
 
 ## Configuration (S1-1)
 
@@ -269,7 +269,7 @@ Origin is recorded in the audit as `operator_approval` or `policy_auto`. Takeove
 | `tests/support-queue.test.ts` and `tests/external-actions.test.ts` | coalesced/throttled maintenance, recovery/expiry, authenticated case-only refresh | local API suite; maintenance implementation also included in PR9 |
 | Standalone Compose gate | actual API/worker/sidecar build and startup, review/activate, auto/ask/deny, guard, idempotency, draining and restart | passed in ARM64 PR9 CI with synthetic Orders data and a scripted model |
 
-The immutable PR9 evidence is [run 41820645880](https://github.com/LatkoNazar/eldhall/actions/runs/41820645880); its Python suite passed 32 tests. The pending-turn follow-up has separate local evidence and is not implied by that earlier run. [STATUS](STATUS.md) identifies the current commit, merge state and production deployment result. These checks do not establish public image publication or a selected license.
+These suites cover different boundaries and must be rerun for the exact candidate. [Release status](RELEASE_STATUS.md) distinguishes native source-build/Compose evidence from public image installation, compatibility and restore gates. Project licensing is documented in [licensing scope](LICENSING.md); test success alone does not establish third-party redistribution rights.
 
 **Operations and recovery.** The operator API and UI manage policy, review, activation and draining. Changed policy/catalog/connection and ownership invalidate unexecuted proposals; expired snapshots are terminal and cannot execute. External outcomes, audit and completion messages are recorded durably with action-level deduplication. `unknown` remains locked; the authenticated reconciliation endpoint records an operator-verified result and reason. Automatic reconciliation polling is not provided. Upstream mapping is explicit deployment configuration, not model input. The operator bearer is deployment-wide; per-business staff ACLs and SSO are not implemented.
 

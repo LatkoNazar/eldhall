@@ -35,7 +35,7 @@ The optional proposed article is an unpublished suggestion. Creating a draft is 
 
 The optional dashboard exposes these actions in the Analytics insights view while retaining the six main navigation screens. Staff choose a business and manually start an analysis. Queued/running results poll for a bounded period; manual refresh remains available. Failed and empty results are explicit. Evidence links open the cited conversation, including a ticket outside the current inbox page. Before creating a draft, the UI rereads the run and blocks stale findings. A created-draft link opens the ordinary Knowledge interface, where staff review, edit and explicitly publish it. No publish request is part of the Insights draft flow.
 
-Headless clients can use the same API without the web container. [API contracts](API_CONTRACTS.md), [implementation guide](implementation.md), [current status](STATUS.md).
+Headless clients can use the same API without the web container. [API contracts](API_CONTRACTS.md), [implementation guide](implementation.md), [release status](RELEASE_STATUS.md).
 
 ## Verification commands
 
