@@ -1,0 +1,74 @@
+name: Native release candidate evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-candidate:
+    name: Native candidate (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      ELDHALL_VERSION: 0.1.0-rc.1
+      ELDHALL_SOURCE_REVISION: ${{ github.sha }}
+      CANDIDATE_ARCH: ${{ matrix.arch }}
+      SUPPORT_SERVER_IMAGE: eldhall-server:candidate
+      SUPPORT_WEB_IMAGE: eldhall-web:candidate
+      SUPPORT_MCP_IMAGE: eldhall-mcp-openapi:candidate
+      BUILDX_METADATA_PROVENANCE: min
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Verify license artifacts and candidate utility tests
+        run: |
+          npm --prefix apps/frontend ci
+          npm --prefix apps/landing ci
+          python3 scripts/license-artifacts.py --check
+          python3 -m unittest discover -s scripts/tests -p 'test_candidate_evidence.py' -v
+      - name: Build native local images (no registry publication)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate-build" candidate-evidence
+          test "$(git rev-parse HEAD)" = "$ELDHALL_SOURCE_REVISION"
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_SERVER_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/server.json" --build-arg ELDHALL_VERSION --build-arg ELDHALL_SOURCE_REVISION apps/api
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_WEB_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/web.json" --build-arg PUBLIC_APP_URL=http://localhost:18001 --file apps/frontend/Dockerfile .
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_MCP_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/mcp.json" apps/mcp-openapi
+      - name: Collect bounded native identity and installed license inputs
+        run: python3 scripts/candidate-image-evidence.py --arch "$CANDIDATE_ARCH" --version "$ELDHALL_VERSION" --revision "$ELDHALL_SOURCE_REVISION" --metadata-dir "$RUNNER_TEMP/candidate-build" --output candidate-evidence
+      - name: Synthetic DSH, MCP, worker and web smoke
+        run: bash scripts/candidate-image-smoke.sh
+      - name: Retain small sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: candidate-${{ matrix.arch }}-${{ github.sha }}
+          path: candidate-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
+          include-hidden-files: false
+
+# This workflow builds from checkout and retains validation inputs only. It does
+# not push/tag public repositories, sign a release, upload images or access
+# publication/deployment credentials. Native evidence is not a legal approval,
+# an SBOM/provenance attestation or a registry pull-only installation claim.
