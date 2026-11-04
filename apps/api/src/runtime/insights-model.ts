@@ -67,7 +67,7 @@ export class DshInsightsModel implements InsightModel {
       if (!address || typeof address === 'string') throw new Error('Insights gateway failed to bind');
       runtime = new DeepSeekHarness({ profile: 'support', dshHome: profile.home, processCwd: profile.workspace, cwd: profile.workspace,
         provider: this.options.provider === 'local' ? 'support-local' : this.options.provider, model: this.model, maxTokens: 4096,
-        env: childEnvironment({ apiKey: this.options.apiKey || (this.options.baseURL ? 'local-endpoint' : ''), gatewayUrl: `http://127.0.0.1:${address.port}/insights`, capability, maxToolCalls: 3 }),
+        env: childEnvironment({ apiKey: this.options.apiKey || (this.options.baseURL ? 'local-endpoint' : ''), gatewayUrl: `http://127.0.0.1:${address.port}/insights`, capability, maxToolCalls: 3, home: profile.home }),
         initializeTimeoutMs: Math.min(30000, timeoutMs), disposeEofGraceMs: 300, disposeGraceMs: 1000 });
       await runtime.start();
       await assertActive();

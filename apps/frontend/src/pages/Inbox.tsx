@@ -1,10 +1,13 @@
 import { AppLink } from '../components/AppLink'
+import { ActionCard } from '../components/ActionCard'
+export { ActionCard } from '../components/ActionCard'
 import { useEffect, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Notice } from '../components/ui'
 import { MessageThread } from '../components/MessageThread'
 import { ClassificationSummary } from '../components/ClassificationSummary'
-import { dateTime, errorText, intentLabels, money, request, toolLabels } from '../lib/api'
-import type { CaseDetail, CaseStatus, Proposal, SupportCase } from '../lib/api'
+import { actionEventLabel } from '../lib/external-actions'
+import { dateTime, errorText, intentLabels, money, request } from '../lib/api'
+import type { CaseDetail, CaseStatus, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
 import { registerNavigationGuard } from '../lib/navigation'
 
@@ -73,39 +76,4 @@ function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged }: 
   </>
 }
 
-export function ActionCard({ proposal, detail, token, stale, onChanged, compact = false }: { proposal: Proposal; detail: CaseDetail; token: string; stale: boolean; onChanged: () => void; compact?: boolean }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [uncertain, setUncertain] = useState(false)
-  const [rejecting, setRejecting] = useState(false)
-  const [reason, setReason] = useState('')
-  const [lockedStatus, setLockedStatus] = useState('')
-  const payment = detail.payments.find(item => item.id === proposal.args.payment_id)
-  const amount = typeof proposal.args.amount_cents === 'number' ? payment ? money(proposal.args.amount_cents, payment.currency) : `${proposal.args.amount_cents} найменших одиниць валюти` : ''
-  const terminal = ['executed', 'failed', 'denied', 'rejected', 'unknown'].includes(proposal.status)
-  async function decide(action: 'approve' | 'execute' | 'reject') {
-    if (busy || stale || lockedStatus === proposal.status || (uncertain && !terminal)) return
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const latest = await request<CaseDetail>(`/cases/${detail.case.id}`, token)
-      const current = latest.proposals.find(item => item.id === proposal.id)
-      if (!current || current.argsHash !== proposal.argsHash || current.status !== proposal.status) throw new Error('Стан або аргументи змінилися. Дані оновлено — перегляньте дію ще раз.')
-      await request(`/proposals/${proposal.id}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
-      setLockedStatus(proposal.status)
-      setNotice(action === 'approve' ? 'Погоджено. Виконання потребує окремої дії.' : action === 'execute' ? 'Сервер підтвердив завершення запиту. Результат — у статусі дії та журналі.' : 'Погодження відхилено.')
-      setRejecting(false)
-    } catch (cause) {
-      setError(errorText(cause))
-      if (action === 'execute' && !(cause instanceof Error && cause.message.includes('Стан або аргументи'))) setUncertain(true)
-    } finally { setBusy(false); onChanged() }
-  }
-  return <section className={`action-card ${compact ? 'action-card-compact' : ''}`}><div className="action-title"><Icon name="spark" size={18} /><h3>{toolLabels[proposal.tool] ?? proposal.tool}</h3></div>{amount && <strong className="action-amount">{amount}</strong>}<Badge value={proposal.status} /><p className="small">{proposal.policy.requiresApproval ? 'Потребує погодження людини' : 'Політика не вимагає погодження'} · {proposal.risk === 'high' ? 'Високий ризик' : 'Низький ризик'}</p><dl className="facts small"><dt>Клієнт</dt><dd>{detail.customer.name}</dd>{typeof proposal.args.payment_id === 'string' && <><dt>Платіж</dt><dd className="break-word">{proposal.args.payment_id}</dd></>}</dl><details><summary>Точні аргументи дії</summary><pre>{JSON.stringify(proposal.args, null, 2)}</pre><p className="small break-word">Відбиток: {proposal.argsHash}</p></details><ul className="policy-checks">{(compact ? proposal.policy.checks.filter(check => !check.passed) : proposal.policy.checks).map((check, index) => <li key={index}><span className={check.passed ? 'check-pass' : 'check-fail'} aria-hidden="true">{check.passed ? '✓' : '×'}</span><span><strong>{check.passed ? 'Пройдено' : 'Не пройдено'}: {check.name}</strong><small>{check.detail}</small></span></li>)}</ul>{compact && proposal.policy.checks.some(check => check.passed) && <details className="action-passed-checks"><summary>Пройдені перевірки ({proposal.policy.checks.filter(check => check.passed).length})</summary><ul className="policy-checks">{proposal.policy.checks.filter(check => check.passed).map((check, index) => <li key={index}><span className="check-pass" aria-hidden="true">✓</span><span><strong>{check.name}</strong><small>{check.detail}</small></span></li>)}</ul></details>}{proposal.error && <Notice error>{proposal.error}</Notice>}{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}{uncertain && !terminal && <Notice>Результат уточнюється. Повторне виконання заблоковано. Оновіть дані та перевірте журнал; за потреби зверніться до адміністратора.</Notice>}
-      {proposal.status === 'pending' && !uncertain && <div className="action-buttons"><button className="primary" disabled={busy || stale || lockedStatus === proposal.status || !proposal.policy.allowed} onClick={() => void decide('approve')}>{busy ? 'Перевіряємо…' : proposal.tool === 'refund_payment' ? 'Погодити повернення' : 'Погодити дію'}</button><button className="outline-danger" disabled={busy || stale || lockedStatus === proposal.status} onClick={() => setRejecting(value => !value)}>Відхилити</button></div>}
-      {proposal.status === 'approved' && !uncertain && <><p className="small">Погодження отримано. Наступний крок виконає дію через сервер.</p><button className="primary full" disabled={busy || stale || lockedStatus === proposal.status} onClick={() => void decide('execute')}>{busy ? 'Виконуємо…' : 'Виконати погоджену дію'}</button></>}
-      {rejecting && proposal.status === 'pending' && <form className="reject-form" onSubmit={event => { event.preventDefault(); if (reason.trim()) void decide('reject') }}><label htmlFor={`reject-${proposal.id}`}>Причина відхилення</label><textarea id={`reject-${proposal.id}`} required maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /><button disabled={busy || !reason.trim()} type="submit">Підтвердити відхилення</button></form>}
-      {proposal.status === 'unknown' && <Notice>Фінансовий результат ще не підтверджено. Автоматичний повтор недоступний; потрібна перевірка оператором.</Notice>}{proposal.status === 'executed' && proposal.tool === 'refund_payment' && <p className="small muted">Повернення виконано симульованим провайдером.</p>}
-    </section>
-}
-
-function auditLabel(type: string) { const labels: Record<string, string> = { 'case.opened': 'Звернення відкрито', 'message.received': 'Повідомлення отримано', 'agent.analyzed': 'Аналіз AI завершено', 'agent.fallback': 'Застосовано резервні правила', 'action.proposed': 'Дію запропоновано', 'action.denied': 'Політика не дозволила дію', 'action.approved': 'Дію погоджено', 'action.rejected': 'Погодження відхилено', 'action.executed': 'Дію виконано', 'action.failed': 'Дію не виконано', 'case.takeover': 'Діалог узяв оператор', 'case.resumed': 'Діалог повернено AI', 'case.resolved': 'Звернення вирішено', 'operator.message': 'Оператор відповів' }; return labels[type] ?? type }
+function auditLabel(type: string) { const labels: Record<string, string> = { 'case.opened': 'Звернення відкрито', 'message.received': 'Повідомлення отримано', 'agent.analyzed': 'Аналіз AI завершено', 'agent.fallback': 'Застосовано резервні правила', 'action.proposed': 'Дію запропоновано', 'action.denied': 'Політика не дозволила дію', 'action.approved': 'Дію погоджено', 'action.rejected': 'Погодження відхилено', 'action.executed': 'Дію виконано', 'action.failed': 'Дію не виконано', 'case.takeover': 'Діалог узяв оператор', 'case.resumed': 'Діалог повернено AI', 'case.resolved': 'Звернення вирішено', 'operator.message': 'Оператор відповів' }; return labels[type] ?? actionEventLabel(type) }

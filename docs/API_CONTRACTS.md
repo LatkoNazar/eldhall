@@ -82,7 +82,7 @@ Optional `scoreKind` is `model_self_report` or `selected_probability`. A low-con
 - `SupportCase {id, businessId, customerId, customerName, status, priority: P1|P2|P3, intent, analysis: Analysis|null, ownership:bot|staff, ownershipVersion, assignedTo, createdAt, updatedAt}`
 - `Analysis {intent, summary, reasoning, sentiment: Sentiment, priority, tone: neutral|empathetic|de-escalating, source: llm|fallback, model, classification?: TicketClassification|null}`
 - `Sentiment {label: calm|frustrated|angry|abusive, frustration 0..1, abusive, urgency: low|medium|high, escalationRisk 0..1, signals: string[]}`
-- `Proposal {id, caseId, tool, args, argsHash, risk: low|high, status: pending|approved|executing|executed|rejected|failed|denied|unknown, policy: {allowed, requiresApproval, checks: [{name, passed, detail}]}, decidedBy, decidedAt, result, error, createdAt}`
+- `Proposal {id, caseId, tool, args, argsHash, risk: low|high, status: pending|approved|executing|executed|rejected|failed|denied|unknown|expired|invalidated, policy: {allowed, requiresApproval, checks: [{name, passed, detail}]}, authorizationOrigin?: policy_auto|operator_approval|null, decidedBy, decidedAt, result, error, createdAt}`
 - `AgentRun {provider, model, status: ok|fallback|failed, steps, toolCalls, latencyMs, error}`
 - `AuditEvent {type, actor, data, createdAt}` — types: `case.opened, message.received, agent.analyzed, agent.fallback, action.proposed, action.denied, action.approved, action.rejected, action.executed, action.failed`
 - `Refund {paymentId, proposalId, amountCents, providerRef, simulated: true}`
@@ -93,3 +93,42 @@ Optional `scoreKind` is `model_self_report` or `selected_probability`. A low-con
 | `lookup_payments {limit}` | read | low | scoped to session customer, runs inside the model loop |
 | `refund_payment {payment_id, amount_cents}` | write | high | policy + human approval, executed by backend only |
 | `escalate_to_human {reason}` | write | low | policy, auto-executed |
+
+## Integration catalog administration
+
+These routes require the operator bearer and an explicit `?businessId=<uuid>` on every integration URL. The current bearer is a deployment-wide administrator; selecting a business scopes the resource, rather than providing separate tenant authorization. Errors use 401 for invalid staff auth, 404 for a missing business/integration/manifest, 409 for optimistic-version conflicts or a failed catalog-readiness check, and 422 for invalid bodies. URL paths below omit `/api/v1`.
+
+`IntegrationSummary` is `{businessId,integrationId,enabled,draining,activeManifestHash:string|null,loadedManifestHash,connectionRevision:string,policyRevision:number,defaultMode:auto|ask|deny,version:number,updatedAt}`. The connection revision is a decimal string. The mutable `version` is the compare-and-swap token for every edit, while `policyRevision` identifies execution rules. Manifest hashes identify immutable operation definitions. Secrets, connector credentials and raw private OpenAPI are excluded from responses.
+
+| Method | Path | Body / result |
+|---|---|---|
+| GET | `/integrations?businessId=…` | `{integrations:IntegrationSummary[]}` |
+| GET | `/integrations/:id/operations?businessId=…` | `{integration,groups,operations}`; each operation contains its sanitized manifest definition plus `enabled`, `reviewedOperationHash`, configured `mode` and server `effective` decision |
+| GET | `/integrations/:id/policy?businessId=…` | `{integration:IntegrationSummary,policy:IntegrationPolicy}` |
+| PATCH | `/integrations/:id/policy?businessId=…` | `{version,defaultMode?,groups?,operations?:[{operationKey,mode}]}` → `{integration,policy}` |
+| POST | `/integrations/:id/review?businessId=…` | `{version,manifestHash,operations:[{operationKey,operationHash,enabled}]}` → `{integration,policy}` |
+| POST | `/integrations/:id/activate?businessId=…` | `{version,manifestHash,connectionRevision}` → `{integration,policy}` after live connector manifest/tool-schema verification |
+| POST | `/integrations/:id/disable?businessId=…` | `{version,draining?:boolean}` → `{integration,policy}`; draining defaults to true |
+| GET | `/integrations/:id/audit?businessId=…` | `{events}` for the selected integration |
+
+`IntegrationPolicy` contains `integrationId,businessId,enabled,manifestHash,policyRevision,defaultMode,groups,operations`. A group is `{id,selector:{tag:string}|{operationKeys:string[]},mode}`. A stored operation rule is `{operationKey,enabled,reviewedOperationHash:string|null,mode}`. The default accepts `auto|ask|deny`; group/operation rules also accept `inherit`. PATCH `groups` replaces the group array; PATCH operation entries update only the specified modes. Neither changes reviewed hashes or enabled state, and group edits preserve endpoint overrides.
+
+The operations response includes `operationKey,operationId,toolName,method,path,title,description,tags,effect,operationHash,inputSchema,parameters,scope,outputFields,guard,idempotency,reconciliation`. `effective` is `{mode,source:operation|group|integration|guard,matchedRuleIds,policyRevision,reasonCode}`. Explicit operation mode takes precedence over group defaults. Multiple applicable group modes use `deny > ask > auto`; `group_conflict_strictest` and matched group IDs explain that result. Server guards, business/customer ownership, integration activation and exact-hash review apply independently of permission mode.
+
+An imported operation starts disabled and unreviewed. Review names the exact loaded manifest and operation hash; it cannot approve an unknown effect. Activation separately checks the loaded manifest, connection revision and actual sidecar catalog. Mode `auto` alone activates nothing. A stale `version` never overwrites current edits: reread policy/catalog, review the changed state and submit a new explicit edit. Clients reading operations and policy separately should verify their integration versions match before enabling controls.
+
+### External proposals and reconciliation
+
+External proposals retain `tool:"external_action"`. Their `args` is the frozen invocation snapshot directly, including operation/integration identity, title, reviewed hashes, policy and connection revisions, input, trusted scope/ownership and `expiresAt`. The UI shows the operation title, target and important input values, rather than the generic tool discriminator. `authorizationOrigin` distinguishes `policy_auto` from `operator_approval`; actor/timing and policy checks remain available. `approved` means consent was recorded, while `executed` means a result was durably confirmed. Approval and execute remain separate existing endpoints with the exact proposal `argsHash`.
+
+`expired` and `invalidated` are terminal proposal states: expiry requires a new proposal; changes to policy/catalog/ownership can invalidate a snapshot. An `unknown` outcome is not retried automatically. After verifying the actual upstream result, an operator can use:
+
+```http
+POST /api/v1/proposals/:id/reconcile
+Authorization: Bearer <OPERATOR_TOKEN>
+Content-Type: application/json
+
+{"status":"executed","reason":"Verified the provider operation record","providerRef":"provider-reference"}
+```
+
+The body is `{status:"executed"|"failed",reason:string(3..500),providerRef?:string(1..200),result?:object}`. Only an external proposal currently in `unknown` can be reconciled. Optional result data is projected through the recorded operation's approved output fields. The response is `{proposal,case}`. This endpoint records the verified outcome, customer message and audit; it does not dispatch another upstream request. Concurrent/stale reconciliation returns 409.

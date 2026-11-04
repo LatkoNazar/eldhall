@@ -76,7 +76,9 @@ test('configured support and insights staff routes reject malformed credentials 
 });
 
 test('production rejects public example API/operator tokens even when they exceed the minimum length', async () => {
-  const production = { ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 'a'.repeat(32), ALLOWED_HOSTS: '["api.example.com"]', SUPPORT_STORE: 'memory', SUPPORT_EXECUTION: 'inline', LLM_PROVIDER: 'rules' };
+  const production = { ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 'a'.repeat(32), ALLOWED_HOSTS: '["api.example.com"]', SUPPORT_STORE: 'postgres', LLM_PROVIDER: 'rules' };
+  // createSupport's own token check is under test, not the store: swap in memory after config validation so no database is needed.
+  const support = (env: Record<string, string>) => ({ ...settingsFrom(env), supportStore: 'memory' as const, supportExecution: 'inline' as const });
   const exampleApiToken = 'development-token-not-for-production';
   assert.ok(exampleApiToken.length >= 32);
   assert.throws(() => settingsFrom({ ...production, API_TOKEN: exampleApiToken }), /API_TOKEN/);
@@ -85,8 +87,8 @@ test('production rejects public example API/operator tokens even when they excee
   const exampleOperatorToken = 'development-operator-token';
   assert.ok(exampleOperatorToken.length >= 24);
   for (const token of ['', 'short', ' ', exampleOperatorToken, 'example-' + 'x'.repeat(24), 'replace-with-' + 'x'.repeat(24), 'x'.repeat(24) + ' ']) {
-    await assert.rejects(createSupport(settingsFrom({ ...production, OPERATOR_TOKEN: token }), {} as pg.Pool), /OPERATOR_TOKEN/);
+    await assert.rejects(createSupport(support({ ...production, OPERATOR_TOKEN: token }), {} as pg.Pool), /OPERATOR_TOKEN/);
   }
-  const valid = await createSupport(settingsFrom({ ...production, OPERATOR_TOKEN: 's'.repeat(32) }), {} as pg.Pool);
+  const valid = await createSupport(support({ ...production, OPERATOR_TOKEN: 's'.repeat(32) }), {} as pg.Pool);
   assert.equal(valid.capabilities?.runtime, 'rules');
 });
