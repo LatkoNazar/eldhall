@@ -5,6 +5,10 @@
 **Результат:** користувач встановлює перевірений реліз через Docker Hub без clone, Node/Python на host і локальної збірки.  
 **Baseline:** commit `858985f38b82e4e26dafb563e4e794ff01cc9196`; це план, не опис доступного релізу.
 
+**Приватне виконання, 4 листопада:** актуальна прийнята база — [`91ba9519`](https://github.com/LatkoNazar/eldhall/commit/91ba9519e6da800d1fb4063acaa43a39baa35cd4). Owner відклав створення public source repository та публікацію коду й образів до окремого явного рішення про готовність. Продовжуємо реалізацію та перевірки в приватному репозиторії; publication credentials не налаштовуємо. D01 і M1 загалом **не завершені**.
+
+Позначені нижче критерії підтверджені поточним source contract та [native AMD64/ARM64 перевірками PR #14](https://github.com/LatkoNazar/eldhall/actions/runs/41866631870), а не встановленням із Docker Hub. [Distribution contract](../docs/distribution-contract.md), [поточні межі](../docs/RELEASE_STATUS.md) та [облік D00](00-baseline-and-release-gates.md) відділяють реалізовані частини від майбутнього release/install workflow. Розділ 1 зберігає історичний baseline; його старі CI/deploy результати не описують стан поточного production.
+
 ## 1. Що вже є
 
 [API Dockerfile](../apps/api/Dockerfile) має multi-stage build, production dependencies, non-root користувача і persistent DSH directory. API, worker та migration вже використовують один server image з різними командами. Це правильна основа.
@@ -21,23 +25,23 @@
 
 | Артефакт | Роль |
 | --- | --- |
-| `docker.io/<approved-namespace>/eldhall-server:<version>` | API, worker, migration, admin CLI |
-| `docker.io/<approved-namespace>/eldhall-web:<version>` | Опційний operator/customer UI |
-| `docker.io/<approved-namespace>/eldhall-mcp-openapi:<version>` | Опційний Python adapter із головного TODO |
+| `docker.io/latkonazar/eldhall-server:<version>` | API, worker, migration, admin CLI |
+| `docker.io/latkonazar/eldhall-web:<version>` | Опційний operator/customer UI |
+| `docker.io/latkonazar/eldhall-mcp-openapi:<version>` | Опційний Python adapter із головного TODO |
 | Release manifest | Source SHA, image index/platform digests, schema/config compatibility |
 | Installation bundle | Compose без build contexts, приклад конфігурації, checksums, інструкція |
 | Release notes | Зміни, migrations, сумісність, відомі обмеження, rollback instructions |
 
-`<approved-namespace>` та `<version>` — placeholders; репозиторії Docker Hub ще потрібно створити й підтвердити право публікації. Власний підтримуваний образ не називати Docker Official Image.
+Namespace `latkonazar` і назви трьох образів погоджені. Репозиторії створено порожніми до відкладення публікації; це не означає, що образи чи версії вже доступні. `<version>` залишається placeholder для майбутнього перевіреного релізу. Поточний canonical source repository приватний; нового public repository немає. Власний підтримуваний образ не називати Docker Official Image.
 
 ### D01-01 — Визначити package contract
 
-- [ ] Зафіксувати назви образів, підтримувані платформи `linux/amd64` і `linux/arm64`, source repository та channel policy.
+- [x] Зафіксувати назви образів, підтримувані платформи `linux/amd64` і `linux/arm64`, source repository та channel policy.
 - [ ] API/worker/migrate одного deployment повинні використовувати той самий server digest.
-- [ ] Зберегти окремі PostgreSQL/Redis services; не запускати їх усередині server image.
+- [x] Зберегти окремі PostgreSQL/Redis services; не запускати їх усередині server image.
 - [ ] Опційні UI/MCP images мають сумісні protocol/config versions. Відсутність цих profiles не заважає headless запуску.
-- [ ] Маркетингові landing/analytics не включати до обов'язкового install bundle.
-- [ ] Задокументувати distro/libc та native runtime залежності. Успіх TypeScript build не доводить працездатність DSH на ARM64.
+- [ ] Маркетингові landing/analytics не включати до обов'язкового install bundle. Contract і standalone Compose вже відділяють landing/Umami; перевірка вмісту готового install bundle ще попереду.
+- [x] Задокументувати distro/libc та native runtime залежності. Успіх TypeScript build не доводить працездатність DSH на ARM64.
 
 ### D01-02 — Версії та release manifest
 
@@ -53,8 +57,8 @@
 
 - [ ] Створити окремий release workflow, не змішувати publication з наявним SSH deployment на власний сервер.
 - [ ] Зафіксувати build actions за reviewed commit SHA, base image digests і lockfiles; залежності оновлювати через review.
-- [ ] Buildx збирає обидві платформи. Native runner smoke на AMD64 та ARM64 запускає саме готові platform images.
-- [ ] На кожній архітектурі перевірити API startup, migrations, worker claim, DSH із deterministic local model fixture, persistence і Python MCP handshake.
+- [x] Buildx збирає обидві платформи. Native runner smoke на AMD64 та ARM64 запускає саме готові platform images.
+- [x] На кожній архітектурі перевірити API startup, migrations, worker claim, DSH із deterministic local model fixture, persistence і Python MCP handshake.
 - [ ] QEMU допускається як допомога збірці. Результат emulated test позначати окремо; він не замінює native compatibility evidence.
 - [ ] Обмежити runtime image потрібними compiled files, production dependencies, migrations і CLI; development/demo media не копіювати.
 - [ ] Перевірити non-root UID, read-only root filesystem, writable volume ownership, signal forwarding і graceful stop.
@@ -65,7 +69,7 @@
 ### D01-04 — Trusted publication
 
 - [ ] Release candidate публікує лише trusted workflow для затвердженого tag/source commit.
-- [ ] Fork/PR jobs збирають і тестують без Docker Hub credentials, signing identity або production secrets.
+- [x] Fork/PR jobs збирають і тестують без Docker Hub credentials, signing identity або production secrets.
 - [ ] Token має мінімальні права лише на потрібні registry repositories; пароль особистого акаунта в CI не використовувати.
 - [ ] Перевірити, що release tag посилається на дозволений commit, а всі required checks стосуються саме його.
 - [ ] Workflow permissions задавати по jobs; OIDC/signing permission доступний лише publication stage.
@@ -99,7 +103,7 @@
 - [ ] README кожного образу: призначення, підтримувані architectures, ролі/команди, config/env, ports, volumes, healthcheck, license, release/support policy.
 - [ ] Дати один canonical install link на конкретну версію bundle.
 - [ ] Приклади містять placeholders і синтетичні дані; реальні tokens або бізнесові OpenAPI artifacts не публікуються.
-- [ ] Вказати, що server потребує PostgreSQL/Redis, а правила/модель настроюються окремо.
+- [x] Вказати, що server потребує PostgreSQL/Redis, а правила/модель настроюються окремо.
 - [ ] Додати troubleshooting для image platform mismatch, registry authentication/rate limits, disk full, failed migration.
 - [ ] Для закритої мережі описати повторюваний offline export/import **того самого release manifest**, включно з залежними images і перевіркою checksums.
 
