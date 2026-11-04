@@ -3,8 +3,8 @@
 Ця папка містить наступні задачі **після завершеного основного OpenAPI/MCP/permissions плану**. Його історія: [TODO.md на зафіксованому commit](https://github.com/LatkoNazar/eldhall/blob/858985f38b82e4e26dafb563e4e794ff01cc9196/TODO.md), [PR #9](https://github.com/LatkoNazar/eldhall/pull/9), [PR #10](https://github.com/LatkoNazar/eldhall/pull/10), [постійний status/evidence](../docs/STATUS.md). Кореневий TODO видалено в [`7728f5d`](https://github.com/LatkoNazar/eldhall/commit/7728f5d7371e9cbaacb7d77fe3dab9923c52d995).
 
 **Підготовлено:** 2026-11-01; **оновлено:** 2026-11-04.
-**Поточний baseline:** `7728f5d7371e9cbaacb7d77fe3dab9923c52d995`; runtime source — `2ba80ca`. Історичні task files зберігають початкову дату; актуальні відмінності й докази — у [D00](00-baseline-and-release-gates.md).
-**Статус:** передумова основного TODO виконана; перша хвиля D01/D02/D13 розпочата. Docker Hub publication, clean pull-only install, M1/M2 і SDK ще не підтверджені.
+**Прийнята source база:** [`5ae3066ba96a87e6fc9e6822599143fd2305dd41`](https://github.com/LatkoNazar/eldhall/commit/5ae3066ba96a87e6fc9e6822599143fd2305dd41), після [PR #11](https://github.com/LatkoNazar/eldhall/pull/11) і [PR #12](https://github.com/LatkoNazar/eldhall/pull/12). Попередній roadmap checkpoint — `7728f5d`; завершений основний TODO перевіряв runtime source `2ba80ca`. Історичні task files зберігають початкову дату; актуальні відмінності й докази — у [D00](00-baseline-and-release-gates.md).
+**Статус:** передумова основного TODO виконана; у першій хвилі реалізовано licensing foundation, static CLI/release schemas та offline init із native AMD64/ARM64 evidence. Повні D01/D02/D13, Docker Hub publication, clean pull-only install, M1/M2 і SDK ще не завершені.
 
 ## Мета
 
@@ -30,10 +30,13 @@
 | --- | --- | --- |
 | Попередній OpenAPI/MCP/permissions етап | Завершено; [main CI/deploy 41832367634](https://github.com/LatkoNazar/eldhall/actions/runs/41832367634), [post-deployment diagnostics](https://github.com/LatkoNazar/eldhall/actions/runs/41834098842) | Бізнесові connector mounts/review/activation лишаються явним deployment кроком |
 | D00 refresh | Поточну базу відокремлено від immutable 1 November snapshot у [D00](00-baseline-and-release-gates.md) | Release gates виконуються окремо для кожного candidate |
-| D01-01 / D01-02 / D02-01 contract | [Proposed distribution contract](../docs/distribution-contract.md): public namespace, image roles, prerelease, metadata та installation identity | Review, machine schema/validator, CLI, pull-only bundle і published-image evidence; ці task IDs ще не закриті |
-| D13-02 owner decision | Owner обрав Apache-2.0 і public Docker Hub images під `latkonazar` | License/attribution inventory, metadata та public source-access evidence перед publication |
+| D01-01 / D01-02 / D02-01 foundation | [Distribution contract](../docs/distribution-contract.md), strict release parser/semantic validator і [JSON Schema](../schemas/release-manifest.v1.schema.json); [PR #11](https://github.com/LatkoNazar/eldhall/pull/11), [PR #12](https://github.com/LatkoNazar/eldhall/pull/12) | Registry publication, complete digest/SBOM/provenance/signature evidence, pull-only bundle, actual schema epochs і runtime compatibility enforcement; task IDs цілком не закриті |
+| D02-02 static CLI | Image-contained [help/version/config validate/release validate](../docs/CLI.md), без DB/Redis/model credentials; baked public build identity перевірена в native images | Doctor, bootstrap, effective deployment config і повний installation lifecycle |
+| D02 offline init slice | [Linux init](../docs/INSTALLATION_INIT.md) створює private files і stable `installationFormat:1` identity у стані `prepared/unbound`; [PR12 standard CI](https://github.com/LatkoNazar/eldhall/actions/runs/41856018036) перевірив replay/privacy/races та реальний Compose parser/service environment | Release/storage binding, ownership/DB identity/schema checks і запуск stack; це не ready installation |
+| Native candidate evidence | [PR11 native run](https://github.com/LatkoNazar/eldhall/actions/runs/41843290591) та [PR12 native run](https://github.com/LatkoNazar/eldhall/actions/runs/41856018384): AMD64/ARM64 source-built runtime smoke; PR12 збирає всі три images із перевіреного exact-commit source archive й перевіряє actual-image init | Published-image pull-by-digest smoke, public source access/rights, clean-host install та restore |
+| D13-02 licensing foundation | Owner обрав Apache-2.0 і public images під `latkonazar`; [LICENSE](../LICENSE), [NOTICE](../NOTICE), [scope/third-party notices](../docs/LICENSING.md), package SPDX, scoped image labels, shipped browser notices та legal-artifact drift checks реалізовано | Exact Linux base/native inventory, SBOM/corresponding-source receipts, contributor/media rights і reviewed source/publication path; не весь stack Apache і не весь D13 завершено |
 
-Жоден M1/M2 checkbox не позначено на підставі цього документа. Поточний ARM64 source-build/deploy proof не замінює AMD64 native smoke, published-image install або restore report.
+Жоден M1/M2 checkbox не позначено на підставі цього документа. Native AMD64/ARM64 source-build та exact-source-archive proof не замінюють published-image install, public source access або restore report. Прийнятий source commit і production rollout перевіряються окремо.
 
 ## Карта задач
 
@@ -61,7 +64,7 @@
 
 ### Хвиля 1 — узгодити контракти й прибрати залежність від приватного deployment
 
-Після головного TODO паралельно зафіксувати image/role contract D01-01, installation/config contract D02, public API D04-01, principal/service-key contract D07-01, lifecycle D08-01 та license decision D13-02. Визначити підтримувані versions і single-worker deployment profile.
+Після головного TODO продовжити image/role contract D01-01 та installation/config contract D02 від уже реалізованих metadata/CLI/init slices; owner license decision і licensing artifacts D13-02 зафіксовані. Паралельно погодити public API D04-01, principal/service-key contract D07-01, lifecycle D08-01, підтримувані versions і single-worker deployment profile.
 
 **Вихід:** зрозуміло що ставиться, як налаштовується, хто може викликати API і що вважається сумісним.
 

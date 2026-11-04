@@ -33,7 +33,17 @@ class CandidateEvidenceTests(unittest.TestCase):
         self.assertNotIn("never-retain-this", json.dumps(record))
         self.assertEqual(record["buildMaterials"][0]["digest"], "sha256:" + "c" * 64)
         self.assertEqual(record["configDigest"], "sha256:" + "a" * 64)
-        self.assertNotEqual(record["configDigest"], record["localManifestDigest"])
+        self.assertEqual(record["buildxOutputDigest"], "sha256:" + "b" * 64)
+        self.assertEqual(record["buildxOutputDigestKind"], "unverified-local-exporter-digest")
+        self.assertNotIn("localManifestDigest", record)
+
+    def test_loaded_buildx_digest_may_equal_config_id_without_manifest_claim(self):
+        value = self.metadata()
+        value["containerimage.digest"] = value["containerimage.config.digest"]
+        record = evidence.build_materials(value)
+        self.assertEqual(record["buildxOutputDigest"], record["configDigest"])
+        self.assertEqual(record["buildxOutputDigestKind"], "unverified-local-exporter-digest")
+        self.assertFalse(any("manifest" in key.lower() for key in record))
 
     def test_missing_build_materials_or_bad_digests_are_not_success(self):
         for mutate in [lambda value: value.pop("containerimage.config.digest"),
@@ -111,6 +121,96 @@ class CandidateEvidenceTests(unittest.TestCase):
             for receipt in receipts:
                 self.assertEqual(receipt["sha256"], evidence.hashlib.sha256(pathlib.Path(receipt["path"]).read_bytes()).hexdigest())
                 self.assertNotIn("Synthetic notice", json.dumps(receipt))
+
+    def run_node_inventory(self, modules):
+        return subprocess.run(["node", "--input-type=module", "-", json.dumps([str(modules)])], input=evidence.NODE_INVENTORY, capture_output=True, text=True, timeout=30)
+
+    def native_fixture(self, root, name='@img/sharp-libvips-linux-x64'):
+        modules = root / 'node_modules'
+        parent = modules / 'consumer'
+        parent.mkdir(parents=True)
+        (parent / 'package.json').write_text(json.dumps({'name': 'consumer', 'version': '1.0.0'}))
+        package = parent / 'node_modules' / name
+        (package / 'lib').mkdir(parents=True)
+        manifest = json.dumps({'name': name, 'version': '1.3.4', 'license': 'LGPL-3.0-or-later'}).encode()
+        (package / 'package.json').write_bytes(manifest)
+        return modules, package, manifest
+
+    def test_wasm_elf_and_generated_sharp_notices_are_exact_installed_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            modules, package, manifest = self.native_fixture(pathlib.Path(directory))
+            # Exact upstream v1.3.4 layout: package README is generated from
+            # THIRD-PARTY-NOTICES; it is not named LICENSE and can be nested
+            # under another npm package. Bytes here are synthetic test text.
+            notice = b'\xef\xbb\xbf# Fixture\r\n## Licensing\r\nComplete notice: \xc2\xa9 sample\r\nhttps://never-fetch.invalid/source\r\n'
+            (package / 'README.md').write_bytes(notice)
+            (package / 'versions.json').write_bytes(b'{"vips":"8.18.7"}\r\n')
+            wasm = b'\x00asm\x01\x00\x00\x00synthetic wasm'
+            elf = b'\x7fELFsynthetic elf'
+            (package / 'lib/runtime.wasm').write_bytes(wasm)
+            (package / 'lib/libvips.so').write_bytes(elf)
+            (package / 'lib/not-really.wasm').write_bytes(b'not wasm magic')
+            result = self.run_node_inventory(modules)
+            self.assertEqual(result.returncode, 0, 'Fixture collector failed')
+            value = json.loads(result.stdout)
+            component = value['nativeComponents'][0]
+            self.assertEqual(component['package']['manifestSha256'], evidence.hashlib.sha256(manifest).hexdigest())
+            self.assertEqual(component['sourceAvailability'], 'not_verified')
+            self.assertEqual(component['missingKinds'], [])
+            self.assertEqual({binary['format'] for binary in component['binaries']}, {'elf', 'wasm'})
+            wasm_receipt = next(binary for binary in component['binaries'] if binary['format'] == 'wasm')
+            self.assertEqual(wasm_receipt['sha256'], evidence.hashlib.sha256(wasm).hexdigest())
+            self.assertEqual(wasm_receipt['package'], component['package'])
+            readme = next(item for item in component['receipts'] if item['relativePath'] == 'README.md')
+            self.assertEqual(readme['kind'], 'notice')
+            self.assertEqual(readme['text'].encode('utf-8'), notice)
+            self.assertEqual(readme['sha256'], evidence.hashlib.sha256(notice).hexdigest())
+            self.assertTrue(any(item['relativePath'] == 'versions.json' and item['kind'] == 'build-source-metadata' for item in component['receipts']))
+            image = {'imageId': 'sha256:' + 'a' * 64, 'architecture': 'amd64', **evidence.build_materials(self.metadata())}
+            bound = evidence.native_review_inputs(value['nativeComponents'], image, 'c' * 40, {'kind': 'verified-vetted-commit-archive'})
+            self.assertEqual(bound['image']['imageId'], image['configDigest'])
+            self.assertEqual(bound['image']['buildMaterials'], image['buildMaterials'])
+            self.assertEqual(bound['sourceAvailability'], 'not_verified')
+            for changes in [{'imageId': 'sha256:' + 'd' * 64}, {'architecture': 'unknown'}]:
+                with self.assertRaises(ValueError):
+                    evidence.native_review_inputs(value['nativeComponents'], {**image, **changes}, 'c' * 40, {})
+            component['receipts'][0]['text'] += 'changed'
+            with self.assertRaisesRegex(ValueError, 'byte-exact'):
+                evidence.native_review_inputs(value['nativeComponents'], image, 'c' * 40, {})
+
+    def test_missing_notices_are_explicit_and_bad_or_oversized_text_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            modules, package, _ = self.native_fixture(pathlib.Path(directory), '@deepseek-ai/libreoffice-kit-wasm')
+            result = self.run_node_inventory(modules)
+            self.assertEqual(result.returncode, 0)
+            component = json.loads(result.stdout)['nativeComponents'][0]
+            self.assertIn('notice', component['missingKinds'])
+            self.assertIn('binary-fingerprint', component['missingKinds'])
+            for invalid in [b'bad utf8:\xff', b'x' * 1_000_001]:
+                (package / 'NOTICE').write_bytes(invalid)
+                result = self.run_node_inventory(modules)
+                self.assertNotEqual(result.returncode, 0, 'Non-exact/oversized notice cannot be silently truncated')
+
+    def test_native_notice_component_and_total_budgets_fail_without_partial_json(self):
+        for budget in ('component', 'total'):
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                names = ['@img/sharp-libvips-linux-x64'] if budget == 'component' else ['@img/sharp-libvips-linux-x64', '@img/sharp-libvips-linux-arm64', '@img/sharp-libvips-linuxmusl-x64', '@img/sharp-libvips-linuxmusl-arm64']
+                for name in names:
+                    # Build the same nested installed-package layout; the
+                    # fixture helper's consumer may already exist.
+                    modules = root / 'node_modules'
+                    parent = modules / 'consumer'
+                    parent.mkdir(parents=True, exist_ok=True)
+                    (parent / 'package.json').write_text('{"name":"consumer","version":"1.0.0"}')
+                    package = parent / 'node_modules' / name
+                    package.mkdir(parents=True)
+                    (package / 'package.json').write_text(json.dumps({'name': name, 'version': '1.3.4'}))
+                    for notice in (['LICENSE', 'NOTICE', 'COPYING'] if budget == 'component' else ['LICENSE', 'NOTICE']):
+                        (package / notice).write_bytes(b'x' * 800_000)
+                result = self.run_node_inventory(modules)
+                self.assertNotEqual(result.returncode, 0, budget)
+                self.assertEqual(result.stdout, '', 'Failed collection must not emit a partial successful evidence document')
 
     def test_output_limit_prevents_oversized_evidence_files(self):
         with tempfile.TemporaryDirectory() as directory:
