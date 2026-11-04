@@ -1,6 +1,6 @@
 # Native image review inputs
 
-The candidate workflow collects installed native fingerprints and bounded notice/build metadata from the exact local image it tested. This supplies review inputs for D01/D13. It does not publish source, fetch corresponding source, create an SBOM or attest that distribution obligations are satisfied.
+The candidate workflow collects installed native fingerprints and bounded notice/build metadata from the exact local image it tested. This supplies review inputs for D01/D13. This collector does not fetch corresponding source or attest that distribution obligations are satisfied. The separate [private OCI evidence gate](PRIVATE_OCI.md) generates and retains unsigned BuildKit SPDX/provenance statements; neither lane publishes source or images.
 
 ## What the evidence identifies
 
@@ -8,15 +8,15 @@ The candidate workflow collects installed native fingerprints and bounded notice
 
 `server-native-review-inputs.json` contains:
 
-- `format: eldhall-native-review-inputs-v1` and exact server `imageId`/`configDigest`, architecture and resolved build-material hashes;
+- `format: eldhall-native-review-inputs-v1`, exact server `imageId` with explicit `imageIdKind`, structurally verified OCI index/platform/config identities, architecture and resolved build-material hashes;
 - raw `buildxOutputDigest` with `buildxOutputDigestKind: unverified-local-exporter-digest`;
 - source revision and vetted-source build receipt;
 - selected installed native components, their binary fingerprints and byte-exact notice/build-source metadata receipts;
 - explicit `missingKinds` and `sourceAvailability: not_verified`.
 
-All image inventory commands run by the verified immutable image ID after its architecture/config identity is checked. They use no network, a read-only filesystem, no host mounts and no supplied application environment. The collector reads fixed installed package locations, never `.env`, chats, provider keys or business configuration.
+All image inventory commands run by the verified immutable image ID with explicit native platform selection after the OCI graph/config/RootFS binding is checked. They use no network, a read-only filesystem, no host mounts and no supplied application environment. The collector reads fixed installed package locations, never `.env`, chats, provider keys or business configuration.
 
-Buildx `--load` may report the config image ID as `containerimage.digest`; that happened for all three PR #12 images. It must not be renamed or interpreted as a platform manifest or index digest. `buildxOutputDigest` retains that raw value without classifying it. A registry/OCI manifest digest requires separate structural evidence. The immutable local image ID is the binding used for these file receipts.
+Historically, Buildx `--load` reported the config image ID as `containerimage.digest` for all three PR #12 images. That value alone was not a platform manifest/index proof. `buildxOutputDigest` still preserves the raw value without guessing its type. The new OCI gate supplies separate structural identities and checks that Buildx output matches the actual graph. Docker/containerd may identify the index or platform manifest as the local image ID; `imageIdKind` records its verified meaning instead of assuming equality with `configDigest`.
 
 ## Installed receipt policy
 

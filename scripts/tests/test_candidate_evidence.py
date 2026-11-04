@@ -45,6 +45,16 @@ class CandidateEvidenceTests(unittest.TestCase):
         self.assertEqual(record["buildxOutputDigestKind"], "unverified-local-exporter-digest")
         self.assertFalse(any("manifest" in key.lower() for key in record))
 
+    def test_verified_oci_config_is_authoritative_when_export_metadata_omits_config(self):
+        value = self.metadata()
+        verified = value.pop("containerimage.config.digest")
+        result = evidence.build_materials(value, verified)
+        self.assertEqual(result["configDigest"], verified)
+        self.assertIsNone(result["buildxReportedConfigDigest"])
+        value["containerimage.config.digest"] = "sha256:" + "f" * 64
+        with self.assertRaisesRegex(ValueError, "differs from verified OCI"):
+            evidence.build_materials(value, verified)
+
     def test_missing_build_materials_or_bad_digests_are_not_success(self):
         for mutate in [lambda value: value.pop("containerimage.config.digest"),
                        lambda value: value.update({"containerimage.digest": "sha256:short"}),
@@ -82,15 +92,28 @@ class CandidateEvidenceTests(unittest.TestCase):
                 command.assert_not_called()
                 self.assertFalse((root / "out").exists())
 
-    def test_image_architecture_or_build_config_mismatch_refuses_inventory(self):
-        for architecture, image_id in [("amd64", "sha256:" + "a" * 64), ("arm64", "sha256:" + "d" * 64)]:
+    def test_missing_oci_receipt_refuses_inventory_without_a_tag_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "server.json").write_text(json.dumps(self.metadata()))
+            with patch.object(evidence.platform, "machine", return_value="aarch64"), patch.object(evidence, "command", return_value="aarch64\n") as command, patch.object(evidence, "container") as container:
+                with self.assertRaisesRegex(ValueError, "requires a verified OCI"):
+                    evidence.collect("arm64", "0.1.0-rc.1", "a" * 40, root, root / "out")
+                container.assert_not_called()
+                self.assertEqual(command.call_count, 1)
+                self.assertEqual(list((root / "out").iterdir()), [])
+
+    def test_verified_oci_receipt_still_requires_actual_runtime_architecture_and_diffids(self):
+        for architecture, layers in [("amd64", ["sha256:" + "e" * 64]), ("arm64", [])]:
             with tempfile.TemporaryDirectory() as directory:
                 root = pathlib.Path(directory)
                 (root / "server.json").write_text(json.dumps(self.metadata()))
-                inspection = json.dumps({"Architecture": architecture, "Os": "linux", "Id": image_id})
+                graph = {"format":"eldhall-private-oci-v1","platform":"linux/arm64","source":{"commit":"a"*40},"configDigest":"sha256:"+"a"*64,"imageIndexDigest":"sha256:"+"b"*64,"platformManifestDigest":"sha256:"+"c"*64,"runtimeImageId":"sha256:"+"b"*64,"runtimeIdKind":"image-index","probeContainerImageBound":True,"diffIds":["sha256:"+"e"*64]}
+                (root / "server-oci.json").write_text(json.dumps(graph))
+                inspection = json.dumps({"Architecture":architecture,"Os":"linux","Id":graph['platformManifestDigest'],"RootFS":{"Type":"layers","Layers":layers}})
                 with patch.object(evidence.platform, "machine", return_value="aarch64"), patch.object(evidence, "command", side_effect=["aarch64\n", inspection]), patch.object(evidence, "container") as container:
-                    with self.assertRaisesRegex(ValueError, "architecture/config identity"):
-                        evidence.collect("arm64", "0.1.0-rc.1", "a" * 40, root, root / "out")
+                    with self.assertRaisesRegex(ValueError, "Docker runtime"):
+                        evidence.collect("arm64", "0.1.0-rc.1", "a" * 40, root, root / "out", oci_dir=root)
                     container.assert_not_called()
                     self.assertEqual(list((root / "out").iterdir()), [])
 
@@ -166,7 +189,7 @@ class CandidateEvidenceTests(unittest.TestCase):
             self.assertEqual(readme['text'].encode('utf-8'), notice)
             self.assertEqual(readme['sha256'], evidence.hashlib.sha256(notice).hexdigest())
             self.assertTrue(any(item['relativePath'] == 'versions.json' and item['kind'] == 'build-source-metadata' for item in component['receipts']))
-            image = {'imageId': 'sha256:' + 'a' * 64, 'architecture': 'amd64', **evidence.build_materials(self.metadata())}
+            image = {'imageId': 'sha256:' + 'a' * 64, 'imageIdKind': 'config', 'imageIndexDigest': 'sha256:' + 'b' * 64, 'platformManifestDigest': 'sha256:' + 'c' * 64, 'architecture': 'amd64', **evidence.build_materials(self.metadata())}
             bound = evidence.native_review_inputs(value['nativeComponents'], image, 'c' * 40, {'kind': 'verified-vetted-commit-archive'})
             self.assertEqual(bound['image']['imageId'], image['configDigest'])
             self.assertEqual(bound['image']['buildMaterials'], image['buildMaterials'])
