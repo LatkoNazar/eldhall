@@ -76,7 +76,7 @@ FAILURE_CODES = {
     'Unexpected provenance build type': 'OCI037',
     'Provenance materials are missing or unbounded': 'OCI038',
     'Dockerfile has no reviewed base policy': 'OCI039',
-    'Provenance contains an unreviewed base material': 'OCI040',
+    'Provenance contains an unreviewed material': 'OCI040',
     'Provenance does not cover all reviewed Dockerfile bases': 'OCI041',
     'Missing required attestations or unreferenced OCI blobs': 'OCI042',
     'Buildx output does not identify the verified OCI graph': 'OCI043',
@@ -279,6 +279,8 @@ def material_matches(uri, identity, base, arch):
     platforms = [p for p in base["platforms"] if p["platform"] == "linux/" + arch]
     allowed = {base["index"]["digest"], *(p["manifestDigest"] for p in platforms)}
     platform_names = {"linux/" + arch, *(p["platform"] + "/" + p["variant"] for p in platforms if p.get("variant"))}
+    if version is not None and HASH.fullmatch(version) and (version != identity or "digest" in fields and fields["digest"] != [version]):
+        return False
     version_matches = version in {base["tag"], *allowed} if version is not None else fields.get("digest") == [identity]
     return (repository == base["repository"] and version_matches and identity in allowed
             and set(fields).issubset({"platform", "digest"}) and len(fields.get("platform", [])) == 1
@@ -449,18 +451,31 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
                     if not isinstance(expected_refs, list) or not expected_refs:
                         fail("Dockerfile has no reviewed base policy")
                     approved = [image for image in lock.get("images", []) if image["reference"] in expected_refs]
-                    seen = set()
+                    # BuildKit captures the SBOM generator image in provenance.
+                    # It is optional, distinct from Dockerfile base coverage, and
+                    # only this reviewed tool role is permitted here.
+                    scanner_ref = lock.get("tools", {}).get("sbomGenerator")
+                    scanners = [base for base in lock.get("images", []) if base["reference"] == scanner_ref]
+                    covered_refs = set()
+                    base_materials = set()
+                    tool_materials = set()
                     for position, material in enumerate(materials):
                         uri = material.get("uri", "")
                         identity = "sha256:" + material.get("digest", {}).get("sha256", "")
-                        if not any(material_matches(uri, identity, base, arch) for base in approved):
-                            error = VerificationFailure("Provenance contains an unreviewed base material")
+                        matched_refs = {base["reference"] for base in approved if material_matches(uri, identity, base, arch)}
+                        if matched_refs:
+                            covered_refs.update(matched_refs)
+                            base_materials.update((reference, identity) for reference in matched_refs)
+                        elif any(material_matches(uri, identity, scanner, arch) for scanner in scanners):
+                            tool_materials.add((scanner_ref, identity))
+                        else:
+                            error = VerificationFailure("Provenance contains an unreviewed material")
                             error.material_profile = material_diagnostic(uri, identity, approved, lock, arch, position, len(materials))
                             raise error
-                        seen.add(identity)
-                    if any(not ({base["index"]["digest"], *(p["manifestDigest"] for p in base["platforms"] if p["platform"] == "linux/" + arch)} & seen) for base in approved) or len(approved) != len(expected_refs):
+                    if covered_refs != set(expected_refs) or len(approved) != len(expected_refs):
                         fail("Provenance does not cover all reviewed Dockerfile bases")
-                    item["materialDigests"] = sorted(seen)
+                    item["baseMaterials"] = [{"reference": reference, "digest": identity, "platform": "linux/" + arch} for reference, identity in sorted(base_materials)]
+                    item["toolMaterials"] = [{"role": "sbom-generator", "reference": reference, "digest": identity, "platform": "linux/" + arch} for reference, identity in sorted(tool_materials)]
                 attestations.append(item)
         if kinds != {SPDX, SLSA} or layout.referenced != {name for name in layout.members if name.startswith("blobs/")}:
             fail("Missing required attestations or unreferenced OCI blobs")
