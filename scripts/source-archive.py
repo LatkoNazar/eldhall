@@ -22,7 +22,7 @@ from urllib.parse import unquote, urlsplit
 POLICY = "eldhall-source-v1"
 ROOTS = ("apps/api/", "apps/frontend/", "apps/landing/", "apps/mcp-openapi/", "packages/analytics/", "schemas/", "deploy/", "examples/orders/", "scripts/")
 ROOT_FILES = {"LICENSE", "NOTICE", "README.md", ".dockerignore", ".gitattributes", ".gitignore", ".env.example"}
-DOCS = {"API_CONTRACTS.md", "ARCHITECTURE.md", "CLI.md", "distribution-contract.md", "EXTERNAL_DATA.md", "implementation.md", "INSTALLATION_INIT.md", "insights.md", "integrations-manifest.md", "integrations-runtime.md", "KNOWLEDGE_BASE.md", "LICENSING.md", "NATIVE_RECEIPTS.md", "PRIVATE_OCI.md", "OPENAPI_QUICKSTART.md", "openrouter.md", "RELEASE_STATUS.md", "THIRD_PARTY_NOTICES.md"}
+DOCS = {"API_CONTRACTS.md", "ARCHITECTURE.md", "CLI.md", "distribution-contract.md", "EXTERNAL_DATA.md", "implementation.md", "INSTALLATION_INIT.md", "insights.md", "integrations-manifest.md", "integrations-runtime.md", "KNOWLEDGE_BASE.md", "LICENSING.md", "NATIVE_RECEIPTS.md", "PRIVATE_OCI.md", "OPENAPI_QUICKSTART.md", "openrouter.md", "RELEASE_STATUS.md", "SCHEMA_OBSERVATION.md", "THIRD_PARTY_NOTICES.md"}
 ESSENTIAL_DOCS = {"README.md", *("docs/" + name for name in DOCS)}
 EXTENSIONS = {".ts", ".tsx", ".js", ".mjs", ".json", ".py", ".toml", ".lock", ".md", ".txt", ".yaml", ".yml", ".sql", ".css", ".html", ".sh"}
 DENIED_PARTS = {".git", ".omc", ".runtime", ".agents", ".codex", ".venv", ".ssh", ".aws", ".kube", "node_modules", "dist", "coverage", "__pycache__", ".pytest_cache", ".ruff_cache", ".deploy", "backups", "private", "secret", "secrets", "credentials", "qa-evidence", "demos", "deliverables"}
