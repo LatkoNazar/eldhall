@@ -19,7 +19,7 @@ export interface SupportStore {
   readonly integrationStore: IntegrationStore;
   markExternalDispatched(id: string): Promise<boolean>;
   finishExternalAction(id: string, status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, message: string | null, actor: string, reconciliation?: boolean): Promise<Proposal>;
-  expireExternalActions(): Promise<void>;
+  expireExternalActions(caseId?: string): Promise<void>;
   reset(seed: SeedData): Promise<void>;
   seedIfEmpty(seed: SeedData): Promise<void>;
   recoverInterruptedExecutions(): Promise<void>;
@@ -326,8 +326,8 @@ export class MemorySupportStore implements SupportStore {
     if (!execution || execution.status !== 'admitted'||proposal?.status!=='executing') return false;
     execution.status = 'dispatched';this.auditRows.push({id:randomUUID(),caseId:proposal.caseId,type:'action.dispatched',actor:proposal.decidedBy??'system',data:{proposalId:id,integrationId:proposal.args.integrationId,operationKey:proposal.args.operationKey,manifestHash:proposal.args.manifestHash,connectionRevision:proposal.args.connectionRevision,policyRevision:proposal.args.policyRevision,argsHash:proposal.argsHash,origin:proposal.authorizationOrigin},createdAt:now()});return true;
   }
-  async expireExternalActions() {
-    for (const row of this.proposalRows.values()) if(row.tool==='external_action' && ['pending','approved'].includes(row.status) && typeof row.args.expiresAt==='string' && Date.parse(row.args.expiresAt)<=Date.now()) {
+  async expireExternalActions(caseId?: string) {
+    for (const row of this.proposalRows.values()) if((caseId===undefined||row.caseId===caseId)&&row.tool==='external_action' && ['pending','approved'].includes(row.status) && typeof row.args.expiresAt==='string' && Date.parse(row.args.expiresAt)<=Date.now()) {
       Object.assign(row,{status:'expired',error:'approval_expired'});this.terminalExternal(row,'action.expired','approval_expired',`Строк погодження дії «${String(row.args.title)}» минув. Дію не виконано; звернення передано спеціалісту.`);
     }
   }

@@ -8,7 +8,7 @@ import { RulesModel, type AgentContext } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 import { seedData } from '../src/modules/support/seed.js';
 import { MemorySupportStore } from '../src/modules/support/store.js';
-import { processSupportTurn, publishPendingTurns } from '../src/modules/support/turn-processor.js';
+import { createSupportMaintenance, processSupportTurn, publishPendingTurns } from '../src/modules/support/turn-processor.js';
 
 const fixture = () => {
   const store = new MemorySupportStore(seedData());
@@ -93,4 +93,25 @@ test('worker HTTP returns 202 and progress history; API submission makes zero mo
   } finally {
     await app.close();
   }
+});
+
+test('worker maintenance expires unattended approvals and recovers dispatched actions without overlapping timer ticks',async()=>{
+  const h=fixture();const pendingCase=await h.harness.openCase('demo-olena');const interruptedCase=await h.harness.openCase('demo-olena');
+  const customer=(await h.store.customerBySession('demo-olena'))!;
+  const proposal=async(supportCase:typeof pendingCase,expired:boolean)=>{
+    const args={businessId:customer.businessId,customerId:customer.id,caseId:supportCase.id,ownershipVersion:supportCase.ownershipVersion,integrationId:'orders',operationKey:'POST /orders/{order_id}/cancel',title:'Cancel order',effect:'write',managed:false,expiresAt:new Date(Date.now()+(expired?-1000:900000)).toISOString(),input:{order_id:'ORD-1001'}};
+    return h.store.createProposal({caseId:supportCase.id,tool:'external_action',args,argsHash:randomUUID(),risk:'high',status:'pending',policy:{allowed:true,requiresApproval:true,checks:[]}});
+  };
+  const pending=await proposal(pendingCase,true);const interrupted=await proposal(interruptedCase,false);
+  assert.ok(await h.store.decideProposal(interrupted.id,interrupted.argsHash,'approved','operator:test'));assert.ok(await h.store.claimExecution(interrupted.id,interrupted.argsHash,'operator:test'));assert.ok(await h.store.markExternalDispatched(interrupted.id));h.store.proposalRows.get(interrupted.id)!.decidedAt=new Date(Date.now()-181000).toISOString();
+  let clock=0;let runs=0;let active=0;let maximum=0;let release:()=>void=()=>undefined;const blocked=new Promise<void>(resolve=>{release=resolve;});
+  const maintain=createSupportMaintenance({recoverInterruptedExecutions:async()=>{runs++;active++;maximum=Math.max(maximum,active);try{await h.store.recoverInterruptedExecutions();if(runs===1) await blocked;}finally{active--;}}},()=>clock);
+  const first=maintain();assert.equal(maintain(),first);clock=100000;assert.equal(maintain(),first);release();await first;
+  assert.equal(runs,1);assert.equal(maximum,1);assert.equal((await h.store.proposal(pending.id))!.status,'expired');assert.equal((await h.store.proposal(interrupted.id))!.status,'unknown');assert.equal((await h.store.getCase(pendingCase.id))!.ownership,'staff');assert.equal((await h.store.getCase(interruptedCase.id))!.ownership,'staff');
+  const messages=(await h.store.messages(interruptedCase.id)).length;await maintain();clock=109999;await maintain();assert.equal(runs,1);clock=110000;await maintain();assert.equal(runs,2);assert.equal(maximum,1);assert.equal((await h.store.messages(interruptedCase.id)).length,messages);
+});
+
+test('a failed lifecycle sweep releases its shared promise and retries at the next bounded cadence',async()=>{
+  let clock=0;let calls=0;const maintain=createSupportMaintenance({recoverInterruptedExecutions:async()=>{calls++;if(calls===1) throw new Error('database temporarily unavailable');}},()=>clock);
+  await assert.rejects(maintain(),/temporarily unavailable/);await maintain();assert.equal(calls,1);clock=10000;await maintain();assert.equal(calls,2);
 });

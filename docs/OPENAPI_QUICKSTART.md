@@ -81,6 +81,8 @@ For a catalog or connection change, disable/drain the integration first. Account
 
 A PostgreSQL claim is not a distributed transaction with a remote API. Writes may commit after a timeout, cancellation or takeover. `unknown` remains locked against blind retry; an operator must verify the provider result and use reconciliation, with a reason and optional provider reference. Upstream must enforce ownership and state atomically even when a registered adapter performs a preflight read. Provider idempotency uses the durable action identity, not an arguments hash.
 
+The worker sweeps expiry/recovery approximately every ten seconds, independently of operator UI visits and before Redis publishing. Inline/demo customer history reads also refresh expiry for the authenticated customer's own case. An unresolved unknown action blocks another write in that case even after an operator returns it to the bot.
+
 Release bundles include the sidecar image, standalone Compose overlays, Orders artifacts, scripts and permanent documentation. After loading the image archive, add `--env-file support-images.env` after your private environment file and use `up --no-build`. Deployment-owned private config/spec/secrets remain explicit external mounts. The bundled root-stack deploy script does not automatically enable the optional support/MCP composition.
 
 ## Verification

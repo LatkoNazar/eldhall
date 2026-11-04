@@ -94,8 +94,12 @@ export class SupportHarness {
     const customer = await this.customer(sessionToken);
     const found = await this.deps.store.getCase(caseId);
     if (!found || found.customerId !== customer.id) throw new HarnessError(404, 'Case not found');
+    // Inline/demo deployments do not have a worker relay. Refresh only the
+    // authenticated customer's case before returning its terminal action status.
+    await this.deps.store.expireExternalActions(caseId);
+    const current = (await this.deps.store.getCase(caseId))!;
     const job = await this.deps.store.activeTurnJob(caseId);
-    return { customer, supportCase: found, messages: await this.visibleMessages(customer.businessId, caseId), activeRun: job ? { id: job.id, status: job.status } : null };
+    return { customer, supportCase: current, messages: await this.visibleMessages(customer.businessId, caseId), activeRun: job ? { id: job.id, status: job.status } : null };
   }
 
   async enqueueTurn(sessionToken: string | undefined, caseId: string, body: string, clientMessageId?: string) {

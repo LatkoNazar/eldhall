@@ -8,7 +8,7 @@ Implemented: deterministic local OpenAPI import and normalized artifacts; authen
 
 | Check | Local result |
 | --- | --- |
-| Full API suite, sequential file execution | 185 tests: 184 passed, zero failures, one pgvector test awaiting a PostgreSQL fixture |
+| Full API suite, bounded file concurrency | 188 tests: 187 passed, zero failures, one pgvector test awaiting a PostgreSQL fixture |
 | API lint, typecheck, production build | Passed |
 | Frontend suite, lint, typecheck, production build | 80 tests passed; all checks passed |
 | Python importer/sidecar suite | 32 tests passed, zero skips |

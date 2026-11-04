@@ -268,3 +268,14 @@ test('expiry first discovered by approval is terminal, audited and visible witho
   assert.equal((await h.store.proposal(proposal.id))!.status,'expired');assert.equal((await h.store.getCase(caseId))!.status,'escalated');assert.equal((await h.store.getCase(caseId))!.ownership,'staff');
   const messages=(await h.store.messages(caseId)).length;await h.store.expireExternalActions();assert.equal((await h.store.messages(caseId)).length,messages);assert.equal((await h.store.auditEvents(caseId)).filter(row=>row.type==='action.expired').length,1);
 });
+
+test('customer history refresh expires only the authenticated own case without an operator visit',async()=>{
+  const h=setup('ask',[]);const {caseId,proposal}=await turn(h);h.store.proposalRows.get(proposal.id)!.args.expiresAt=new Date(Date.now()-1000).toISOString();
+  const foreign=await h.harness.openCase('demo-taras');const foreignCustomer=(await h.store.customerBySession('demo-taras'))!;
+  const other=await h.store.createProposal({caseId:foreign.id,tool:'external_action',args:{...proposal.args,caseId:foreign.id,customerId:foreignCustomer.id,ownershipVersion:foreign.ownershipVersion,expiresAt:new Date(Date.now()-1000).toISOString()},argsHash:randomUUID(),risk:'high',status:'pending',policy:proposal.policy});
+  await assert.rejects(h.harness.customerCase('invalid-session',caseId),(error:unknown)=>error instanceof HarnessError&&error.status===401);
+  await assert.rejects(h.harness.customerCase('demo-taras',caseId),(error:unknown)=>error instanceof HarnessError&&error.status===404);
+  assert.equal((await h.store.proposal(proposal.id))!.status,'pending');assert.equal((await h.store.proposal(other.id))!.status,'pending');
+  const refreshed=await h.harness.customerCase(OLENA,caseId);assert.equal(refreshed.supportCase.status,'escalated');assert.equal(refreshed.supportCase.ownership,'staff');assert.equal((await h.store.proposal(proposal.id))!.status,'expired');assert.match(refreshed.messages.at(-1)!.body,/Строк погодження/);assert.equal((await h.store.proposal(other.id))!.status,'pending');
+  const count=refreshed.messages.length;assert.equal((await h.harness.customerCase(OLENA,caseId)).messages.length,count);
+});

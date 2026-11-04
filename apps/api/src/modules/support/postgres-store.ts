@@ -214,8 +214,8 @@ export class PostgresSupportStore implements SupportStore {
   async markExternalDispatched(id:string) {
     return Boolean((await this.pool.query("WITH moved AS (UPDATE support_external_executions SET status='dispatched',dispatched_at=now() WHERE action_id=$1 AND status='admitted' AND EXISTS(SELECT 1 FROM support_proposals WHERE id=$1 AND status='executing') RETURNING action_id,authorization_origin) INSERT INTO support_audit_events(id,case_id,type,actor,data) SELECT $2,p.case_id,'action.dispatched',COALESCE(p.decided_by,'system'),jsonb_build_object('proposalId',p.id,'integrationId',p.args->>'integrationId','operationKey',p.args->>'operationKey','manifestHash',p.args->>'manifestHash','connectionRevision',p.args->>'connectionRevision','policyRevision',p.args->'policyRevision','argsHash',p.args_hash,'origin',m.authorization_origin) FROM moved m JOIN support_proposals p ON p.id=m.action_id RETURNING id",[id,randomUUID()])).rowCount);
   }
-  async expireExternalActions() {
-    const candidates=await this.pool.query("SELECT id,case_id FROM support_proposals WHERE tool='external_action' AND status IN ('pending','approved') AND args->>'expiresAt' IS NOT NULL AND (args->>'expiresAt')::timestamptz<=now()");
+  async expireExternalActions(caseId?:string) {
+    const candidates=await this.pool.query("SELECT id,case_id FROM support_proposals WHERE ($1::uuid IS NULL OR case_id=$1) AND tool='external_action' AND status IN ('pending','approved') AND args->>'expiresAt' IS NOT NULL AND (args->>'expiresAt')::timestamptz<=now()",[caseId??null]);
     for(const candidate of candidates.rows) await this.transaction(async client=>{
       await client.query('SELECT id FROM support_cases WHERE id=$1 FOR UPDATE',[candidate.case_id]);
       const expired=(await client.query("SELECT args FROM support_proposals WHERE id=$1 AND status IN ('pending','approved') AND (args->>'expiresAt')::timestamptz<=now() FOR UPDATE",[candidate.id])).rows[0];

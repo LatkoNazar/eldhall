@@ -5,7 +5,7 @@ import type { Settings } from '../../core/config.js';
 import { createWorkerRedis } from '../../core/queue.js';
 import { useCache } from '../../core/cache.js';
 import type { SupportDependencies } from './routes.js';
-import { processSupportTurn, publishPendingTurns } from './turn-processor.js';
+import { createSupportMaintenance, processSupportTurn, publishPendingTurns } from './turn-processor.js';
 
 export interface SupportQueueMessage { runId: string }
 export const supportQueueName = (settings: Settings) => settings.bullmqQueue + '-support-turns';
@@ -27,9 +27,12 @@ export async function startSupportWorker(settings: Settings, support: SupportDep
   });
   let closing = false;
   let relay: Promise<void> | undefined;
+  const maintain = createSupportMaintenance(support.store);
   const publish = () => {
     if (closing || relay) return relay;
-    relay = useCache(settings, settings.bullmqDb, async redis => {
+    // Sweep expiry/recovery before opening a Redis connection: a broker outage
+    // must not leave approvals or interrupted effects waiting for an operator visit.
+    relay = maintain().then(() => useCache(settings, settings.bullmqDb, async redis => {
       const queue = new Queue<SupportQueueMessage>(supportQueueName(settings), {
         connection: createNodeRedisClient(redis), prefix: settings.bullmqPrefix, skipWaitingForReady: true,
         defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: true },
@@ -38,7 +41,7 @@ export async function startSupportWorker(settings: Settings, support: SupportDep
       queue.on('error', () => console.warn('Support queue publisher unavailable'));
       try { await publishPendingTurns(support.store, async id => { await queue.add('support-turn', { runId: id }, { jobId: id }); }); }
       finally { await queue.close(); }
-    }).then(() => undefined)
+    })).then(() => undefined)
       .catch(() => { console.warn('Support outbox publish unavailable; persisted turns will be retried'); })
       .finally(() => { relay = undefined; });
     return relay;
