@@ -8,10 +8,27 @@ export interface BusinessTool {
   description: string;
   inputSchema: InputSchema;
 }
-export interface BusinessIntegrationContext { businessId: string; customerId: string; assertActive: () => Promise<void> }
+/** What the model receives for a business operation (TODO.md §7). Pending is never success. */
+export type BusinessToolResult =
+  | { status: 'executed'; actionId?: string; data: unknown }
+  | { status: 'awaiting_approval'; proposalId: string; summary: string }
+  | { status: 'denied'; reasonCode: string }
+  | { status: 'failed'; actionId?: string; reasonCode: string }
+  | { status: 'unknown'; actionId: string; reasonCode: string };
+/** Outcome of dispatching one recorded action. `unknown` = the upstream effect may have happened. */
+export type ActionOutcome = { status: 'executed'; data: unknown } | { status: 'failed' | 'unknown'; reasonCode: string };
+/** Immutable snapshot stored as proposal args; its hash binds approval to the exact operation and versions. */
+export interface ExternalActionRequest { args: Record<string, unknown>; mode: 'auto' | 'ask'; title: string }
+export interface BusinessIntegrationContext {
+  businessId: string; customerId: string; assertActive: () => Promise<void>;
+  /** Supplied by the harness during a turn: records the action durably (and runs it for `auto`). */
+  propose?: (request: ExternalActionRequest) => Promise<BusinessToolResult>;
+}
 export interface ScopedBusinessTools {
   tools: BusinessTool[];
   callTool(integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
+  /** Re-checks the snapshot against current policy/manifest, then dispatches with `actionId` as idempotency key. */
+  executeAction?(args: Record<string, unknown>, actionId: string, signal?: AbortSignal): Promise<ActionOutcome>;
 }
 export interface BusinessIntegrations { forContext(context: BusinessIntegrationContext): ScopedBusinessTools }
 export class IntegrationError extends Error {
@@ -23,7 +40,7 @@ type Scalar = string | number | boolean | null;
 const isScalar = (value: unknown): value is Scalar => value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
 
 /** Return flat, explicitly reviewed fields only. Nested objects cannot smuggle extra fields. */
-function projectOutput(value: unknown, fields: string[], maxBytes: number): unknown {
+export function projectOutput(value: unknown, fields: string[], maxBytes: number): unknown {
   const project = (row: unknown): Record<string, Scalar | Scalar[]> => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) throw new IntegrationError('invalid_output', 'MCP output must be a JSON object or an array of objects');
     const clean: Record<string, Scalar | Scalar[]> = {};
@@ -64,41 +81,31 @@ function boundedFetch(endpoint: string, signal: AbortSignal): typeof fetch {
   };
 }
 
-async function invoke(integration: McpIntegrationConfig, tool: McpIntegrationConfig['tools'][number], context: BusinessIntegrationContext, input: Record<string, unknown>, credential: string | undefined, signal?: AbortSignal): Promise<unknown> {
+export interface McpTarget { url: string; timeoutMs: number; credential?: string }
+export type McpCallOptions = { signal: AbortSignal; timeout: number };
+
+/** One bounded, single-endpoint MCP session. SDK/server errors are masked; only IntegrationError codes escape. */
+export async function withMcpClient<T>(target: McpTarget, context: BusinessIntegrationContext, signal: AbortSignal | undefined, run: (client: Client, options: McpCallOptions) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), integration.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), target.timeoutMs);
   const activeSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
   const client = new Client({ name: 'support-scoped-read-gateway', version: '1.0.0' });
   try {
     activeSignal.throwIfAborted();
     await context.assertActive();
-    const endpoint = new URL(integration.url).href;
+    const endpoint = new URL(target.url).href;
     const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
       fetch: boundedFetch(endpoint, activeSignal),
-      requestInit: credential ? { headers: { Authorization: `Bearer ${credential}` } } : undefined,
+      requestInit: target.credential ? { headers: { Authorization: `Bearer ${target.credential}` } } : undefined,
       onInsufficientScope: 'throw',
       reconnectionOptions: { maxRetries: 0, initialReconnectionDelay: 1000, maxReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1 },
     });
-    const options = { signal: activeSignal, timeout: integration.timeoutMs };
+    const options = { signal: activeSignal, timeout: target.timeoutMs };
     await client.connect(transport, options);
-    const listing = await client.listTools(undefined, options);
-    const remote = listing.tools.find(row => row.name === tool.name);
-    if (!remote || remote.annotations?.readOnlyHint === false || remote.annotations?.destructiveHint === true) throw new IntegrationError('denied', 'Configured read tool is absent or advertises writes');
-    await context.assertActive();
-    // Bound business/customer identity comes only from the authenticated backend lease.
-    const args = { ...input, [tool.scopeBindings.businessId]: context.businessId, [tool.scopeBindings.customerId]: context.customerId };
-    const result = await client.callTool({ name: tool.name, arguments: args }, options);
-    if (result.isError) throw new IntegrationError('unavailable', 'Business tool returned an error');
-    let data: unknown = result.structuredContent;
-    if (data === undefined) {
-      const texts = result.content.filter(block => block.type === 'text');
-      if (texts.length !== 1) throw new IntegrationError('invalid_output', 'MCP output requires structuredContent or one JSON text block');
-      try { data = JSON.parse(texts[0]!.text) as unknown; } catch { throw new IntegrationError('invalid_output', 'MCP text output must contain JSON'); }
-    }
-    const projected = projectOutput(data, tool.outputFields, integration.maxOutputBytes);
+    const result = await run(client, options);
     activeSignal.throwIfAborted();
     await context.assertActive();
-    return projected;
+    return result;
   } catch (error) {
     if (activeSignal.aborted) throw new IntegrationError('timeout', 'Business tool deadline or run cancellation reached');
     if (error instanceof IntegrationError) throw error;
@@ -108,6 +115,51 @@ async function invoke(integration: McpIntegrationConfig, tool: McpIntegrationCon
     clearTimeout(timer);
     await client.close().catch(() => undefined);
   }
+}
+
+/** structuredContent, or exactly one JSON text block. */
+export function toolData(result: { structuredContent?: unknown; content: { type: string; text?: string }[] }): unknown {
+  if (result.structuredContent !== undefined) return result.structuredContent;
+  const texts = result.content.filter(block => block.type === 'text');
+  if (texts.length !== 1) throw new IntegrationError('invalid_output', 'MCP output requires structuredContent or one JSON text block');
+  try { return JSON.parse(texts[0]!.text ?? '') as unknown; } catch { throw new IntegrationError('invalid_output', 'MCP text output must contain JSON'); }
+}
+
+async function invoke(integration: McpIntegrationConfig, tool: McpIntegrationConfig['tools'][number], context: BusinessIntegrationContext, input: Record<string, unknown>, credential: string | undefined, signal?: AbortSignal): Promise<unknown> {
+  return withMcpClient({ url: integration.url, timeoutMs: integration.timeoutMs, credential }, context, signal, async (client, options) => {
+    const listing = await client.listTools(undefined, options);
+    const remote = listing.tools.find(row => row.name === tool.name);
+    if (!remote || remote.annotations?.readOnlyHint === false || remote.annotations?.destructiveHint === true) throw new IntegrationError('denied', 'Configured read tool is absent or advertises writes');
+    await context.assertActive();
+    // Bound business/customer identity comes only from the authenticated backend lease.
+    const args = { ...input, [tool.scopeBindings.businessId]: context.businessId, [tool.scopeBindings.customerId]: context.customerId };
+    const result = await client.callTool({ name: tool.name, arguments: args }, options);
+    if (result.isError) throw new IntegrationError('unavailable', 'Business tool returned an error');
+    return projectOutput(toolData(result), tool.outputFields, integration.maxOutputBytes);
+  });
+}
+
+/** One registry per business: routes each call to the integration that owns `integrationId`, never by tool name alone. */
+export function combineIntegrations(parts: { owns: readonly (readonly [businessId: string, integrationId: string])[]; integrations: BusinessIntegrations }[]): BusinessIntegrations {
+  return { forContext(context) {
+    const scoped = parts
+      .map(part => ({ ids: part.owns.filter(([businessId]) => businessId === context.businessId).map(([, integrationId]) => integrationId), part }))
+      .filter(entry => entry.ids.length)
+      .map(entry => ({ ids: entry.ids, tools: entry.part.integrations.forContext(context) }));
+    const route = (integrationId: unknown) => typeof integrationId === 'string' ? scoped.find(entry => entry.ids.includes(integrationId))?.tools : undefined;
+    return {
+      tools: scoped.flatMap(entry => entry.tools.tools),
+      async callTool(integrationId, name, input, signal) {
+        const owner = route(integrationId);
+        if (!owner) throw new IntegrationError('denied', 'Business tool is not allowlisted');
+        return owner.callTool(integrationId, name, input, signal);
+      },
+      async executeAction(args, actionId, signal) {
+        const owner = route(args.integrationId);
+        return owner?.executeAction ? owner.executeAction(args, actionId, signal) : { status: 'failed', reasonCode: 'integration_unavailable' };
+      },
+    };
+  } };
 }
 
 export function createBusinessIntegrations(config: SupportConfig, env: NodeJS.ProcessEnv = process.env): BusinessIntegrations {

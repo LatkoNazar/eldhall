@@ -1,0 +1,37 @@
+{
+  "integrationId": "orders",
+  "businessId": "10000000-0000-4000-8000-000000000001",
+  "enabled": true,
+  "manifestHash": "ff1d9828dd39396ee775f82b9e2b2281506ae7bbf98508ce6f28c22eede835af",
+  "policyRevision": 1,
+  "defaultMode": "deny",
+  "groups": [
+    {
+      "id": "orders",
+      "selector": {
+        "tag": "Orders"
+      },
+      "mode": "ask"
+    }
+  ],
+  "operations": [
+    {
+      "operationKey": "GET /orders/{order_id}",
+      "enabled": true,
+      "reviewedOperationHash": "d44c41c793c7104227a7cff2816750dd1e20d4a39f114779d43a9f7c5e480de2",
+      "mode": "auto"
+    },
+    {
+      "operationKey": "POST /orders/{order_id}/cancel",
+      "enabled": true,
+      "reviewedOperationHash": "82303661a2c81f3e7dcc83ef757fd5c70da79eb01f1b44faa367f10bd12c7f7b",
+      "mode": "inherit"
+    },
+    {
+      "operationKey": "DELETE /customers/{customer_id}",
+      "enabled": false,
+      "reviewedOperationHash": null,
+      "mode": "deny"
+    }
+  ]
+}
