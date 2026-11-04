@@ -80,7 +80,7 @@ export function OperatorGate({ location, initialLink, onLinkConsumed }: { locati
             {localDemo && <p className="field-hint">Локальне демо: ключ <code>1111</code>. Усі дані синтетичні.</p>}
             <button className="primary full" type="submit">Відкрити робочий простір <Icon name="login" /></button>
           </form>}
-      <AppLink className="subtle-link" href="/chat">Відкрити клієнтський чат <Icon name="arrow" size={16} /></AppLink>
+      <AppLink className="subtle-link" href="/chat">Тестувати агента <Icon name="arrow" size={16} /></AppLink>
     </section>
     <p className="login-footnote">AI пропонує. Людина погоджує. Сервер перевіряє та виконує.</p>
   </main>
