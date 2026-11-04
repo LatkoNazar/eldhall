@@ -23,7 +23,7 @@ async function invoke(args: string[], environment: Partial<Pick<NodeJS.ProcessEn
 function releaseFixture() {
   const hash = (value: string) => createHash('sha256').update(`cli-test:${value}`).digest('hex');
   const digest = (value: string) => `sha256:${hash(value)}`;
-  const artifacts: { path: string; sha256: string; kind: string }[] = [];
+  const artifacts: { path: string; sha256: string; kind: string; subject?: { path: string; sha256: string } }[] = [];
   const artifact = (kind: string, path: string) => { const ref = { path, sha256: hash(path) }; artifacts.push({ ...ref, kind }); return ref; };
   const image = (name: string, roles: string[]) => ({ repository: `docker.io/latkonazar/eldhall-${name}`, tag: '0.1.0-rc.1', indexDigest: digest(`${name}-index`), roles,
     platforms: [{ platform: 'linux/amd64', manifestDigest: digest(name), baseImages: [{ repository: 'docker.io/library/base', digest: digest('base') }], sbom: artifact('sbom', `${name}.sbom`), provenance: artifact('provenance', `${name}.provenance`) }] });
@@ -32,6 +32,7 @@ function releaseFixture() {
   const dependency = (name: string, major: number) => ({ repository: `docker.io/library/${name}`, indexDigest: digest(`${name}-index`), version: `${major}.1`, supportedMajorVersions: { min: major, max: major }, platforms: [{ platform: 'linux/amd64', manifestDigest: digest(name) }] });
   const license = { spdx: 'Apache-2.0', inventory: artifact('inventory', 'inventory.json'), notices: artifact('notices', 'NOTICE') };
   for (const kind of ['bundle', 'docs', 'openapi', 'signature']) artifact(kind, `${kind}.txt`);
+  artifacts.find(value => value.kind === 'signature')!.subject = { path: 'bundle.txt', sha256: hash('bundle.txt') };
   const verification = { platforms: [{ platform: 'linux/amd64', execution: 'native', sourceCommit: 'a'.repeat(40), imageDigests: { server: digest('server'), web: digest('web'), mcpOpenapi: digest('mcp-openapi') }, report: artifact('test-report', 'native.json') }],
     installProfiles: ['headless', 'ui', 'openapi-sidecar', 'external-postgres'].map(id => ({ id, platform: 'linux/amd64', report: artifact('test-report', `${id}.json`) })) };
   return { manifestVersion: 1, release: { version: '0.1.0-rc.1', channel: 'prerelease', createdAt: '2026-11-04T00:00:00Z' },
@@ -54,7 +55,7 @@ test('actual help/version process ignores dotenv, service configuration and runt
     assert.equal(result.stderr, '');
     assert.doesNotMatch(result.stdout, /private-/);
     if (args[0] === 'version') assert.deepEqual(JSON.parse(result.stdout), { name: 'eldhall', version: packageVersion, packageVersion, sourceRevision: null, buildMetadata: 'unrecorded' });
-    else { assert.match(result.stdout, /config validate/); assert.doesNotMatch(result.stdout, /eldhall (?:init|doctor|bootstrap)/); }
+    else { assert.match(result.stdout, /config validate/); assert.doesNotMatch(result.stdout, /eldhall (?:doctor|bootstrap)/); }
   }
 });
 

@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "installationFormat": {
+      "type": "number",
+      "const": 1
+    },
+    "installationId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectName": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "state": {
+      "type": "string",
+      "const": "prepared"
+    },
+    "releaseBinding": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "unbound"
+        },
+        "manifest": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "manifest"
+      ],
+      "additionalProperties": false
+    },
+    "intent": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "evaluation",
+            "production"
+          ]
+        },
+        "database": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "bundled",
+                "external"
+              ]
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        "provider": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "rules"
+                },
+                "keyConfigured": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "id",
+                "keyConfigured"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "google"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "keyConfigured": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "id",
+                "model",
+                "keyConfigured"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "openai"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "keyConfigured": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "id",
+                "model",
+                "keyConfigured"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "anthropic"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "keyConfigured": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "id",
+                "model",
+                "keyConfigured"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "const": "local"
+                },
+                "model": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "baseUrl": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                },
+                "keyConfigured": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "model",
+                "baseUrl",
+                "keyConfigured"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "project",
+        "mode",
+        "database",
+        "provider"
+      ],
+      "additionalProperties": false
+    },
+    "plannedResources": {
+      "type": "object",
+      "properties": {
+        "composeProject": {
+          "type": "string"
+        },
+        "postgresVolume": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "redisVolume": {
+          "type": "string"
+        },
+        "runtimeVolume": {
+          "type": "string"
+        },
+        "queue": {
+          "type": "object",
+          "properties": {
+            "database": {
+              "type": "number",
+              "const": 2
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "jobsQueue": {
+              "type": "string",
+              "const": "jobs-transform-v1"
+            }
+          },
+          "required": [
+            "database",
+            "prefix",
+            "jobsQueue"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "composeProject",
+        "postgresVolume",
+        "redisVolume",
+        "runtimeVolume",
+        "queue"
+      ],
+      "additionalProperties": false
+    },
+    "files": {
+      "type": "object",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "const": "support.env"
+        },
+        "supportConfig": {
+          "type": "string",
+          "const": "support.json"
+        }
+      },
+      "required": [
+        "environment",
+        "supportConfig"
+      ],
+      "additionalProperties": false
+    },
+    "preparedBy": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$"
+        },
+        "packageVersion": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$"
+        },
+        "sourceRevision": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "packageVersion",
+        "sourceRevision"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "installationFormat",
+    "installationId",
+    "projectName",
+    "state",
+    "releaseBinding",
+    "intent",
+    "plannedResources",
+    "files",
+    "preparedBy"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:eldhall:installation:1",
+  "$comment": "Structural schema only; use the application validator for namespace, mode, literal-value and other semantic checks. Prepared/unbound local metadata is not release acceptance or resource ownership."
+}

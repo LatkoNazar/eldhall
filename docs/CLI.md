@@ -13,13 +13,13 @@ docker run --rm --network none --read-only \
   IMAGE eldhall release validate --file /config/release.json
 ```
 
-`IMAGE` is the locally built or separately verified server image; these commands do not imply a published image exists. Help/version require no database, Redis, model credentials or `.env`. No `init`, `doctor` or `bootstrap` command is implemented or advertised.
+`IMAGE` is the locally built or separately verified server image; these commands do not imply a published image exists. Help/version require no database, Redis, model credentials or `.env`. [`init`](INSTALLATION_INIT.md) prepares private local files offline on Linux; it does not start an installation. No `doctor` or `bootstrap` command is implemented or advertised.
 
 `config validate` uses the existing static support-config loader/schema, including embedded catalog hashes. It accepts `--file PATH`, or otherwise the process's `SUPPORT_CONFIG_FILE`. It never loads `.env`, resolves connector credentials, contacts a provider, bootstraps rows or checks database references. Successful output is `{"valid":true,"kind":"support-config","scope":"static"}`. Connector readiness and persisted activation require the normal application/operator path.
 
 `release validate --file PATH` uses the strict release parser, including duplicate-key and cross-field checks. Output is `{"valid":true,"kind":"release-manifest","scope":"static"}`. It does not fetch images/artifacts, verify signatures or provenance, or enforce a database schema epoch. A valid synthetic test manifest is not release evidence.
 
-Both validators omit resource values, file paths and raw parser errors from output. Exit codes are 0 for success/help, 1 for invalid or unreadable input/build identity, and 2 for invalid command arguments. Only the documented argument forms are accepted.
+Both validators omit resource values, file paths and raw parser errors from output. Exit codes are 0 for success/help, 1 for invalid or unreadable input/build identity or refused offline preparation, and 2 for invalid command arguments. Only the documented argument forms are accepted.
 
 ## Build identity
 
