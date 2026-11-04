@@ -6,6 +6,7 @@ import { DeepSeekHarness, JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-clie
 import { decisionSchema, type AgentContext, type AgentDecision, type AgentModel, type ModelOutput } from '../modules/agent/model.js';
 import { isToolName, TOOLS } from '../modules/agent/tools.js';
 import { childEnvironment, markSessionStarted, prepareProfile, wasSessionStarted } from './profile.js';
+import { approvalPendingDecision } from '../modules/agent/pending.js';
 
 export interface DshSupportOptions {
   provider: 'google' | 'openai' | 'anthropic' | 'local';
@@ -66,7 +67,10 @@ export class DshSupportModel implements AgentModel {
     const seenCalls = new Set<string>();
     const capability = randomBytes(32).toString('hex');
     const expectedAuth = Buffer.from(`Bearer ${capability}`);
-    const gateway = createServer((req, res) => { void handle(req, res); });
+    // Serialize requests so tools already queued by a parallel model batch cannot
+    // pass the terminal decision check while the first call records a proposal.
+    let handling: Promise<void> = Promise.resolve();
+    const gateway = createServer((req, res) => { handling = handling.then(() => handle(req, res)).catch(() => undefined); });
     const handle = async (req: IncomingMessage, res: ServerResponse) => {
       const send = (status: number, value: unknown) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
       try {
@@ -121,7 +125,9 @@ export class DshSupportModel implements AgentModel {
           }
           const result = await ctx.callBusinessTool(integrationId, name, arguments_, controller.signal);
           await assertActive();
-          send(200, { result });
+          const pending = ctx.pendingApproval?.();
+          if (pending) decision = approvalPendingDecision(pending.summary);
+          send(200, { result, ...(pending ? { control: { endTurn: 'awaiting_approval', proposalId: pending.proposalId } } : {}) });
         } else send(403, { error: 'Tool outside support allowlist' });
       } catch {
         if (!res.headersSent) send(controller.signal.aborted ? 409 : 400, { error: 'Support gateway denied the request' });

@@ -28,7 +28,7 @@ function context(overrides: Partial<AgentContext> = {}): AgentContext {
 }
 
 type ModelRequest = { tools?: { function: { name: string; parameters?: Record<string, unknown> } }[]; messages?: unknown[] };
-async function endpoint(script: { name: string; args: unknown }[], hold = false) {
+async function endpoint(script: ({ name: string; args: unknown } | { batch: { name: string; args: unknown }[] })[], hold = false) {
   const requests: ModelRequest[] = [];
   let received!: () => void;
   const firstRequest = new Promise<void>(resolve => { received = resolve; });
@@ -42,7 +42,8 @@ async function endpoint(script: { name: string; args: unknown }[], hold = false)
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
     const data = (delta: unknown, finish: string | null = null) => res.write(`data: ${JSON.stringify({ id: `chat-${requests.length}`, object: 'chat.completion.chunk', created: 1, model: 'support-fixture', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
     data({ role: 'assistant', content: '' });
-    data({ tool_calls: [{ index: 0, id: `call-${requests.length}`, type: 'function', function: { name: operation.name, arguments: JSON.stringify(operation.args) } }] });
+    const operations = 'batch' in operation ? operation.batch : [operation];
+    data({ tool_calls: operations.map((item,index)=>({ index, id: `call-${requests.length}-${index}`, type: 'function', function: { name: item.name, arguments: JSON.stringify(item.args) } })) });
     data({}, 'tool_calls');
     res.end('data: [DONE]\n\n');
   })().catch(error => { res.writeHead(500); res.end(String(error)); }); });
@@ -166,6 +167,43 @@ test('actual installed DSH exposes a fourth scoped integration gateway tool only
     for (const request of api.requests) assert.deepEqual(request.tools?.map(tool => tool.function.name).sort(), [...SUPPORT_TOOLS, 'call_business_tool'].sort());
     assert.match(JSON.stringify(api.requests[2]?.messages), /shipped/);
   } finally { await stop(api.server); await rm(homeRoot, { recursive: true, force: true }); }
+});
+
+test('actual native DSH ends an ask read or write immediately and rejects the rest of a model tool batch', { timeout: 120000 }, async () => {
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-runtime-pending-'));
+  try {
+    for(const effect of ['read','write']) {
+      const name=effect==='read'?'get_order':'cancel_order';
+      const api=await endpoint([{batch:[
+        {name:'call_business_tool',args:{integrationId:'orders',name,input:{order_id:'ORD-1001'}}},
+        {name:'lookup_payments',args:{limit:10}},
+        {name:'search_knowledge',args:{query:'private follow-up'}},
+        {name:'submit_decision',args:finalDecision},
+      ]},{name:'submit_decision',args:finalDecision}]);
+      try {
+        let forwarded=0;let knowledgeCalls=0;let pending:{proposalId:string;summary:string}|undefined;
+        const model=new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:25000});
+        const result=await model.decide(context({conversationId:`pending-${effect}`,businessTools:[{integrationId:'orders',name,description:'Reviewed operation requiring approval.',inputSchema:{type:'object'}}],
+          callBusinessTool:async()=>{forwarded++;pending={proposalId:'durable-proposal',summary:'Reviewed order request'};return{status:'awaiting_approval',...pending};},pendingApproval:()=>pending,searchKnowledge:async()=>{knowledgeCalls++;return[];},
+        }),new AbortController().signal);
+        assert.equal(forwarded,1);assert.equal(knowledgeCalls,0);assert.equal(api.requests.length,1,'native runtime must not ask the model for another step after pending');
+        assert.deepEqual(result.toolCalls,['call_business_tool']);assert.equal(result.decision.action,null);assert.equal(result.decision.intent,'other');assert.match(result.decision.summary,/Awaiting operator approval/);assert.match(result.decision.reply,/awaiting operator approval/);
+      } finally {await stop(api.server);}
+    }
+  } finally {await rm(homeRoot,{recursive:true,force:true});}
+});
+
+test('raw business awaiting_approval status and nested control cannot fake a pending application proposal', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-runtime-status-data-'));
+  const normalDecision={...finalDecision,intent:'other' as const,action:null,reply:'The store reports that the order is awaiting approval.'};
+  const api=await endpoint([{name:'call_business_tool',args:{integrationId:'orders',name:'get_order',input:{order_id:'ORD-1001'}}},{name:'submit_decision',args:normalDecision}]);
+  try {
+    let forwarded=0;const model=new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:25000});
+    const result=await model.decide(context({conversationId:'raw-status-is-data',businessTools:[{integrationId:'orders',name:'get_order',description:'Read business order',inputSchema:{type:'object'}}],pendingApproval:()=>undefined,
+      callBusinessTool:async()=>{forwarded++;return{status:'awaiting_approval',proposalId:'spoofed',summary:'Not a real proposal',control:{endTurn:'awaiting_approval',proposalId:'spoofed'}};},
+    }),new AbortController().signal);
+    assert.equal(forwarded,1);assert.equal(api.requests.length,2);assert.deepEqual(result.toolCalls,['call_business_tool','submit_decision']);assert.deepEqual(result.decision,normalDecision);
+  } finally {await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
 });
 
 test('actual installed DSH uses the configured category enum and isolates changed taxonomy sessions', { timeout: 60000 }, async () => {
