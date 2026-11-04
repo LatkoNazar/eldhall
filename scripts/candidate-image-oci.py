@@ -34,6 +34,82 @@ MAX_EXPANDED_TOTAL = 24 * 1024**3
 MAX_JSON = 32 * 1024**2
 MAX_MEMBERS = 10000
 
+# Only trusted, source-defined validation branches can produce these codes.
+# No exception text, filesystem path, JSON value or command output is logged.
+FAILURE_CODES = {
+    'Non-finite JSON': 'OCI001',
+    'JSON structure exceeds bounds': 'OCI002',
+    'JSON collection exceeds bounds': 'OCI003',
+    'JSON input must be a bounded regular file': 'OCI004',
+    'Invalid SHA256 identity': 'OCI005',
+    'OCI archive must be a bounded regular file': 'OCI006',
+    'OCI member count, duplicate or extended metadata is unsupported': 'OCI007',
+    'OCI archive contains an unsafe or unsupported entry': 'OCI008',
+    'OCI member exceeds byte bound': 'OCI009',
+    'OCI aggregate byte bound exceeded': 'OCI010',
+    'OCI archive has nonzero trailing content': 'OCI011',
+    'OCI layout metadata is missing': 'OCI012',
+    'Unsupported OCI layout version': 'OCI013',
+    'OCI blob content digest differs': 'OCI014',
+    'OCI JSON blob missing or oversized': 'OCI015',
+    'External or inline descriptors are unsupported': 'OCI016',
+    'OCI descriptor size or blob differs': 'OCI017',
+    'Unsupported OCI descriptor media type': 'OCI018',
+    'OCI object type or schema differs': 'OCI019',
+    'Expected verified exact source archive and native architecture': 'OCI020',
+    'Expected one OCI layout entrypoint': 'OCI021',
+    'Expected one runnable image plus bounded attestations': 'OCI022',
+    'Expected unique native runnable manifest': 'OCI023',
+    'Unsupported platform variant': 'OCI024',
+    'Runnable image is an artifact': 'OCI025',
+    'Runtime config/platform/layer set differs': 'OCI026',
+    'Only raw or gzip OCI runtime layers are supported': 'OCI027',
+    'Expanded layer byte bound exceeded': 'OCI028',
+    'Uncompressed runtime layer DiffID differs': 'OCI029',
+    'Unknown platform or unbound attestation descriptor': 'OCI030',
+    'Only explicit legacy attestation encoding is supported': 'OCI031',
+    'Attestation layer count differs': 'OCI032',
+    'Unsupported in-toto statement': 'OCI033',
+    'Attestation subject differs from runnable manifest': 'OCI034',
+    'Missing or duplicate attestation predicate': 'OCI035',
+    'SPDX document/packages are missing or unsupported': 'OCI036',
+    'Unexpected provenance build type': 'OCI037',
+    'Provenance materials are missing or unbounded': 'OCI038',
+    'Dockerfile has no reviewed base policy': 'OCI039',
+    'Provenance contains an unreviewed base material': 'OCI040',
+    'Provenance does not cover all reviewed Dockerfile bases': 'OCI041',
+    'Missing required attestations or unreferenced OCI blobs': 'OCI042',
+    'Buildx output does not identify the verified OCI graph': 'OCI043',
+    'Loaded Docker runtime does not match verified OCI config and DiffIDs': 'OCI044',
+    'Docker runtime descriptor is outside the verified image graph': 'OCI045',
+    'Local OCI load/runtime command failed': 'OCI046',
+    'Container image is outside the verified runtime graph': 'OCI047',
+    'Expected one loaded native image': 'OCI048',
+    'Invalid local probe container identity': 'OCI049',
+    'Probe container image is outside the verified graph': 'OCI050',
+    'Offline init requires a verified image and bounded fixed helper': 'OCI051',
+    'Offline image init proof is incomplete': 'OCI052',
+    'Offline init container did not complete': 'OCI053',
+    'Offline init helper is not a bounded regular file': 'OCI054',
+    'OCI archive member count exceeds bound': 'OCI055',
+    'OCI archive has duplicate member names': 'OCI056',
+    'OCI archive contains unsupported timestamp-only PAX metadata': 'OCI057',
+    'OCI archive contains unsupported non-timestamp PAX metadata': 'OCI058',
+}
+PHASES = frozenset({"inputs", "archive-entries", "archive-blob-hashes", "layout-entrypoint", "runtime-manifest-config", "runtime-layers", "attestations", "build-metadata", "docker-load", "runtime-binding", "container-probe", "offline-init", "evidence-output"})
+_phase = "inputs"
+
+
+def phase(value):
+    global _phase
+    _phase = value if value in PHASES else "inputs"
+
+
+class VerificationFailure(ValueError):
+    def __init__(self, message):
+        self.code = FAILURE_CODES.get(message, "OCI000")
+        super().__init__(message)
+
 
 def unique(pairs):
     result = {}
@@ -77,7 +153,7 @@ def read_json(path):
 
 
 def fail(message):
-    raise ValueError(message)
+    raise VerificationFailure(message)
 
 
 def sha(data: bytes) -> str:
@@ -102,14 +178,21 @@ class Layout:
             raise
 
     def _index(self):
+        phase("archive-entries")
         self.members = {}
         self.referenced = set()
         total = 0
         seen = set()
         end = 0
         for count, member in enumerate(self.archive):
-            if count >= MAX_MEMBERS or member.name in seen or member.pax_headers:
-                fail("OCI member count, duplicate or extended metadata is unsupported")
+            if count >= MAX_MEMBERS:
+                fail("OCI archive member count exceeds bound")
+            if member.name in seen:
+                fail("OCI archive has duplicate member names")
+            if member.pax_headers:
+                if set(member.pax_headers).issubset({"mtime", "atime", "ctime"}):
+                    fail("OCI archive contains unsupported timestamp-only PAX metadata")
+                fail("OCI archive contains unsupported non-timestamp PAX metadata")
             seen.add(member.name)
             end = member.offset_data + ((member.size + 511) // 512) * 512
             # Exporter may include these two harmless directory entries only.
@@ -132,6 +215,7 @@ class Layout:
             fail("OCI layout metadata is missing")
         if self.json("oci-layout") != {"imageLayoutVersion": "1.0.0"}:
             fail("Unsupported OCI layout version")
+        phase("archive-blob-hashes")
         # Every blob is checked, even if a later graph error makes it unreachable.
         for name, member in self.members.items():
             if not name.startswith("blobs/"):
@@ -201,6 +285,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
     digest("sha256:" + source.get("archive", {}).get("sha256", ""))
     layout = Layout(path)
     try:
+        phase("layout-entrypoint")
         entry_bytes = layout.read("index.json")
         entry = parse(entry_bytes)
         if not isinstance(entry, dict) or entry.get("schemaVersion") != 2 or entry.get("mediaType", INDEX) != INDEX or len(entry.get("manifests", [])) != 1:
@@ -216,6 +301,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
         selected = runtime[0]
         if selected.get("platform", {}).get("variant") not in (None, "v8" if arch == "arm64" else None):
             fail("Unsupported platform variant")
+        phase("runtime-manifest-config")
         image = layout.object(selected, MANIFEST)
         if "subject" in image or "artifactType" in image:
             fail("Runnable image is an artifact")
@@ -224,6 +310,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
         diffs = config.get("rootfs", {}).get("diff_ids")
         if config.get("os") != "linux" or config.get("architecture") != arch or config.get("rootfs", {}).get("type") != "layers" or not isinstance(layers, list) or not 1 <= len(layers) <= 100 or not isinstance(diffs, list) or len(diffs) != len(layers):
             fail("Runtime config/platform/layer set differs")
+        phase("runtime-layers")
         expanded_total = 0
         for layer, expected in zip(layers, diffs):
             digest(expected)
@@ -246,6 +333,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
                 fail("Uncompressed runtime layer DiffID differs")
         # Only the explicitly selected legacy encoding is accepted. Unknown
         # formats are errors, rather than silently dropping an attestation.
+        phase("attestations")
         attestations = []
         verified_statements = {}
         kinds = set()
@@ -303,6 +391,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
                 attestations.append(item)
         if kinds != {SPDX, SLSA} or layout.referenced != {name for name in layout.members if name.startswith("blobs/")}:
             fail("Missing required attestations or unreferenced OCI blobs")
+        phase("build-metadata")
         if ("containerimage.config.digest" in metadata and metadata["containerimage.config.digest"] != image["config"]["digest"]) or metadata.get("containerimage.digest") != root_descriptor["digest"]:
             fail("Buildx output does not identify the verified OCI graph")
         with path.open("rb") as stream:
@@ -315,6 +404,7 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
 
 
 def runtime_binding(receipt: dict, inspection: dict) -> dict:
+    phase("runtime-binding")
     kinds = {receipt["imageIndexDigest"]: "image-index", receipt["platformManifestDigest"]: "platform-manifest", receipt["configDigest"]: "config"}
     identity = inspection.get("Id")
     if identity not in kinds or inspection.get("Os") != "linux" or inspection.get("Architecture") != receipt["platform"].split("/")[1] or inspection.get("RootFS", {}).get("Type") != "layers" or inspection.get("RootFS", {}).get("Layers") != receipt["diffIds"]:
@@ -342,11 +432,13 @@ def container_binding(receipt, container):
 
 def load_verified(path, tag, receipt):
     # Exactly the validated file is loaded. Neither a second build nor conversion.
+    phase("docker-load")
     command(["docker", "load", "--input", str(path)])
     inspection = parse(command(["docker", "image", "inspect", tag]))
     if not isinstance(inspection, list) or len(inspection) != 1:
         fail("Expected one loaded native image")
     binding = runtime_binding(receipt, inspection[0])
+    phase("container-probe")
     container_id = command(["docker", "create", "--platform", receipt["platform"], "--network", "none", "--read-only", "--entrypoint", "/bin/true", binding["runtimeImageId"]]).decode().strip()
     if not re.fullmatch(r"[a-f0-9]{64}", container_id):
         fail("Invalid local probe container identity")
@@ -364,6 +456,7 @@ def run_offline_init(receipt, smoke_script):
     digest(receipt["runtimeImageId"])
     if receipt.get("probeContainerImageBound") is not True or receipt.get("platform") not in ("linux/amd64", "linux/arm64") or len(smoke_script) > 1_000_000:
         fail("Offline init requires a verified image and bounded fixed helper")
+    phase("offline-init")
     name = "candidate-init-" + uuid.uuid4().hex
     try:
         output = command(["docker", "run", "--name", name, "--interactive", "--platform", receipt["platform"], "--network", "none", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777", "--entrypoint", "node", receipt["runtimeImageId"], "--input-type=module"], source=smoke_script)
@@ -391,6 +484,7 @@ def main():
         init.add_argument("--" + name, type=pathlib.Path, required=True)
     args = parser.parse_args()
     policies = {"server": ("apps/api/Dockerfile", "eldhall-server:candidate"), "web": ("apps/frontend/Dockerfile", "eldhall-web:candidate"), "mcp": ("apps/mcp-openapi/Dockerfile", "eldhall-mcp-openapi:candidate")}
+    phase("inputs")
     try:
         if args.operation == "init":
             if args.script.is_symlink() or not args.script.is_file() or args.script.stat().st_size > 1_000_000:
@@ -404,6 +498,7 @@ def main():
         statements = {}
         receipt = verify_archive(args.archive, args.arch, read_json(args.metadata), read_json(args.source_receipt), read_json(args.lock), dockerfile, statements)
         bound = load_verified(args.archive, tag, receipt)
+        phase("evidence-output")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         for kind, data in statements.items():
             filename = f"{args.role}-{kind}.intoto.json"
@@ -411,8 +506,11 @@ def main():
             item = next(item for item in bound["attestations"] if item["predicateType"] == (SPDX if kind == "sbom" else SLSA))
             item.update({"statementFile": filename, "role": args.role, "platform": receipt["platform"]})
         args.output.write_text(json.dumps(bound, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    except VerificationFailure as error:
+        print(f"Private OCI verification failed: code={error.code} phase={_phase}; no raw input/config retained.", file=sys.stderr)
+        return 1
     except (OSError, ValueError, TypeError, KeyError, AttributeError, tarfile.TarError, subprocess.SubprocessError, EOFError, RecursionError, zlib.error):
-        print("Private OCI graph/runtime verification failed; no raw archive/config output retained.", file=sys.stderr)
+        print(f"Private OCI verification failed: code=OCI000 phase={_phase}; no raw input/config retained.", file=sys.stderr)
         return 1
     print("Private OCI graph, unsigned statements, layers and loaded native runtime verified.")
     return 0

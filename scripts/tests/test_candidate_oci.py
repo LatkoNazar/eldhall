@@ -271,6 +271,17 @@ class CandidateOciTests(unittest.TestCase):
         self.assertFalse(destination.parent.exists())
         self.assertNotIn(str(self.root), stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertIn("code=OCI034 phase=attestations", stderr.getvalue())
+        for error in (ValueError("PRIVATE exception /secret/path"), OSError("PRIVATE exception /secret/path"), oci.VerificationFailure("PRIVATE exception /secret/path")):
+            stderr = io.StringIO()
+            with patch.object(oci.sys, "argv", arguments), patch.object(oci, "verify_archive", side_effect=error), patch.object(oci, "command") as command, redirect_stderr(stderr):
+                self.assertEqual(oci.main(), 1)
+            command.assert_not_called()
+            self.assertIn("code=OCI000 phase=inputs", stderr.getvalue())
+            self.assertNotIn("PRIVATE", stderr.getvalue())
+            self.assertNotIn("secret", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertFalse(destination.parent.exists())
 
 
 if __name__ == "__main__":
