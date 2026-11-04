@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:worker": "tsx watch src/worker.ts",
-    "build": "node scripts/check-licenses.mjs && tsc -p tsconfig.build.json",
+    "build": "node scripts/check-licenses.mjs && tsc -p tsconfig.build.json && node scripts/write-build-info.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "node --import tsx --test --test-concurrency=2 tests/*.test.ts",
