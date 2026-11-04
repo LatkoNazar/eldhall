@@ -17,6 +17,10 @@ const platform = z.enum(['linux/amd64', 'linux/arm64']);
 const epoch = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const range = z.strictObject({ min: epoch, max: epoch });
 const reference = z.strictObject({ path, sha256 });
+const artifact = z.discriminatedUnion('kind', [
+  z.strictObject({ path, sha256, kind: z.enum(['bundle', 'docs', 'openapi', 'sbom', 'notices', 'inventory', 'provenance', 'test-report']) }),
+  z.strictObject({ path, sha256, kind: z.literal('signature'), subject: reference }),
+]);
 const baseImage = z.strictObject({ repository: z.string().regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$/), digest });
 const imagePlatform = z.strictObject({ platform, manifestDigest: digest, baseImages: z.array(baseImage).min(1).max(20), sbom: reference, provenance: reference });
 const image = <T extends z.ZodType>(repository: string, roles: T) => z.strictObject({ repository: z.literal(repository), tag: releaseVersion, indexDigest: digest, roles, platforms: z.array(imagePlatform).min(1).max(2) });
@@ -52,7 +56,7 @@ export const releaseManifestStructure = z.strictObject({
     adapter: z.strictObject({ openapi: z.strictObject({ manifestSchema: range, contract: range }) }),
     runtime: z.strictObject({ id: z.literal('dsh'), packages: z.record(z.string().regex(/^@deepseek-ai\/dsh(?:-[a-z-]+)?$/), semver), sessionFormat: range, topology: z.literal('single-worker') }),
   }),
-  artifacts: z.array(z.strictObject({ path, sha256, kind: z.enum(['bundle', 'docs', 'openapi', 'sbom', 'notices', 'inventory', 'provenance', 'test-report', 'signature']) })).min(1).max(5000),
+  artifacts: z.array(artifact).min(1).max(5000),
   verification: z.strictObject({
     platforms: z.array(z.strictObject({ platform, execution: z.literal('native'), sourceCommit: commit, imageDigests: z.strictObject({ server: digest, web: digest, mcpOpenapi: digest }), report: reference })).min(1).max(2),
     installProfiles: z.array(z.strictObject({ id: z.enum(['headless', 'ui', 'openapi-sidecar', 'external-postgres']), platform, report: reference })).min(1).max(8),
@@ -76,6 +80,13 @@ export const releaseManifestSchema = releaseManifestStructure.superRefine((manif
 
   const artifacts = new Map(manifest.artifacts.map(artifact => [artifact.path, artifact]));
   unique(manifest.artifacts, value => value.path, ['artifacts']);
+  manifest.artifacts.forEach((entry, index) => {
+    if (['release.json', 'release.json.sig', 'SHA256SUMS'].includes(entry.path)) issue(['artifacts', index, 'path'], 'Envelope objects cannot be manifest artifacts');
+    if (entry.kind === 'signature') {
+      const subject = artifacts.get(entry.subject.path);
+      if (entry.path === entry.subject.path || !subject || subject.kind === 'signature' || subject.sha256 !== entry.subject.sha256) issue(['artifacts', index, 'subject'], 'Signature subject must match a distinct listed non-signature artifact');
+    }
+  });
   const requireRef = (ref: z.infer<typeof reference>, at: (string | number)[], kind?: ReleaseManifest['artifacts'][number]['kind']) => {
     const artifact = artifacts.get(ref.path);
     if (!artifact || artifact.sha256 !== ref.sha256 || (kind && artifact.kind !== kind)) issue(at, 'Artifact reference is absent, mismatched or has the wrong kind');
