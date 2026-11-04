@@ -1,0 +1,27 @@
+{
+  "id": "eldhall-pitch",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "locale": "uk",
+  "capture": { "width": 1600, "height": 900, "note": "Real MVP recordings at 1600x900 CSS px (16:9), produced by scripts/capture.mjs" },
+  "window": { "x": 200, "y": 40, "width": 1520, "titlebar": 46 },
+  "scenes": [
+    { "id": "intro", "type": "title", "duration": 4 },
+    { "id": "request", "type": "capture", "duration": 6, "url": "app.eldhall · /chat", "slot": "assets/capture/request.mp4",
+      "shows": "Customer chat: persona Olena types the duplicate-charge message and the copilot reply appears" },
+    { "id": "triage", "type": "capture", "duration": 5, "url": "app.eldhall · /operator", "slot": "assets/capture/triage.mp4",
+      "shows": "Inbox: Olena's P1 case; operator opens it, copilot summary and sentiment signals" },
+    { "id": "policy", "type": "capture", "duration": 5, "url": "app.eldhall · /operator", "slot": "assets/capture/policy.mp4",
+      "shows": "Proposed refund_payment 499 UAH with the policy checklist (all passed)" },
+    { "id": "approve", "type": "capture", "duration": 5, "url": "app.eldhall · /operator", "slot": "assets/capture/approve.mp4",
+      "shows": "Click 'Погодити повернення' -> status approved; no refund yet" },
+    { "id": "execute", "type": "capture", "duration": 5, "url": "app.eldhall · /operator", "slot": "assets/capture/execute.mp4",
+      "shows": "Click 'Виконати погоджену дію' -> executed, confirmed refund SIM-RF-… (simulated)" },
+    { "id": "result", "type": "capture", "duration": 5, "url": "app.eldhall · /chat", "slot": "assets/capture/result.mp4",
+      "shows": "Customer chat: simulated refund confirmation with reference SIM-RF-…" },
+    { "id": "safety", "type": "capture", "duration": 5, "url": "app.eldhall · /operator", "slot": "assets/capture/safety.mp4",
+      "shows": "Ivan (abusive, 3 999 UAH annual plan): refund denied by within_refund_limit, case escalated" },
+    { "id": "outro", "type": "title", "duration": 4 }
+  ]
+}

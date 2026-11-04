@@ -91,9 +91,9 @@ async function main() {
       { text: 'вирішує', options: { color: HEX.accent } },
     ], { x: 0.8, y: 2.6, w: 7.2, h: 2.2, fontSize: 46, bold: true, charSpacing: -1, lineSpacingMultiple: 0.95 })
     T(s, 'AI розуміє звернення, перевіряє правила бізнесу й виконує дію — після підтвердження людини.', { x: 0.8, y: 4.95, w: 6.8, h: 0.8, fontSize: 16, color: HEX.darkMuted })
-    T(s, 'PolyTech Code Fest × SKELAR · 31.10.2026 · [Назва команди · учасники]', { x: 0.8, y: 6.7, w: 8, h: 0.3, fontSize: 11, color: HEX.darkMuted })
+    T(s, 'PolyTech Code Fest × SKELAR · 31.10.2026', { x: 0.8, y: 6.7, w: 8, h: 0.3, fontSize: 11, color: HEX.darkMuted })
     // Flow pills
-    const steps = [['LuMessageSquare', 'Звернення'], ['LuBrain', 'AI-аналіз'], ['LuShieldCheck', 'Перевірка правил'], ['LuUserCheck', 'Підтвердження людини'], ['LuCircleCheck', 'Виконана дія']]
+    const steps = [['LuMessageSquare', 'Звернення'], ['LuBrain', 'AI-аналіз'], ['LuShieldCheck', 'Перевірка правил'], ['LuUserCheck', 'Погодження людини'], ['LuCircleCheck', 'Окреме виконання']]
     for (const [i, [ic, label]] of steps.entries()) {
       const y = 1.55 + i * 0.98
       card(s, 8.7, y, 3.9, 0.72, { fill: HEX.dark2, line: HEX.darkLine, name: `flow-${i}` })
@@ -140,12 +140,12 @@ async function main() {
   pres.addSection({ title: 'Product' })
   {
     const s = content('Product', 'РІШЕННЯ', 'Eldhall Support Copilot')
-    T(s, 'AI-копілот, який розуміє звернення, перевіряє дані та правила бізнесу й виконує дію — після підтвердження оператора.', { x: 0.6, y: 1.9, w: 5.6, h: 1.1, fontSize: 17, color: HEX.ink2 })
+    T(s, 'AI-копілот, який розуміє звернення, перевіряє дані та правила бізнесу й пропонує дію. Людина погоджує, сервер окремо перевіряє та виконує.', { x: 0.6, y: 1.9, w: 5.6, h: 1.1, fontSize: 17, color: HEX.ink2 })
     const rows = [
       ['LuBrain', 'Розуміє намір і настрій', 'intent, sentiment, терміновість, пріоритет'],
       ['LuDatabase', 'Знаходить дані сам', 'через дозволені інструменти, лише цього клієнта'],
       ['LuShieldCheck', 'Перевіряє правила', 'детермінований policy engine, не модель'],
-      ['LuUserCheck', 'Діє з підтвердженням', 'ризиковані дії — тільки після «так» людини'],
+      ['LuUserCheck', 'Approve → Execute', 'згода людини і виконання — два окремі кроки'],
     ]
     for (const [i, [ic, h, p]] of rows.entries()) {
       const y = 3.15 + i * 0.88
@@ -179,8 +179,8 @@ async function main() {
     T(s, 'Proposed action · high risk', { x: x + 0.5, y: y + 3.83, w: 3.5, h: 0.22, fontSize: 10, bold: true, color: HEX.accent })
     T(s, 'refund_payment · 499.00 UAH', { x: x + 0.5, y: y + 4.07, w: 3.5, h: 0.3, fontSize: 13, bold: true })
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: x + w - 1.6, y: y + 3.92, w: 1.1, h: 0.42, rectRadius: 0.08, fill: { color: HEX.accent }, line: { color: HEX.accent, width: 0 }, objectName: 'approve' })
-    T(s, 'Approve', { x: x + w - 1.6, y: y + 3.92, w: 1.1, h: 0.42, fontSize: 12, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle' })
-    s.addNotes('Продукт (0:55–1:30). Eldhall — копілот, а не чатбот: розуміє намір і настрій, сам знаходить потрібні платежі, перевіряє правила й пропонує конкретну дію. Ризиковані дії виконуються тільки після підтвердження оператора. Праворуч — ілюстрація консолі на демо-даних. ▶ «AI reasoning».')
+    T(s, 'Погодити', { x: x + w - 1.6, y: y + 3.92, w: 1.1, h: 0.42, fontSize: 12, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle' })
+    s.addNotes('Продукт (0:55–1:30). Eldhall — копілот, а не чатбот: розуміє намір і настрій, сам знаходить потрібні платежі, перевіряє правила й пропонує конкретну дію. Людина погоджує, а сервер окремим кроком перевіряє ще раз і виконує. Праворуч — ілюстрація консолі на демо-даних. ▶ «AI reasoning».')
   }
 
   // 4 — AI reasoning & context
@@ -189,7 +189,7 @@ async function main() {
     const s = content('How it works', 'AI REASONING & CONTEXT', 'AI думає з контекстом — і лише пропонує')
     const boxes = [
       ['LuKeyRound', 'Контекст із сесії', 'Профіль, останні платежі, політика бізнесу, історія. Особа — з сесії, не з тексту'],
-      ['LuCpu', 'LLM + tool call', 'Модель сама викликає lookup_payments (лише читання). ≤ 4 кроки, таймаут'],
+      ['LuCpu', 'LLM + tool call', 'Модель сама викликає lookup_payments і пошук у базі знань (лише читання)'],
       ['LuFileText', 'Типізоване рішення', 'intent · sentiment · відповідь · запропонована дія — за строгою схемою'],
       ['LuShieldCheck', 'Policy engine', 'Детерміновані перевірки: дозволено, потрібне підтвердження чи відхилено'],
     ]
@@ -205,27 +205,27 @@ async function main() {
     }
     card(s, 0.6, 5.0, 3.85, 1.6, { fill: HEX.alt, line: HEX.alt, name: 'providers' })
     await iconTile(s, 'LuSparkles', 0.85, 5.2, 0.45)
-    T(s, 'Будь-яка модель', { x: 1.45, y: 5.22, w: 2.9, h: 0.3, fontSize: 14, bold: true })
-    T(s, 'OpenAI · Gemini · Claude\nОсновна: [оновити після спайку WS4]', { x: 1.45, y: 5.55, w: 2.95, h: 0.9, fontSize: 12, color: HEX.ink2 })
+    T(s, 'Модель і runtime', { x: 1.45, y: 5.22, w: 2.9, h: 0.3, fontSize: 14, bold: true })
+    T(s, 'DSH + Gemini 3.5 Flash-Lite\nlive-запуск worker пройшов', { x: 1.45, y: 5.55, w: 2.95, h: 0.9, fontSize: 12, color: HEX.ink2 })
     card(s, 4.74, 5.0, 3.85, 1.6, { fill: HEX.alt, line: HEX.alt, name: 'fallback' })
     await iconTile(s, 'LuActivity', 4.99, 5.2, 0.45)
     T(s, 'Збій моделі — не катастрофа', { x: 5.59, y: 5.22, w: 2.95, h: 0.3, fontSize: 14, bold: true })
-    T(s, 'Детермінований fallback, позначений в інтерфейсі та журналі', { x: 5.59, y: 5.55, w: 2.9, h: 0.9, fontSize: 12, color: HEX.ink2 })
+    T(s, 'Детермінований режим правил, позначений в інтерфейсі та журналі', { x: 5.59, y: 5.55, w: 2.9, h: 0.9, fontSize: 12, color: HEX.ink2 })
     soft(s, 8.88, 5.0, 3.85, 1.6, HEX.accent, 'nowrite')
     await iconTile(s, 'LuLock', 9.13, 5.2, 0.45)
     T(s, 'LLM не пише в базу', { x: 9.73, y: 5.22, w: 2.9, h: 0.3, fontSize: 14, bold: true, color: HEX.accent })
     T(s, 'Модель лише пропонує дію. Виконує backend — після перевірок', { x: 9.73, y: 5.55, w: 2.9, h: 0.9, fontSize: 12, color: HEX.ink })
-    s.addNotes('AI reasoning (1:30–2:10). Контекст будує сервер: хто клієнт — визначає сесія, тому номер чужого платежу в повідомленні нічого не дає. Модель сама викликає інструмент і повертає рішення за строгою схемою. Далі — детермінований policy engine. Модель нічого не записує в базу. Працює з різними LLM; якщо модель впала — є fallback. [Назвати обрану модель після спайку WS4.] ▶ «Реальна дія».')
+    s.addNotes('AI reasoning (1:30–2:10). Контекст будує сервер: хто клієнт — визначає сесія, тому номер чужого платежу в повідомленні нічого не дає. Модель сама викликає інструмент і повертає рішення за строгою схемою. Далі — детермінований policy engine. Модель нічого не записує в базу. Runtime — DeepSeek Harness з Gemini 3.5 Flash-Lite; live-запуск worker пройшов. Якщо модель недоступна, працює позначений режим правил — саме в ньому записане демо-відео. ▶ «Реальна дія».')
   }
 
   // 5 — Real action + human-in-the-loop
   {
-    const s = content('How it works', 'РЕАЛЬНА ДІЯ + HUMAN-IN-THE-LOOP', 'Гроші рухаються лише після «так» від людини')
+    const s = content('How it works', 'РЕАЛЬНА ДІЯ + HUMAN-IN-THE-LOOP', 'Погодження і виконання — два окремі кроки')
     const nodes = [
       ['Пропозиція', 'refund_payment\n499.00 UAH'],
       ['Перевірки', 'належність · дубль\nліміт · статус'],
-      ['Approve', 'прив’язаний до\nконкретної операції'],
-      ['Виконання', 'атомарно, одне\nповернення на платіж'],
+      ['Approve', 'згода на точну\nоперацію, гроші стоять'],
+      ['Execute', 'повторна перевірка,\nрезерв платежу'],
       ['Результат', 'кейс вирішено,\nаудит, відповідь'],
     ]
     const step = 2.42
@@ -239,9 +239,9 @@ async function main() {
       T(s, p, { x: cx - 1.1, y: 3.22, w: 2.2, h: 0.7, fontSize: 12.5, align: 'center', color: HEX.ink2 })
     }
     const g = [
-      ['LuKeyRound', 'Точне схвалення', 'Змінилися аргументи — старе схвалення недійсне'],
-      ['LuRepeat', 'Без дублів', 'Повторне натискання → 409, друге повернення неможливе'],
-      ['LuFlag', 'Чесні результати', 'Провайдер не підтвердив — клієнт так і дізнається'],
+      ['LuKeyRound', 'Approve ≠ гроші', 'Після погодження повернень 0 — до окремого Execute'],
+      ['LuRepeat', 'Без дублів', '8 конкурентних execute → 1 повернення, 7 конфліктів'],
+      ['LuFlag', 'Чесні результати', 'Невідомий результат блокує повтор до ручної звірки'],
       ['LuCreditCard', 'Демо-платежі', 'Симульований провайдер — реальні кошти не рухаються'],
     ]
     for (const [i, [ic, h, p]] of g.entries()) {
@@ -251,7 +251,7 @@ async function main() {
       T(s, h, { x: x + 0.25, y: 5.18, w: 2.4, h: 0.35, fontSize: 14.5, bold: true })
       T(s, p, { x: x + 0.25, y: 5.55, w: 2.45, h: 0.9, fontSize: 12.5, color: HEX.ink2 })
     }
-    s.addNotes('Реальна дія (2:10–2:45). AI пропонує повернення 499 гривень. Правила перевіряють. Оператор натискає Approve — і схвалення прив’язане саме до цієї операції. Backend виконує атомарно: друге натискання не створить другого повернення. Платіжний провайдер у демо — симульований, говоримо це прямо. ▶ «Sentiment».')
+    s.addNotes('Реальна дія (2:10–2:45). AI пропонує повернення 499 гривень, правила перевіряють. Approve — це лише згода на точну операцію: після нього повернень нуль. Execute — окремий крок: сервер повторно перевіряє правила, резервує платіж і викликає провайдера. Перевірено: вісім одночасних execute дали одне повернення і сім конфліктів. Невідомий результат блокує повтор до ручної звірки. Провайдер симульований — реальні кошти не рухаються. ▶ «Sentiment».')
   }
 
   // 6 — Sentiment & escalation
@@ -274,33 +274,31 @@ async function main() {
       T(s, c.outcome, { x: x + 1.2, y: 4.2, w: 4.3, h: 1.15, fontSize: 14, bold: true, valign: 'middle', color: c.ok ? '166534' : 'B01A2E' })
     }
     await iconTile(s, 'LuActivity', 0.6, 6.0, 0.45)
-    T(s, 'Оператор бачить, чому: груба лексика, капслок, «!!!», маркери терміновості. Роздратований клієнт ≠ зловмисник.', { x: 1.25, y: 6.0, w: 11.4, h: 0.45, fontSize: 13.5, color: HEX.ink2, valign: 'middle' })
+    T(s, 'Оператор бачить, чому: груба лексика, «!!!», маркери терміновості. Роздратований клієнт ≠ зловмисник.', { x: 1.25, y: 6.0, w: 11.4, h: 0.45, fontSize: 13.5, color: HEX.ink2, valign: 'middle' })
     s.addNotes('Sentiment (2:45–3:15). Два клієнти з однаковою проблемою. Олена роздратована — кейс отримує P1 і емпатичний тон, повернення чекає оператора. Іван грубить, і сума понад ліміт — policy відмовляє, кейс одразу йде до людини з тоном деескалації. Настрій впливає на пріоритет і тон, але ніколи не авторизує гроші. ▶ «Демо».')
   }
 
   // 7 — Demo video slot
   pres.addSection({ title: 'Demo' })
   {
-    const s = content('Demo', 'LIVE DEMO', 'Від звернення до вирішення — 44 секунди')
-    const w = 8.4, h = w * 9 / 16, x = (W - w) / 2, y = 1.85
-    card(s, x, y, w, h, { fill: HEX.alt, shadow: true, name: 'video-frame' })
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: 0.42, rectRadius: 0.12, fill: { color: 'FFFFFF' }, line: { color: HEX.line, width: 1 }, objectName: 'video-bar' })
-    s.addShape(pres.shapes.RECTANGLE, { x: x + 0.02, y: y + 0.25, w: w - 0.04, h: 0.17, fill: { color: 'FFFFFF' }, line: { color: 'FFFFFF', width: 0 } })
+    const s = content('Demo', 'ДЕМО', 'Від звернення до вирішення — реальний запис MVP')
+    const w = 8.0, vh = (w - 0.1) * 9 / 16, h = 0.42 + vh + 0.05, x = (W - w) / 2, y = 1.85
+    card(s, x, y, w, h, { fill: 'FFFFFF', shadow: true, name: 'video-frame' })
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: 0.42, rectRadius: 0.12, fill: { color: HEX.alt }, line: { color: HEX.line, width: 1 }, objectName: 'video-bar' })
+    s.addShape(pres.shapes.RECTANGLE, { x: x + 0.02, y: y + 0.25, w: w - 0.04, h: 0.17, fill: { color: HEX.alt }, line: { color: HEX.alt, width: 0 } })
     for (const [i, col] of ['FF5F57', 'FEBC2E', '28C840'].entries()) s.addShape(pres.shapes.OVAL, { x: x + 0.22 + i * 0.22, y: y + 0.15, w: 0.12, h: 0.12, fill: { color: col }, line: { color: col, width: 0 } })
-    T(s, 'eldhall-pitch-uk.mp4', { x: x + 2, y: y + 0.06, w: w - 4, h: 0.3, fontSize: 11, color: HEX.muted, align: 'center', valign: 'middle' })
-    s.addShape(pres.shapes.OVAL, { x: x + w / 2 - 0.45, y: y + h / 2 - 0.55, w: 0.9, h: 0.9, fill: { color: HEX.accent }, line: { color: HEX.accent, width: 0 }, objectName: 'play' })
-    s.addImage({ data: await icon('LuPlay', 'FFFFFF'), x: x + w / 2 - 0.2, y: y + h / 2 - 0.3, w: 0.42, h: 0.42 })
-    T(s, '[ВСТАВИТИ ВІДЕО] Демо 0:44 · 1920×1080 · docs/DEMO_VIDEO.md', { x: x + 0.5, y: y + h / 2 + 0.5, w: w - 1, h: 0.35, fontSize: 13, bold: true, color: HEX.ink2, align: 'center' })
-    T(s, 'Вставка › Відео › Цей пристрій — і розтягнути на цю рамку', { x: x + 0.5, y: y + h / 2 + 0.85, w: w - 1, h: 0.3, fontSize: 11, color: HEX.muted, align: 'center' })
-    s.addNotes('Демо (3:15–4:05). Запустити відео (44 с) і коротко коментувати: клієнт пише → AI знаходить обидва платежі → оператор бачить аналіз і перевірки → Approve → клієнт отримує підтвердження з референсом. Провайдер симульований. ЯКЩО ВІДЕО НЕ ЗАПУСТИЛОСЯ: див. резервний сценарій у SPEAKER_SCRIPT.md — повернутися на слайд 3 і пройти ілюстрацію консолі словами. ▶ «Архітектура».')
+    T(s, 'eldhall-pitch-uk.mp4 · 0:45', { x: x + 2, y: y + 0.06, w: w - 4, h: 0.3, fontSize: 11, color: HEX.muted, align: 'center', valign: 'middle' })
+    const poster = 'image/jpeg;base64,' + require('fs').readFileSync(path.join(__dirname, 'video-poster.jpg')).toString('base64')
+    s.addMedia({ type: 'video', path: path.resolve(__dirname, '../../../demos/mvp/pitch/exports/eldhall-pitch-uk.mp4'), cover: poster, x: x + 0.05, y: y + 0.42, w: w - 0.1, h: vh, objectName: 'demo-video' })
+    s.addNotes('Демо (3:15–4:05). Клацнути по відео (45 с) і коротко коментувати: клієнтка пише → копілот знаходить дубль і ставить P1 → оператор бачить перевірки → «Погодити повернення»: гроші ще не рухаються → окремо «Виконати погоджену дію»: SIM-RF → клієнтка отримує підтвердження → Іван: ліміт, відмова, ескалація. Запис зроблено в офлайн-режимі правил (без LLM), провайдер симульований — так і кажемо. ЯКЩО ВІДЕО НЕ ЗАПУСТИЛОСЯ: резервний сценарій у SPEAKER_SCRIPT.md. ▶ «Архітектура».')
   }
 
   // 8 — Architecture
   pres.addSection({ title: 'Technology' })
   {
-    const s = content('Technology', 'АРХІТЕКТУРА', 'Простий стек, сувора межа між AI і діями')
+    const s = content('Technology', 'АРХІТЕКТУРА', 'Сувора межа між AI і діями')
     // Clients
-    const clients = [['LuSmartphone', 'Чат клієнта', 'адаптивний, mobile'], ['LuMonitor', 'Консоль оператора', 'desktop']]
+    const clients = [['LuSmartphone', 'Чат клієнта', '/chat'], ['LuMonitor', 'Робочий простір', '6 екранів оператора']]
     for (const [i, [ic, h, p]] of clients.entries()) {
       const y = 2.1 + i * 1.65
       card(s, 0.6, y, 2.9, 1.35, { name: `client-${i}` })
@@ -313,15 +311,15 @@ async function main() {
     arrow(s, 3.6, 4.43, 4.15, 3.75, HEX.accent)
     // Core
     soft(s, 4.25, 1.95, 4.85, 3.85, HEX.accent, 'core')
-    T(s, 'Fastify API · Agent Harness', { x: 4.5, y: 2.15, w: 4.4, h: 0.4, fontSize: 16, bold: true })
-    const chips = ['Контекст', 'Реєстр tools', 'Policy engine', 'Approvals', 'Виконання', 'Аудит']
+    T(s, 'Fastify API + BullMQ worker', { x: 4.5, y: 2.15, w: 4.4, h: 0.4, fontSize: 16, bold: true })
+    const chips = ['DSH agent loop', 'Policy engine', 'Approve', 'Execute', 'База знань · MCP', 'Аудит · Insights']
     for (const [i, c] of chips.entries()) {
       const cx = 4.5 + (i % 2) * 2.2, cy = 2.75 + Math.floor(i / 2) * 0.88
       card(s, cx, cy, 2.05, 0.68, { name: `chip-${i}` })
       T(s, c, { x: cx, y: cy, w: 2.05, h: 0.68, fontSize: 13, bold: true, align: 'center', valign: 'middle' })
     }
     // Right side
-    const right = [['LuCpu', 'LLM', 'OpenAI · Gemini · Claude'], ['LuDatabase', 'PostgreSQL', '[MVP: in-memory → Postgres — оновити]'], ['LuCreditCard', 'Платежі', 'симульований провайдер']]
+    const right = [['LuCpu', 'LLM', 'Gemini · OpenRouter (класифікація)'], ['LuDatabase', 'PostgreSQL + Redis', 'стан, outbox, черга'], ['LuCreditCard', 'Платежі', 'симульований провайдер']]
     for (const [i, [ic, h, p]] of right.entries()) {
       const y = 1.95 + i * 1.33
       arrow(s, 9.2, 3.87, 9.7, y + 0.55, HEX.muted)
@@ -331,13 +329,13 @@ async function main() {
       T(s, p, { x: 10.6, y: y + 0.5, w: 2.05, h: 0.5, fontSize: 10.5, color: HEX.muted })
     }
     // Bottom facts
-    const facts = [['LuServer', 'Docker Compose · Oracle Cloud ARM64 [статус деплою: оновити]'], ['LuGitBranch', 'CI на кожен PR · 10 критичних сценаріїв у тестах'], ['LuBookOpen', 'Open source · MVP та roadmap розділені чесно']]
+    const facts = [['LuServer', 'Self-host Compose описано; запуск у контейнерах ще не перевірено'], ['LuGitBranch', 'Окремі guard-и: argsHash, резерв платежу, fence-и запусків'], ['LuBookOpen', 'MVP і roadmap розділені чесно']]
     for (const [i, [ic, t]] of facts.entries()) {
       const x = 0.6 + i * 4.1
       s.addImage({ data: await icon(ic, HEX.ink2), x, y: 6.15, w: 0.3, h: 0.3 })
       T(s, t, { x: x + 0.42, y: 6.08, w: 3.55, h: 0.5, fontSize: 12, color: HEX.ink2, valign: 'middle' })
     }
-    s.addNotes('Архітектура (4:05–4:30). Два інтерфейси на React — чат клієнта і консоль оператора. Усе рішення — в одному API на Fastify: контекст, реєстр інструментів, policy, approvals, виконання, аудит. Модель — замінна. Провайдер платежів — симульований. Розгортання — Docker Compose на Oracle Cloud. [Оновити: Postgres і статус деплою.] ▶ «Результати».')
+    s.addNotes('Архітектура (4:05–4:30). Чат клієнта і робочий простір оператора на React. API на Fastify приймає повідомлення, а BullMQ worker запускає агента в DeepSeek Harness з Gemini. Стан — у PostgreSQL, черга — Redis. Approve і Execute — окремі серверні кроки з audit та Insights. Self-host Compose описано, але запуск у контейнерах ми ще не перевіряли — так і кажемо. ▶ «Результати».')
   }
 
   // 9 — Results, roadmap, close
@@ -345,10 +343,10 @@ async function main() {
   {
     const s = content('Close', 'РЕЗУЛЬТАТИ ТА ПОТЕНЦІАЛ', 'Що вже працює — і куди рухаємось', true)
     const stats = [
-      ['10/10', 'критичних сценаріїв покрито бізнес-тестами', false],
-      ['34/34', 'автотести API · станом на 31.10 [оновити перед виступом]', false],
-      ['[__ %]', 'точність intent на eval-наборі [WS4]', true],
-      ['[__]', 'небезпечних дій на eval-наборі [WS4]', true],
+      ['106/106', 'тестів API (lint, typecheck, build)', false],
+      ['52/52', 'тестів робочого простору й чату', false],
+      ['9 + 8', 'тестів на реальному PostgreSQL: support та Insights', false],
+      ['1 з 8', 'конкурентних execute дав повернення; 7 — конфлікт', false],
     ]
     for (const [i, [n, l, ph]] of stats.entries()) {
       const x = 0.6 + (i % 2) * 3.25, y = 1.95 + Math.floor(i / 2) * 1.95
@@ -364,11 +362,11 @@ async function main() {
       T(s, t, { x: 7.85, y, w: 4.8, h: 0.42, fontSize: 15, color: 'FFFFFF', valign: 'middle' })
     }
     T(s, [
-      { text: 'AI пропонує. Правила перевіряють. ', options: { color: 'FFFFFF' } },
-      { text: 'Людина вирішує.', options: { color: 'F87171' } },
+      { text: 'AI пропонує. Людина погоджує. ', options: { color: 'FFFFFF' } },
+      { text: 'Сервер перевіряє й виконує.', options: { color: 'F87171' } },
     ], { x: 0.6, y: 6.05, w: 9, h: 0.5, fontSize: 20, bold: true, valign: 'middle' })
     T(s, 'Дякуємо! Питання?', { x: 9.4, y: 6.05, w: 3.3, h: 0.5, fontSize: 16, bold: true, color: HEX.darkMuted, align: 'right', valign: 'middle' })
-    s.addNotes('Результати і завершення (4:30–5:00). Лише виміряне: 10 критичних сценаріїв покрито тестами, автотести зелені. [Вставити цифри eval від WS4 — без них прибрати плитки, а не вигадувати.] Далі — реальні провайдери, ролі, нові канали, база знань, аналітика. Фінальна фраза: AI пропонує, правила перевіряють, людина вирішує. Дякуємо!')
+    s.addNotes('Результати і завершення (4:30–5:00). Лише виміряне командою: 106 з 106 тестів API, 52 з 52 тестів інтерфейсу, тести на реальному PostgreSQL — 9 і 8, вісім конкурентних execute — одне повернення. Далі — реальні провайдери, ролі, канали, база знань, аналітика. Фінал: AI пропонує, людина погоджує, сервер перевіряє й виконує. Дякуємо!')
   }
 
   await pres.writeFile({ fileName: OUT })

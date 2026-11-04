@@ -1,0 +1,33 @@
+{
+  "_comment": "Locators for the MVP UI at origin/main acd7aaf. Strings are case-insensitive regex unless the key ends with Css.",
+  "appUrl": "http://localhost:5173",
+  "apiUrl": "http://localhost:5173",
+  "channel": "chrome",
+  "chat": {
+    "path": "/chat",
+    "persona": "Olena",
+    "inputCss": "#customer-message",
+    "send": "Надіслати",
+    "message": "Ви списали з мене двічі за жовтень!!! Негайно поверніть",
+    "reply": "підготував повернення",
+    "confirmation": "Симульоване повернення"
+  },
+  "operator": {
+    "path": "/operator",
+    "tokenCss": "#operator-token",
+    "loginSubmit": "Відкрити робочий простір",
+    "caseItemCss": "button.case-item",
+    "olena": "Olena",
+    "ivan": "Ivan",
+    "summary": "Коротко про звернення",
+    "signals": "Аналіз і сигнали",
+    "actionCardCss": "section.action-card",
+    "checksCss": "ul.policy-checks",
+    "approve": "Погодити повернення",
+    "approvedNote": "Погодження отримано",
+    "execute": "Виконати погоджену дію",
+    "refundRef": "SIM-RF-",
+    "deniedCheck": "within_refund_limit"
+  },
+  "ivanMessage": "Ви, ідіоти, двічі списали за річний план!!!"
+}
