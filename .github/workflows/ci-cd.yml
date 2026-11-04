@@ -141,8 +141,20 @@ jobs:
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 20
     services:
+      schema-postgres-plain:
+        image: docker.io/library/postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: development-only
+          POSTGRES_DB: schema_observer
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d schema_observer"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       postgres:
-        image: pgvector/pgvector:0.8.0-pg17
+        image: docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87
         env:
           POSTGRES_USER: app
           POSTGRES_PASSWORD: development-only
@@ -160,6 +172,11 @@ jobs:
       TEST_POSTGRES_DB: app
       TEST_POSTGRES_USER: app
       TEST_POSTGRES_PASSWORD: development-only
+      TEST_SCHEMA_PLAIN_POSTGRES_HOST: 127.0.0.1
+      TEST_SCHEMA_PLAIN_POSTGRES_PORT: "5433"
+      TEST_SCHEMA_PLAIN_POSTGRES_DB: schema_observer
+      TEST_SCHEMA_PLAIN_POSTGRES_USER: app
+      TEST_SCHEMA_PLAIN_POSTGRES_PASSWORD: development-only
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -179,6 +196,22 @@ jobs:
       - name: PostgreSQL store, recovery and insights
         working-directory: apps/api
         run: npm run test:postgres
+      - name: Read-only PG17 schema observation and private reference candidates
+        working-directory: apps/api
+        env:
+          TEST_SCHEMA_FIXTURES_ALLOWED: "1"
+          SCHEMA_STATE_SOURCE_COMMIT: ${{ github.sha }}
+          SCHEMA_STATE_RUN_ID: ${{ github.run_id }}
+          SCHEMA_STATE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node --import tsx --test tests/schema-state.integration.ts
+      - name: Retain unreviewed schema candidates privately
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: schema-reference-candidates-${{ github.sha }}-${{ github.run_attempt }}
+          path: .omc/artifacts/schema-state/*.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - name: pgvector knowledge persistence
         working-directory: apps/api
         run: node --import tsx --test tests/knowledge.test.ts
