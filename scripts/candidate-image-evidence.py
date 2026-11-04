@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import pathlib
 import platform
@@ -18,6 +19,11 @@ import sys
 
 LIMIT = 8_000_000
 IMAGES = {"server": "eldhall-server:candidate", "web": "eldhall-web:candidate", "mcp": "eldhall-mcp-openapi:candidate"}
+OCI_SPEC = importlib.util.spec_from_file_location("candidate_oci_evidence", pathlib.Path(__file__).with_name("candidate-image-oci.py"))
+oci = importlib.util.module_from_spec(OCI_SPEC)
+OCI_SPEC.loader.exec_module(oci)
+RUNTIME_PLATFORM = None
+
 HASH = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 NODE_INVENTORY = r'''
@@ -150,11 +156,14 @@ def command(args: list[str], *, source: str | None = None) -> str:
 
 
 def container(image: str, executable: str, args: list[str], *, source: str | None = None) -> str:
-    return command(["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--entrypoint", executable, "-i", image, *args], source=source)
+    return command(["docker", "run", "--rm", *(["--platform", RUNTIME_PLATFORM] if RUNTIME_PLATFORM else []), "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--entrypoint", executable, "-i", image, *args], source=source)
 
 
-def build_materials(metadata: dict) -> dict:
-    config = metadata.get("containerimage.config.digest")
+def build_materials(metadata: dict, verified_config: str | None = None) -> dict:
+    reported_config = metadata.get("containerimage.config.digest")
+    config = verified_config if verified_config is not None else reported_config
+    if "containerimage.config.digest" in metadata and reported_config != config:
+        raise ValueError("Build output config differs from verified OCI graph")
     manifest = metadata.get("containerimage.digest")
     if not isinstance(config, str) or not HASH.fullmatch(config) or not isinstance(manifest, str) or not HASH.fullmatch(manifest):
         raise ValueError("Build output digest is unavailable")
@@ -171,7 +180,7 @@ def build_materials(metadata: dict) -> dict:
         materials.append({"uri": uri, "digest": "sha256:" + digest})
     if not materials:
         raise ValueError("Resolved base image materials are unavailable")
-    return {"configDigest": config, "buildxOutputDigest": manifest, "buildxOutputDigestKind": "unverified-local-exporter-digest", "buildMaterials": materials}
+    return {"configDigest": config, "buildxReportedConfigDigest": reported_config, "buildxOutputDigest": manifest, "buildxOutputDigestKind": "unverified-local-exporter-digest", "buildMaterials": materials}
 
 
 def os_inventory(text: str) -> dict:
@@ -208,7 +217,8 @@ def write_json(output: pathlib.Path, name: str, value: object) -> None:
 
 def native_review_inputs(components: list[dict], image: dict, revision: str, build_source: dict) -> dict:
     """Bind observed files to the immutable image, without approving their terms/source."""
-    if image.get("imageId") != image.get("configDigest") or not HASH.fullmatch(image.get("imageId", "")) or image.get("architecture") not in ("amd64", "arm64"):
+    permitted = {image.get("configDigest"): "config", image.get("imageIndexDigest"): "image-index", image.get("platformManifestDigest"): "platform-manifest"}
+    if not HASH.fullmatch(image.get("imageId", "")) or permitted.get(image.get("imageId")) != image.get("imageIdKind") or image.get("architecture") not in ("amd64", "arm64"):
         raise ValueError("Native receipt image binding is invalid")
     if len(components) > 30:
         raise ValueError("Native component count exceeds bound")
@@ -231,21 +241,30 @@ def native_review_inputs(components: list[dict], image: dict, revision: str, bui
         text_bytes += component_bytes
         if component_bytes > 2_000_000 or text_bytes > 6_000_000:
             raise ValueError("Native receipts exceed aggregate byte bound")
-    return {"format": "eldhall-native-review-inputs-v1", "image": {key: image[key] for key in ("imageId", "configDigest", "architecture", "buildxOutputDigest", "buildxOutputDigestKind", "buildMaterials")}, "sourceRevision": revision, "buildSource": build_source, "components": components, "receiptBytes": text_bytes, "sourceAvailability": "not_verified", "scope": "Observed installed native files/notices/declared build metadata; not an SBOM, corresponding-source verification or legal approval"}
+    return {"format": "eldhall-native-review-inputs-v1", "image": {key: image[key] for key in ("imageId", "imageIdKind", "imageIndexDigest", "platformManifestDigest", "configDigest", "architecture", "buildxOutputDigest", "buildxOutputDigestKind", "buildMaterials")}, "sourceRevision": revision, "buildSource": build_source, "components": components, "receiptBytes": text_bytes, "sourceAvailability": "not_verified", "scope": "Observed installed native files/notices/declared build metadata; not an SBOM, corresponding-source verification or legal approval"}
 
 
-def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, output: pathlib.Path, source_root: pathlib.Path | None = None) -> None:
+def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, output: pathlib.Path, source_root: pathlib.Path | None = None, oci_dir: pathlib.Path | None = None) -> None:
     native = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
     if native.get(platform.machine()) != arch or native.get(command(["docker", "info", "--format", "{{.Architecture}}"]).strip()) != arch:
         raise ValueError("Host and Docker daemon do not match the native matrix architecture")
+    global RUNTIME_PLATFORM
+    RUNTIME_PLATFORM = "linux/" + arch
     output.mkdir(parents=True, exist_ok=True)
     source_root = source_root or pathlib.Path.cwd()
     records = {}
     for name, image in IMAGES.items():
-        inspection = json.loads(command(["docker", "image", "inspect", image, "--format", '{{json .}}']))
-        material = build_materials(json.loads((metadata_dir / f"{name}.json").read_text(encoding="utf-8")))
-        if inspection.get("Architecture") != arch or inspection.get("Os") != "linux" or inspection.get("Id") != material["configDigest"]:
-            raise ValueError("Built image architecture/config identity does not match its receipt")
+        if oci_dir is None:
+            raise ValueError("Built image architecture/config identity requires a verified OCI receipt")
+        graph = oci.read_json(oci_dir / f"{name}-oci.json")
+        material = build_materials(oci.read_json(metadata_dir / f"{name}.json"), graph["configDigest"])
+        if graph.get("format") != "eldhall-private-oci-v1" or graph.get("platform") != RUNTIME_PLATFORM or graph.get("source", {}).get("commit") != revision or graph.get("configDigest") != material["configDigest"] or graph.get("imageIndexDigest") != material["buildxOutputDigest"] or graph.get("probeContainerImageBound") is not True:
+            raise ValueError("Built image architecture/config identity differs from verified OCI receipt")
+        inspection = json.loads(command(["docker", "image", "inspect", "--platform", RUNTIME_PLATFORM, graph["runtimeImageId"], "--format", '{{json .}}']))
+        platform_runtime = oci.runtime_binding(graph, inspection)
+        kinds = {graph["imageIndexDigest"]: "image-index", graph["platformManifestDigest"]: "platform-manifest", graph["configDigest"]: "config"}
+        if kinds.get(graph.get("runtimeImageId")) != graph.get("runtimeIdKind"):
+            raise ValueError("Built image runtime selector is outside the verified OCI graph")
         legal_dir = "/srv/licenses" if name == "web" else "/app/licenses"
         expected_user = inspection.get("Config", {}).get("User", "")
         if not expected_user or expected_user in ("root", "0", "0:0"):
@@ -254,7 +273,7 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
         source_legal = source_root / ("apps/frontend/public/licenses" if name == "web" else f"apps/{'api' if name == 'server' else 'mcp-openapi'}/licenses")
         if name == "web":
             legal_names.append("BROWSER_NOTICES.txt")
-        immutable_image = inspection["Id"]
+        immutable_image = graph["runtimeImageId"]
         legal = container(immutable_image, "/bin/sh", ["-ec", 'test "$(id -u)" -ne 0; sha256sum ' + " ".join(f"{legal_dir}/{file}" for file in legal_names)])
         hashes = [line.split()[0] for line in legal.splitlines()]
         expected = [hashlib.sha256((source_legal / file).read_bytes()).hexdigest() for file in legal_names]
@@ -263,7 +282,7 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
         os_record = os_inventory(container(immutable_image, "/bin/sh", ["-s"], source=OS_INVENTORY))
         os_record["licenseFileHashes"] = container(immutable_image, "/bin/sh", ["-s"], source=OS_LICENSES).splitlines()
         write_json(output, f"{name}-os-inputs.json", os_record)
-        records[name] = {"image": image, "imageId": inspection["Id"], "architecture": arch, "user": expected_user, "projectNoticesMatch": True, **material}
+        records[name] = {"image": image, "imageId": immutable_image, "imageIdKind": graph["runtimeIdKind"], "platformInspectionId": platform_runtime["runtimeImageId"], "platformInspectionIdKind": platform_runtime["runtimeIdKind"], "imageIndexDigest": graph["imageIndexDigest"], "platformManifestDigest": graph["platformManifestDigest"], "rootfsDiffIdsMatch": True, "architecture": arch, "user": expected_user, "projectNoticesMatch": True, **material}
     node = json.loads(container(records["server"]["imageId"], "node", ["--input-type=module", "-"], source=NODE_INVENTORY))
     if node.get("architecture") != {"amd64": "x64", "arm64": "arm64"}[arch]:
         raise ValueError("Node runtime architecture does not match the matrix")
@@ -284,10 +303,10 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
     if cli.get("name") != "eldhall" or cli.get("version") != version or cli.get("sourceRevision") != revision or cli.get("buildMetadata") != "recorded":
         raise ValueError("Image CLI does not report its baked build identity")
     # Deliberately conflicting runtime values must not rewrite baked version information.
-    injected = json.loads(command(["docker", "run", "--rm", "--network", "none", "--read-only", "-e", "ELDHALL_VERSION=9.9.9", "-e", "ELDHALL_SOURCE_REVISION=" + "f" * 40, records["server"]["imageId"], "eldhall", "version"]))
+    injected = json.loads(command(["docker", "run", "--rm", "--platform", RUNTIME_PLATFORM, "--network", "none", "--read-only", "-e", "ELDHALL_VERSION=9.9.9", "-e", "ELDHALL_SOURCE_REVISION=" + "f" * 40, records["server"]["imageId"], "eldhall", "version"]))
     if injected != cli:
         raise ValueError("Runtime environment replaced baked image identity")
-    inputs = ("LICENSE", "NOTICE", "apps/api/package-lock.json", "apps/mcp-openapi/uv.lock", "apps/frontend/package-lock.json", "apps/api/Dockerfile", "apps/frontend/Dockerfile", "apps/mcp-openapi/Dockerfile")
+    inputs = ("LICENSE", "NOTICE", "deploy/base-images.lock.json", "apps/api/package-lock.json", "apps/mcp-openapi/uv.lock", "apps/frontend/package-lock.json", "apps/api/Dockerfile", "apps/frontend/Dockerfile", "apps/mcp-openapi/Dockerfile")
     source_manifest = source_root / "SOURCE-MANIFEST.json"
     if source_manifest.is_file():
         source_identity = json.loads(source_manifest.read_text(encoding="utf-8"))
@@ -297,7 +316,7 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
     else:
         raise ValueError("Native images require the verified archive source manifest")
     write_json(output, "server-native-review-inputs.json", native_review_inputs(components, records["server"], revision, build_source))
-    write_json(output, "identity.json", {"schemaVersion": 1, "mode": "native-archive-source-build-not-published", "buildSource": build_source, "sourceRevision": revision, "candidateVersion": version, "cli": cli, "images": records, "sourceReceiptInputs": [{"path": file, "sha256": hashlib.sha256((source_root / file).read_bytes()).hexdigest()} for file in inputs], "limitations": ["No registry push/pull or release publication", "No signed attestation/SBOM or legal/source-access approval", "Base materials and installed inventories are review inputs only", "Web/sidecar source identity comes from archive build inputs; they do not self-report release metadata"]})
+    write_json(output, "identity.json", {"schemaVersion": 1, "mode": "native-archive-source-build-not-published", "buildSource": build_source, "sourceRevision": revision, "candidateVersion": version, "cli": cli, "images": records, "sourceReceiptInputs": [{"path": file, "sha256": hashlib.sha256((source_root / file).read_bytes()).hexdigest()} for file in inputs], "limitations": ["No product registry publication/pull-only installation proof", "Unsigned OCI SBOM/min-provenance statements are local build evidence, not legal/source-access approval", "Base materials and installed inventories are review inputs only", "Web/sidecar source identity comes from archive build inputs; they do not self-report release metadata"]})
 
 
 def main() -> int:
@@ -306,13 +325,14 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--metadata-dir", type=pathlib.Path, required=True)
+    parser.add_argument("--oci-dir", type=pathlib.Path, required=True)
     parser.add_argument("--source-root", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
     if args.version != "0.1.0-rc.1" or not re.fullmatch(r"[a-f0-9]{40}", args.revision):
         parser.error("Expected fixed preview version and full source revision")
     try:
-        collect(args.arch, args.version, args.revision, args.metadata_dir, args.output, args.source_root)
+        collect(args.arch, args.version, args.revision, args.metadata_dir, args.output, args.source_root, args.oci_dir)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
         print("Candidate image evidence is incomplete; no raw command/error output retained.", file=sys.stderr)
         return 1

@@ -1,4 +1,4 @@
-FROM node:24-alpine AS development
+FROM docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS development
 WORKDIR /app/apps/landing
 COPY apps/landing/package.json apps/landing/package-lock.json ./
 COPY packages/analytics /app/packages/analytics
@@ -18,7 +18,7 @@ ENV PUBLIC_APP_URL=$PUBLIC_APP_URL \
     PUBLIC_UMAMI_DOMAINS=$PUBLIC_UMAMI_DOMAINS
 RUN npm run build
 
-FROM caddy:2.11.7-alpine AS production
+FROM docker.io/library/caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS production
 LABEL io.eldhall.project.license="Apache-2.0" \
       io.eldhall.project.license-scope="Project-authored software; see /srv/licenses/LICENSING.md for third-party terms"
 RUN setcap -r /usr/bin/caddy

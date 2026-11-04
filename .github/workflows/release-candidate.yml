@@ -23,7 +23,7 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       ELDHALL_VERSION: 0.1.0-rc.1
       ELDHALL_SOURCE_REVISION: ${{ github.sha }}
@@ -39,29 +39,69 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
+      - name: Set up pinned ephemeral Docker with containerd image store
+        uses: docker/setup-docker-action@7ec28a010822b4626af4874f9448a4b05ac6f3e5 # v5.6.0
+        with:
+          version: v29.9.3
+          daemon-config: '{"features":{"containerd-snapshotter":true}}'
+      - name: Read reviewed base and tool policy
+        id: policy
+        run: |
+          python3 scripts/base-image-lock.py --root .
+          python3 - <<'PY_POLICY'
+          import json,os,pathlib
+          lock=json.loads(pathlib.Path('deploy/base-images.lock.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              for key in ('buildkit','sbomGenerator'):
+                  output.write(key+'='+lock['tools'][key]+'\n')
+          PY_POLICY
+      - name: Set up pinned Buildx and digest-pinned BuildKit
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.38.2
+          driver: docker-container
+          driver-opts: image=${{ steps.policy.outputs.buildkit }}
       - name: Verify license artifacts and candidate utility tests
         run: |
           npm --prefix apps/frontend ci
           npm --prefix apps/landing ci
           python3 scripts/license-artifacts.py --check
           python3 -m unittest discover -s scripts/tests -p 'test_candidate_evidence.py' -v
+          python3 -m unittest discover -s scripts/tests -p 'test_candidate_oci.py' -v
+          python3 -m unittest discover -s scripts/tests -p 'test_base_image_lock.py' -v
           python3 -m unittest discover -s scripts/tests -p 'test_source_archive.py' -v
       - name: Prepare and verify private exact-commit source archive
         run: |
           test "$(git rev-parse HEAD)" = "$ELDHALL_SOURCE_REVISION"
           python3 scripts/candidate-image-source.py --commit "$ELDHALL_SOURCE_REVISION" --review-directory .omc/artifacts/candidate-source --extract-directory "$RUNNER_TEMP/candidate-source-build" --evidence candidate-evidence/source.json
           echo "CANDIDATE_SOURCE_ROOT=$RUNNER_TEMP/candidate-source-build/eldhall-source-$ELDHALL_SOURCE_REVISION" >> "$GITHUB_ENV"
-      - name: Build native images from the verified archive (no registry publication)
+      - name: Build one attested private OCI graph per native image
+        env:
+          SBOM_GENERATOR: ${{ steps.policy.outputs.sbomGenerator }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/candidate-build" candidate-evidence
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_SERVER_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/server.json" --build-arg ELDHALL_VERSION --build-arg ELDHALL_SOURCE_REVISION "$CANDIDATE_SOURCE_ROOT/apps/api"
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_WEB_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/web.json" --build-arg PUBLIC_APP_URL=http://localhost:18001 --file "$CANDIDATE_SOURCE_ROOT/apps/frontend/Dockerfile" "$CANDIDATE_SOURCE_ROOT"
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_MCP_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/mcp.json" "$CANDIDATE_SOURCE_ROOT/apps/mcp-openapi"
+          output_flags=(--attest type=provenance,mode=min,version=v0.2 --attest "type=sbom,generator=$SBOM_GENERATOR")
+          docker buildx build "${output_flags[@]}" --output "type=oci,dest=$RUNNER_TEMP/candidate-build/server.tar,oci-mediatypes=true,oci-artifact=false,compression=gzip,force-compression=true" --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_SERVER_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/server.json" --build-arg ELDHALL_VERSION --build-arg ELDHALL_SOURCE_REVISION "$CANDIDATE_SOURCE_ROOT/apps/api"
+          docker buildx build "${output_flags[@]}" --output "type=oci,dest=$RUNNER_TEMP/candidate-build/web.tar,oci-mediatypes=true,oci-artifact=false,compression=gzip,force-compression=true" --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_WEB_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/web.json" --build-arg PUBLIC_APP_URL=http://localhost:18001 --file "$CANDIDATE_SOURCE_ROOT/apps/frontend/Dockerfile" "$CANDIDATE_SOURCE_ROOT"
+          docker buildx build "${output_flags[@]}" --output "type=oci,dest=$RUNNER_TEMP/candidate-build/mcp.tar,oci-mediatypes=true,oci-artifact=false,compression=gzip,force-compression=true" --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_MCP_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/mcp.json" "$CANDIDATE_SOURCE_ROOT/apps/mcp-openapi"
+      - name: Verify graph, statements and layer DiffIDs before loading exact OCI bytes
+        run: |
+          set -euo pipefail
+          for role in server web mcp; do
+            python3 scripts/candidate-image-oci.py verify --arch "$CANDIDATE_ARCH" --role "$role" --archive "$RUNNER_TEMP/candidate-build/$role.tar" --metadata "$RUNNER_TEMP/candidate-build/$role.json" --source-receipt candidate-evidence/source.json --lock "$CANDIDATE_SOURCE_ROOT/deploy/base-images.lock.json" --output "candidate-evidence/$role-oci.json"
+          done
+          python3 - <<'PY_RUNTIME'
+          import json,os,pathlib
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              for role,key in [('server','SUPPORT_SERVER_IMAGE'),('web','SUPPORT_WEB_IMAGE'),('mcp','SUPPORT_MCP_IMAGE')]:
+                  receipt=json.loads(pathlib.Path('candidate-evidence/'+role+'-oci.json').read_text())
+                  output.write(key+'='+receipt['runtimeImageId']+'\n')
+          PY_RUNTIME
       - name: Collect bounded native identity and installed license inputs
-        run: python3 scripts/candidate-image-evidence.py --arch "$CANDIDATE_ARCH" --version "$ELDHALL_VERSION" --revision "$ELDHALL_SOURCE_REVISION" --source-root "$CANDIDATE_SOURCE_ROOT" --metadata-dir "$RUNNER_TEMP/candidate-build" --output candidate-evidence
+        run: python3 scripts/candidate-image-evidence.py --arch "$CANDIDATE_ARCH" --version "$ELDHALL_VERSION" --revision "$ELDHALL_SOURCE_REVISION" --source-root "$CANDIDATE_SOURCE_ROOT" --metadata-dir "$RUNNER_TEMP/candidate-build" --oci-dir candidate-evidence --output candidate-evidence
       - name: Offline native image init and replay with private modes
-        run: docker run --rm -i --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777 --entrypoint node "$SUPPORT_SERVER_IMAGE" --input-type=module < scripts/installation-image-smoke.mjs > candidate-evidence/installation-init.json
+        run: python3 scripts/candidate-image-oci.py init --receipt candidate-evidence/server-oci.json --script scripts/installation-image-smoke.mjs --output candidate-evidence/installation-init.json
       - name: Synthetic DSH, MCP, worker and web smoke
         run: bash scripts/candidate-image-smoke.sh
       - name: Retain small sanitized evidence only
@@ -91,5 +131,7 @@ jobs:
 # This workflow builds from a verified exact-commit vetted archive and retains
 # that bounded source artifact privately alongside validation inputs. It does
 # not push/tag public repositories, sign a release, upload images or access
-# publication/deployment credentials. Native evidence is not a legal approval,
-# an SBOM/provenance attestation or a registry pull-only installation claim.
+# publication/deployment credentials. Native evidence is not an
+# independent signature/legal approval or a registry pull-only installation claim.
+# OCI archives (including raw configs and layers) remain in RUNNER_TEMP only.
+# The retained OCI receipts identify unsigned local SBOM/min-provenance statements.

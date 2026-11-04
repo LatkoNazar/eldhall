@@ -1,4 +1,4 @@
-FROM node:24.22.2-bookworm-slim AS dependencies
+FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ FROM dependencies AS build
 COPY . .
 RUN npm run build
 
-FROM node:24.22.2-bookworm-slim AS production
+FROM docker.io/library/node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS production
 ARG ELDHALL_VERSION=""
 ARG ELDHALL_SOURCE_REVISION=""
 LABEL io.eldhall.project.license="Apache-2.0" \
