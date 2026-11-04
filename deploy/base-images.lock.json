@@ -1,0 +1,208 @@
+{
+  "lockFormat": 1,
+  "images": [
+    {
+      "repository": "docker.io/library/node",
+      "tag": "24.22.2-bookworm-slim",
+      "reference": "docker.io/library/node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+        "size": 3929
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:a43f7fc3e52e87d12a905f46eea0275def84ca8f2981a5b53fed44d7fb398ee0",
+          "manifestSize": 1929,
+          "configDigest": "sha256:9564952982df837e05d23c77e319715650fafc77b1abce39a504b920fda46a44"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:e80dee4ed3709cf1f8004e34ecfb90df71b7eac8ba0d7d6222ba238a823d1eea",
+          "manifestSize": 1931,
+          "configDigest": "sha256:e208e9c3f203f3675814b3f60437cf42e72a79e957b5d676bf75e41e2481fb33"
+        }
+      ]
+    },
+    {
+      "repository": "docker.io/library/node",
+      "tag": "24-alpine",
+      "reference": "docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85",
+        "size": 3866
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:4eefa1bfce4197942661ef9148247d779ddf1bb0ee006d3294a467609de60724",
+          "manifestSize": 1720,
+          "configDigest": "sha256:349727db7d6cce07ed6e0e0c273941fbc22f296a7d4079a52bb5127ac8dbd315"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:e643984449ad25c88c0ff45094c74916806c9ee9dd1bc26c3593686ba2b853e4",
+          "manifestSize": 1722,
+          "configDigest": "sha256:9419aebdf4ccbf7bd0096475d0db76ca83f0db496a23592a2bfc3b769894473c"
+        }
+      ]
+    },
+    {
+      "repository": "docker.io/library/caddy",
+      "tag": "2.11.7-alpine",
+      "reference": "docker.io/library/caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5",
+        "size": 8987
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a",
+          "manifestSize": 1917,
+          "configDigest": "sha256:3067cc4e02c091399edbd5d65f85a3ff4d511574aecadb47f280c3761e68852e"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:cc447f149425221422153c6cdf33a123b3f458839679f950298f68a690a54a5b",
+          "manifestSize": 1919,
+          "configDigest": "sha256:c7d68e4fa1bb71ae97c0b7e2c468aa3ccad2ae75d0294697d401e28794a5b5ab"
+        }
+      ]
+    },
+    {
+      "repository": "docker.io/library/python",
+      "tag": "3.12.12-slim-bookworm",
+      "reference": "docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+        "size": 9131
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:2986c55feb36e6cae00fa1fefb454283e4b33f35e75ff8bdd123b134130be301",
+          "manifestSize": 1752,
+          "configDigest": "sha256:9cb180cb36bd45dc786105b834d3cb5f3b1d69a6a63c79ca10fc64f108aa649a"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": "v8",
+          "manifestDigest": "sha256:228390eced221ad2986a3dd77e10b1accca6ba8ceb36f1572de1b346a337cc1a",
+          "manifestSize": 1754,
+          "configDigest": "sha256:2e02f8b636153806132f7afe71eab3eb41611e5464e429cef4f0927d39292e80"
+        }
+      ]
+    },
+    {
+      "repository": "ghcr.io/astral-sh/uv",
+      "tag": "0.11.8",
+      "reference": "ghcr.io/astral-sh/uv:0.11.8@sha256:3b7b60a81d3c57ef471703e5c83fd4aaa33abcd403596fb22ab07db85ae91347",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:3b7b60a81d3c57ef471703e5c83fd4aaa33abcd403596fb22ab07db85ae91347",
+        "size": 2195
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:5cbec7ab7753a6c763c6dda6a38f085c8c585ec9f53cfb4e7368b79ca30bc881",
+          "manifestSize": 669,
+          "configDigest": "sha256:7a4a3d029284ad99e0fa94701092c7bf6f52803fbbd5df5b2d78954bf89527c9"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": null,
+          "manifestDigest": "sha256:472f1708b76a78cca4b6d4d7fe46426fa4b614de8b5f1371e5c0d0cb80ac03c1",
+          "manifestSize": 669,
+          "configDigest": "sha256:d8df4e5f665847dd7e1bf48c82fdba74aa2a3188bd7fbf3d11719c0b7765e87e"
+        }
+      ]
+    },
+    {
+      "repository": "docker.io/docker/buildkit-syft-scanner",
+      "tag": "stable-1",
+      "reference": "docker.io/docker/buildkit-syft-scanner:stable-1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
+        "size": 5445
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:10a413da6b52acacf4af4262eafeae6ca05076fbd65850ad7f233163c6d6a81c",
+          "manifestSize": 481,
+          "configDigest": "sha256:b201789018d13dfcc0d32397d2d263a0b3167213ec0e04dae0db8fe938ed0c60"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": null,
+          "manifestDigest": "sha256:eecdb89c2cd84b80868ea748063edb7225576994dbeac439c6b831092eeb4bff",
+          "manifestSize": 481,
+          "configDigest": "sha256:8fa509660fad01fdebf836ec0fd681a55a0b9d7d21a889d28a37c0f76afe92d9"
+        }
+      ]
+    },
+    {
+      "repository": "docker.io/moby/buildkit",
+      "tag": "buildx-stable-1",
+      "reference": "docker.io/moby/buildkit:buildx-stable-1@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe",
+      "index": {
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": "sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe",
+        "size": 5296
+      },
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "variant": null,
+          "manifestDigest": "sha256:97719ccb2ac86fb44fd36f330a6d302f63dddd5326f3ada24f9c05ccac0d9098",
+          "manifestSize": 2261,
+          "configDigest": "sha256:e0eaf1662033859b0b7c643e456061567d3c4eec7c7ced0e2952c5301b0d2814"
+        },
+        {
+          "platform": "linux/arm64",
+          "variant": null,
+          "manifestDigest": "sha256:92f93f25966c544549b88144406ce8cd9dcdf5df128250711031a4acd9149a8e",
+          "manifestSize": 2261,
+          "configDigest": "sha256:a04cef08d52e5738b74811a4847972a948b6eb9e1dd91f4675e0d5995179f9fe"
+        }
+      ]
+    }
+  ],
+  "dockerfiles": {
+    "apps/api/Dockerfile": [
+      "docker.io/library/node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c"
+    ],
+    "apps/frontend/Dockerfile": [
+      "docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85",
+      "docker.io/library/caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5"
+    ],
+    "apps/landing/Dockerfile": [
+      "docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85",
+      "docker.io/library/caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5"
+    ],
+    "apps/mcp-openapi/Dockerfile": [
+      "docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+      "ghcr.io/astral-sh/uv:0.11.8@sha256:3b7b60a81d3c57ef471703e5c83fd4aaa33abcd403596fb22ab07db85ae91347"
+    ]
+  },
+  "tools": {
+    "sbomGenerator": "docker.io/docker/buildkit-syft-scanner:stable-1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
+    "buildkit": "docker.io/moby/buildkit:buildx-stable-1@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
+  }
+}
