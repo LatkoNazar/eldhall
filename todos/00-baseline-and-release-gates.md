@@ -57,7 +57,7 @@
 
 Production cutover зупинив старий ingress, дочекався нульових SQL/broker work, зупинив старий worker і перевірив відсутність consumers перед backup/migration. [Post-deployment diagnostics 41834098842](https://github.com/LatkoNazar/eldhall/actions/runs/41834098842) підтвердив `current`/`image.ref` для `2ba80ca`, здорові API/worker/frontend/dependencies, нульові pending RabbitMQ messages і consumers; одна стара queue, broker та storage збережені для rollback. Public readiness, `/operator` і `/chat` повернули 200, integration route без авторизації — 401. Це evidence приватного starter deployment, а не clean install із registry або ввімкненого production business connector.
 
-Пізніші docs/TODO-only commits `5ef349c` і `7728f5d` не змінюють runtime. Їхній [main run 41835023200](https://github.com/LatkoNazar/eldhall/actions/runs/41835023200) на момент оновлення ще не має зафіксованого тут завершення; його результат не підміняється попереднім зеленим run.
+Пізніші docs/TODO-only commits `5ef349c` і `7728f5d` не змінюють runtime. Їхній [main run 41835023200](https://github.com/LatkoNazar/eldhall/actions/runs/41835023200) для `7728f5d` завершив `check`, `integration`, `sidecar-compose` і production `deploy` успішно. Це останній підтверджений main rollout; runtime код лишився тим самим, що в `2ba80ca`.
 
 Історичний [run 41247159605](https://github.com/LatkoNazar/eldhall/actions/runs/41247159605) на snapshot 1 листопада мав `check: success`, `deploy: failure` на SSH setup. Пізніші спроби [41822733941](https://github.com/LatkoNazar/eldhall/actions/runs/41822733941) зупинилися на missing deployment configuration; її виправили перед успішним rollout. Ці збої не є поточними blockers.
 

@@ -1,6 +1,6 @@
 # Public distribution contract
 
-Proposed contract, 4 November 2026, for [D01-01/D01-02](../todos/01-dockerhub-and-release-pipeline.md) and [D02-01](../todos/02-installation-and-configuration.md). This defines the interface for subsequent release tooling. A machine schema, validator, image-contained CLI and pull-only bundle are not implemented by this document. No public registry image, signed release or M1/M2 completion is claimed.
+Contract draft, 4 November 2026, for [D01-01/D01-02](../todos/01-dockerhub-and-release-pipeline.md) and [D02-01](../todos/02-installation-and-configuration.md). The [strict Zod schema and semantic validator](../apps/api/src/release/manifest.ts), [JSON parser](../apps/api/src/release/parse.ts) and [generated structural JSON Schema](../schemas/release-manifest.v1.schema.json) implement the metadata format. An image-contained CLI, installation bundle, actual schema epoch mapping and runtime enforcement still require implementation. No public registry image, signed release or M1/M2 completion is claimed.
 
 The owner approved public Docker Hub distribution under `latkonazar` and Apache-2.0 for Eldhall code. Dependency/license inventory, required notices, image metadata and access to the exact release source remain publication gates. Approval of public images does not establish the source repository's public visibility. See [D13](../todos/13-open-source-docs-and-maintenance.md) and [current implementation evidence](STATUS.md).
 
@@ -22,7 +22,7 @@ Current production bases are Debian bookworm/glibc with Node 24 for server, Alpi
 
 The first intended preview is **`0.1.0-rc.1`**, with source tag `v0.1.0-rc.1` and image tag `0.1.0-rc.1`. It is an explicit prerelease, not a supported production/M2 promise. Candidate build identity is `sha-<full-40-character-source-sha>`; a changed build recipe/base/dependency requires a new candidate and release version. Already published version/candidate tags are never overwritten. A rerun may reuse the same verified digest or fail; it may not silently replace it.
 
-This first release publishes no `latest`, minor or stable aliases. Install bundles pin digests. A later alias policy needs a separate change; tags are mutable pointers in the registry even when Eldhall's publication policy forbids overwriting its version tags.
+This first release publishes no `latest`, minor or stable aliases. Release versions omit SemVer build metadata (`+...`) so the exact version remains a valid Docker tag. Install bundles pin digests. A later alias policy needs a separate change; tags are mutable pointers in the registry even when Eldhall's publication policy forbids overwriting its version tags.
 
 Target platforms are `linux/amd64` and `linux/arm64`. **Only ARM64 source-built containers have current runtime evidence** ([main CI](https://github.com/LatkoNazar/eldhall/actions/runs/41832367634)). Neither platform has published-image pull-only evidence yet. AMD64 must pass native runtime smoke before being listed as supported. Emulated/build-only results are labelled as such. The two-platform candidate cannot be declared ready while either platform is missing required evidence; a narrower preview would need an explicit scope decision and matching manifest/docs.
 
@@ -41,14 +41,14 @@ Each image records its top-level index digest separately from platform manifest 
 | `source.archive` | `{url,sha256}` for publicly retrievable exact source; no authenticated/private URL in a public release |
 | `license.spdx`, `license.inventory`, `license.notices` | `Apache-2.0`; inventory and notices artifact references `{path,sha256}`; actual bundled third-party terms retained |
 | `images.server`, `images.web`, `images.mcpOpenapi` | Image records below; all three are present even though web/sidecar are optional at install time |
-| `dependencies.postgres`, `dependencies.redis` | Exact repository/index/platform records for bundled services plus verified server version range; no floating image references |
+| `dependencies.postgres`, `dependencies.redis` | `{repository,indexDigest,version,supportedMajorVersions,platforms}`; approved `docker.io/library/postgres` / `docker.io/library/redis`, exact numeric two/three-part server version, inclusive major-version range and platform/digest entries; no floating image references |
 | `compatibility` | Schema, config, adapter and runtime records below |
 | `artifacts` | Nonempty array of `{path,sha256,kind}`; relative paths only, no `..`, absolute paths, duplicate paths or private credentials; kinds include bundle, docs, OpenAPI, SBOM, notices, provenance and test report |
 | `verification.platforms` | Per-platform records `{platform,execution,sourceCommit,imageDigests,report}`; `execution: native` required for every supported platform; `report` is `{path,sha256}` |
 | `verification.installProfiles` | Per-profile `{id,platform,report}` for headless, UI, OpenAPI sidecar and external PostgreSQL paths, using registry pulls of these digests |
 | `provenance` | `{issuer,workflow,sourceCommit,attestations}`; expected trusted identity plus digest-bound attestation artifact references |
 
-`sha256` artifact fields are lowercase 64-hex strings; image digest fields include `sha256:`. URLs must be public HTTPS without embedded credentials. `createdAt`, tags and filenames are not identity proofs. Source accessibility, digest-bound provenance/signature verification and checksums are separate gates. A checksum downloaded beside a file detects mismatch; it does not authenticate the publisher.
+`sha256` artifact fields are lowercase 64-hex strings; image digest fields include `sha256:`. URLs must be public HTTPS without embedded credentials. Artifact references must match a listed artifact's path/checksum and expected kind; signatures and license inventory are required kinds as well. `createdAt`, tags and filenames are not identity proofs. The pure metadata validator does not fetch URLs, establish public source access, inspect registry index membership, execute smoke reports or verify cryptographic attestations/signatures. Those are separate publication gates. A checksum downloaded beside a file detects mismatch; it does not authenticate the publisher.
 
 An image record has `{repository,tag,indexDigest,roles,platforms}`. Repository is exactly its approved name above; `tag` equals `release.version`; `indexDigest` is `sha256:<64hex>`. Each platform entry has `{platform,manifestDigest,baseImages,sbom,provenance}`. `baseImages` records each runtime base repository/digest, and inventory includes build inputs separately. References to SBOM/provenance identify immutable artifacts bound to this digest. `roles` is `['api','worker','migrate']` for server, `['web']` for UI and `['mcp-server','mcp-import']` for sidecar. Future CLI role is added only after it exists and passes tests.
 
@@ -56,7 +56,7 @@ The bundle uses `repository@indexDigest` for multi-platform pulls. Host-specific
 
 ## Compatibility is executable metadata
 
-Every range is an inclusive `{min,max}` pair of nonnegative integers with `min <= max`; no omitted upper bound or wildcard. Unknown component IDs, unsupported versions and a version outside either bound fail before startup/mutation. Matching release tags are insufficient. The validator/CLI must implement these rules before the public release; current processes do not consume `release.json`.
+Every range is an inclusive `{min,max}` pair of nonnegative integers with `min <= max`; no omitted upper bound or wildcard. Unknown component IDs and malformed ranges fail metadata validation. The pure `checkSchemaCompatibility` helper checks both read/write bounds against observed schema epochs for API, worker or migrate. The future installer must discover/verify actual state and reject incompatibility before startup/mutation. Matching release tags are insufficient; current processes do not consume `release.json`.
 
 | Field inside `compatibility` | Contract |
 | --- | --- |
@@ -97,6 +97,18 @@ Installation metadata is separate from the release manifest and from the starter
 
 Public release publication is independent of the author's SSH deployment. The trusted publication workflow must verify the exact allowed source/tag and required checks, build pinned inputs, emit inventory/SBOM/provenance/signatures, pull by digest into clean native environments, and publish the final manifest/bundle only after every required role/profile/platform passes. Partial uploads remain unaccepted candidates; no transactional multi-repository tag update is assumed.
 
-Before `0.1.0-rc.1` can be called installable: verify public source access and distribution rights/notices; implement machine schemas/validator and image-contained CLI; build the pull-only bundle; obtain native AMD64 and ARM64 registry-image smoke; verify same server digest across roles, optional profiles and external DB; retain install/version/compatibility/provenance evidence. A separate business adapter still requires private mounts, credentials, hash review and activation.
+Before `0.1.0-rc.1` can be called installable: verify public source access and distribution rights/notices; integrate the metadata validator into the image-contained CLI and publication checks; build the pull-only bundle; obtain native AMD64 and ARM64 registry-image smoke; verify same server digest across roles, optional profiles and external DB; retain install/version/compatibility/provenance evidence. A separate business adapter still requires private mounts, credentials, hash review and activation.
 
 M1/M2 checklists in [D00](../todos/00-baseline-and-release-gates.md) remain authoritative and unchecked by this contract. Backup restore on a clean host, upgrade/rollback compatibility, scoped service accounts, semantic/capacity reports and independent walkthroughs remain separate work. No candidate tag, successful author deployment or license selection substitutes for those gates.
+
+## Developer verification
+
+From `apps/api`, regenerate/check the artifact and run the focused metadata tests:
+
+```sh
+node --import tsx scripts/release-schema.ts
+node --import tsx scripts/release-schema.ts --check
+node --import tsx --test tests/release-manifest.test.ts
+```
+
+`releaseManifestSchema.parse(value)` validates an already parsed object; `parseReleaseManifest(text)` also rejects duplicate JSON keys, including escaped equivalent names. `serverRoleImages` derives all three server roles from one index and selected platform digest. The generated Draft 2020-12 artifact describes structure and marks the semantic-validator requirement: custom field refinements (HTTPS without credentials, dot-segment rejection and no `+` in Docker version tags) and cross-field equality, range relationships and evidence-reference checks require the Zod validator too. No published manifest fixture is included; test digests are explicitly synthetic. Generation uses the existing locked Zod dependency and deterministic object-key ordering; the focused test checks the committed artifact for drift.

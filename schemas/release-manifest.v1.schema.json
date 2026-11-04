@@ -1,0 +1,1394 @@
+{
+  "$id": "https://eldhall.com/schemas/release-manifest.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Structural schema. Also run the Eldhall semantic validator for digest, compatibility, source and verification consistency.",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "bundle",
+              "docs",
+              "openapi",
+              "sbom",
+              "notices",
+              "inventory",
+              "provenance",
+              "test-report",
+              "signature"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 300,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "maxItems": 5000,
+      "minItems": 1,
+      "type": "array"
+    },
+    "compatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "additionalProperties": false,
+          "properties": {
+            "openapi": {
+              "additionalProperties": false,
+              "properties": {
+                "contract": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "min": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                },
+                "manifestSchema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "min": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "manifestSchema",
+                "contract"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "openapi"
+          ],
+          "type": "object"
+        },
+        "config": {
+          "additionalProperties": false,
+          "properties": {
+            "infrastructure": {
+              "additionalProperties": false,
+              "properties": {
+                "read": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "min": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                },
+                "write": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "write",
+                "read"
+              ],
+              "type": "object"
+            },
+            "support": {
+              "additionalProperties": false,
+              "properties": {
+                "read": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "min": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "type": "object"
+                },
+                "write": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "write",
+                "read"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infrastructure",
+            "support"
+          ],
+          "type": "object"
+        },
+        "runtime": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "const": "dsh",
+              "type": "string"
+            },
+            "packages": {
+              "additionalProperties": {
+                "maxLength": 128,
+                "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+                "type": "string"
+              },
+              "propertyNames": {
+                "pattern": "^@deepseek-ai\\/dsh(?:-[a-z-]+)?$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "sessionFormat": {
+              "additionalProperties": false,
+              "properties": {
+                "max": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "min": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            "topology": {
+              "const": "single-worker",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "packages",
+            "sessionFormat",
+            "topology"
+          ],
+          "type": "object"
+        },
+        "schemas": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "enum": [
+                  "starter",
+                  "support"
+                ],
+                "type": "string"
+              },
+              "migration": {
+                "additionalProperties": false,
+                "properties": {
+                  "fileSet": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                          "type": "string"
+                        },
+                        "sha256": {
+                          "pattern": "^[a-f0-9]{64}$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "from": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "min": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "type": "object"
+                  },
+                  "target": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "from",
+                  "target",
+                  "fileSet"
+                ],
+                "type": "object"
+              },
+              "roles": {
+                "additionalProperties": false,
+                "properties": {
+                  "api": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "read": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      },
+                      "write": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "read",
+                      "write"
+                    ],
+                    "type": "object"
+                  },
+                  "migrate": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "read": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      },
+                      "write": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "read",
+                      "write"
+                    ],
+                    "type": "object"
+                  },
+                  "worker": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "read": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      },
+                      "write": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "max": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "min": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "read",
+                      "write"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "api",
+                  "worker",
+                  "migrate"
+                ],
+                "type": "object"
+              },
+              "target": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "target",
+              "roles",
+              "migration"
+            ],
+            "type": "object"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "schemas",
+        "config",
+        "adapter",
+        "runtime"
+      ],
+      "type": "object"
+    },
+    "dependencies": {
+      "additionalProperties": false,
+      "properties": {
+        "postgres": {
+          "additionalProperties": false,
+          "properties": {
+            "indexDigest": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "manifestDigest": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "linux/amd64",
+                      "linux/arm64"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "platform",
+                  "manifestDigest"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            "repository": {
+              "const": "docker.io/library/postgres",
+              "type": "string"
+            },
+            "supportedMajorVersions": {
+              "additionalProperties": false,
+              "properties": {
+                "max": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "min": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            "version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:\\.(0|[1-9]\\d*))?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "indexDigest",
+            "version",
+            "supportedMajorVersions",
+            "platforms"
+          ],
+          "type": "object"
+        },
+        "redis": {
+          "additionalProperties": false,
+          "properties": {
+            "indexDigest": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "manifestDigest": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "linux/amd64",
+                      "linux/arm64"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "platform",
+                  "manifestDigest"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            "repository": {
+              "const": "docker.io/library/redis",
+              "type": "string"
+            },
+            "supportedMajorVersions": {
+              "additionalProperties": false,
+              "properties": {
+                "max": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "min": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "min",
+                "max"
+              ],
+              "type": "object"
+            },
+            "version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:\\.(0|[1-9]\\d*))?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "indexDigest",
+            "version",
+            "supportedMajorVersions",
+            "platforms"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "postgres",
+        "redis"
+      ],
+      "type": "object"
+    },
+    "images": {
+      "additionalProperties": false,
+      "properties": {
+        "mcpOpenapi": {
+          "additionalProperties": false,
+          "properties": {
+            "indexDigest": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseImages": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "digest": {
+                          "pattern": "^sha256:[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "repository": {
+                          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "repository",
+                        "digest"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "manifestDigest": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "linux/amd64",
+                      "linux/arm64"
+                    ],
+                    "type": "string"
+                  },
+                  "provenance": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "sbom": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "platform",
+                  "manifestDigest",
+                  "baseImages",
+                  "sbom",
+                  "provenance"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            "repository": {
+              "const": "docker.io/latkonazar/eldhall-mcp-openapi",
+              "type": "string"
+            },
+            "roles": {
+              "items": false,
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "const": "mcp-server",
+                  "type": "string"
+                },
+                {
+                  "const": "mcp-import",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "tag": {
+              "maxLength": 128,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "tag",
+            "indexDigest",
+            "roles",
+            "platforms"
+          ],
+          "type": "object"
+        },
+        "server": {
+          "additionalProperties": false,
+          "properties": {
+            "indexDigest": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseImages": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "digest": {
+                          "pattern": "^sha256:[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "repository": {
+                          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "repository",
+                        "digest"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "manifestDigest": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "linux/amd64",
+                      "linux/arm64"
+                    ],
+                    "type": "string"
+                  },
+                  "provenance": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "sbom": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "platform",
+                  "manifestDigest",
+                  "baseImages",
+                  "sbom",
+                  "provenance"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            "repository": {
+              "const": "docker.io/latkonazar/eldhall-server",
+              "type": "string"
+            },
+            "roles": {
+              "items": false,
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "const": "api",
+                  "type": "string"
+                },
+                {
+                  "const": "worker",
+                  "type": "string"
+                },
+                {
+                  "const": "migrate",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "tag": {
+              "maxLength": 128,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "tag",
+            "indexDigest",
+            "roles",
+            "platforms"
+          ],
+          "type": "object"
+        },
+        "web": {
+          "additionalProperties": false,
+          "properties": {
+            "indexDigest": {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseImages": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "digest": {
+                          "pattern": "^sha256:[a-f0-9]{64}$",
+                          "type": "string"
+                        },
+                        "repository": {
+                          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "repository",
+                        "digest"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "manifestDigest": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "linux/amd64",
+                      "linux/arm64"
+                    ],
+                    "type": "string"
+                  },
+                  "provenance": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  },
+                  "sbom": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "platform",
+                  "manifestDigest",
+                  "baseImages",
+                  "sbom",
+                  "provenance"
+                ],
+                "type": "object"
+              },
+              "maxItems": 2,
+              "minItems": 1,
+              "type": "array"
+            },
+            "repository": {
+              "const": "docker.io/latkonazar/eldhall-web",
+              "type": "string"
+            },
+            "roles": {
+              "items": false,
+              "maxItems": 1,
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": "web",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "tag": {
+              "maxLength": 128,
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository",
+            "tag",
+            "indexDigest",
+            "roles",
+            "platforms"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "server",
+        "web",
+        "mcpOpenapi"
+      ],
+      "type": "object"
+    },
+    "license": {
+      "additionalProperties": false,
+      "properties": {
+        "inventory": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "maxLength": 300,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "notices": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "maxLength": 300,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+              "type": "string"
+            },
+            "sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "spdx": {
+          "const": "Apache-2.0",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spdx",
+        "inventory",
+        "notices"
+      ],
+      "type": "object"
+    },
+    "manifestVersion": {
+      "const": 1,
+      "type": "number"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "attestations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "maxLength": 300,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                "type": "string"
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "issuer": {
+          "format": "uri",
+          "type": "string"
+        },
+        "sourceCommit": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "workflow": {
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer",
+        "workflow",
+        "sourceCommit",
+        "attestations"
+      ],
+      "type": "object"
+    },
+    "release": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "prerelease",
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "channel",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "archive": {
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "url": {
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "sha256"
+          ],
+          "type": "object"
+        },
+        "commit": {
+          "pattern": "^[a-f0-9]{40}$",
+          "type": "string"
+        },
+        "repository": {
+          "const": "https://github.com/LatkoNazar/eldhall",
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "commit",
+        "tag",
+        "archive"
+      ],
+      "type": "object"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "properties": {
+        "installProfiles": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "enum": [
+                  "headless",
+                  "ui",
+                  "openapi-sidecar",
+                  "external-postgres"
+                ],
+                "type": "string"
+              },
+              "platform": {
+                "enum": [
+                  "linux/amd64",
+                  "linux/arm64"
+                ],
+                "type": "string"
+              },
+              "report": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "id",
+              "platform",
+              "report"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "platforms": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "execution": {
+                "const": "native",
+                "type": "string"
+              },
+              "imageDigests": {
+                "additionalProperties": false,
+                "properties": {
+                  "mcpOpenapi": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "server": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "web": {
+                    "pattern": "^sha256:[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "server",
+                  "web",
+                  "mcpOpenapi"
+                ],
+                "type": "object"
+              },
+              "platform": {
+                "enum": [
+                  "linux/amd64",
+                  "linux/arm64"
+                ],
+                "type": "string"
+              },
+              "report": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              },
+              "sourceCommit": {
+                "pattern": "^[a-f0-9]{40}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "execution",
+              "sourceCommit",
+              "imageDigests",
+              "report"
+            ],
+            "type": "object"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "platforms",
+        "installProfiles"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "manifestVersion",
+    "release",
+    "source",
+    "license",
+    "images",
+    "dependencies",
+    "compatibility",
+    "artifacts",
+    "verification",
+    "provenance"
+  ],
+  "title": "Eldhall release manifest v1",
+  "type": "object",
+  "x-eldhall-semantic-validator": "apps/api/src/release/manifest.ts#releaseManifestSchema"
+}
