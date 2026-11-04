@@ -262,9 +262,14 @@ def material_matches(uri, identity, base, arch):
         return False
     package, separator, query = uri[11:].partition("?")
     repository, separator2, version = package.rpartition("@")
-    if not separator or not separator2:
+    if not separator:
         return False
-    repository, version = unquote(repository), unquote(version)
+    if not separator2:
+        # BuildKit RefToPURL emits canonical digest-only references without an
+        # @version. They still require an explicit reviewed digest qualifier.
+        repository, version = package, None
+    repository = unquote(repository)
+    version = unquote(version) if version is not None else None
     if "/" not in repository:
         repository = "docker.io/library/" + repository
     elif "." not in repository.split("/")[0] and ":" not in repository.split("/")[0]:
@@ -273,7 +278,8 @@ def material_matches(uri, identity, base, arch):
     platforms = [p for p in base["platforms"] if p["platform"] == "linux/" + arch]
     allowed = {base["index"]["digest"], *(p["manifestDigest"] for p in platforms)}
     platform_names = {"linux/" + arch, *(p["platform"] + "/" + p["variant"] for p in platforms if p.get("variant"))}
-    return (repository == base["repository"] and version in {base["tag"], *allowed} and identity in allowed
+    version_matches = version in {base["tag"], *allowed} if version is not None else fields.get("digest") == [identity]
+    return (repository == base["repository"] and version_matches and identity in allowed
             and set(fields).issubset({"platform", "digest"}) and len(fields.get("platform", [])) == 1
             and fields["platform"][0] in platform_names
             and ("digest" not in fields or fields["digest"] == [identity]))

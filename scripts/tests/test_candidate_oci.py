@@ -127,6 +127,26 @@ class CandidateOciTests(unittest.TestCase):
         for uri in ["pkg:docker/library/node@fixture?platform=linux%2Famd64", "pkg:docker/docker.io/library/node@fixture?platform=linux%2Famd64", "pkg:docker/node@sha256%3A" + "b" * 64 + "?platform=linux%2Famd64"]:
             self.verify(self.fixture(material_uri=uri))
 
+    def test_pinned_buildkit_digest_only_purl_has_no_version_but_keeps_reviewed_identity(self):
+        # Exact RefToPURL shape in the pinned builder's util/purl/image_test.go:
+        # canonical `name@digest` -> `pkg:docker/name?digest=...&platform=...`.
+        approved = "sha256:" + "b" * 64
+        valid = "pkg:docker/node?digest=" + approved + "&platform=linux%2Famd64"
+        self.verify(self.fixture(material_uri=valid))
+        for uri in [
+            "pkg:docker/node?platform=linux%2Famd64",
+            "pkg:docker/node@?digest=" + approved + "&platform=linux%2Famd64",
+            valid.replace("node?", "attacker?"),
+            valid.replace(approved, "sha256:" + "f" * 64),
+            valid.replace("amd64", "arm64"),
+            valid + "&digest=" + approved,
+            valid + "&platform=linux%2Famd64",
+            valid + "&unknown=value",
+            valid + "&tag=fixture",
+        ]:
+            with self.subTest(uri=uri), self.assertRaises(ValueError):
+                self.verify(self.fixture(material_uri=uri))
+
     def test_semantic_mismatches_fail_closed(self):
         for options in [{"arch": "arm64"}, {"encoding": "artifact"}, {"bad_diff": True}, {"bad_subject": True}, {"missing": oci.SPDX}, {"duplicate": True}, {"material": "sha256:" + "e" * 64}, {"extra_platform": True}]:
             with self.subTest(options=options), self.assertRaises(ValueError):
