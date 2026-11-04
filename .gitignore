@@ -1,6 +1,10 @@
 .env
 .env.*
 !.env.example
+# Private files produced by offline installation preparation, at any depth.
+support.env
+support.json
+installation.json
 .venv/
 __pycache__/
 *.py[cod]

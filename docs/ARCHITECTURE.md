@@ -1,6 +1,6 @@
 # Implemented architecture
 
-Current TypeScript support MVP. See [implementation/start](implementation.md), [API contracts](API_CONTRACTS.md) and [runtime/configuration](integrations-runtime.md). [architecture-review.md](architecture-review.md) is a broader target proposal.
+Current TypeScript support implementation. See [implementation/start](implementation.md), [API contracts](API_CONTRACTS.md), [runtime/configuration](integrations-runtime.md) and [source-preview release limits](RELEASE_STATUS.md).
 
 ```mermaid
 flowchart LR
@@ -86,6 +86,6 @@ The sidecar reports the reviewed upstream target/principal fingerprint and conne
 
 React/Vite supplies the optional operator dashboard, Integrations editor and `/chat`; headless APIs remain primary. Vite/Caddy use same-origin proxies. Independent clients may use explicit CORS origins with GET/POST/PATCH and `X-Customer-Session`; credential cookies are disabled. One operator bearer maps to the bootstrap staff principal; customer sessions are opaque bearers. OAuth, invitations and full RBAC are not implemented.
 
-[Standalone Compose](../deploy/support.compose.yaml) has PostgreSQL, Redis, migration, API and worker plus the optional `ui` profile. [The config overlay](../deploy/support.config.compose.yaml) mounts JSON read-only and optional connector environment. Product/runtime data use persistent volumes; ports bind private loopback. ARM64 CI builds and starts the standalone stack with the MCP overlay and verifies synthetic read, approval, execution and guard scenarios. Production rollout has a separate deployment gate; see [current evidence](STATUS.md). Landing, Umami and starter deployment tooling are preserved separately.
+[Standalone Compose](../deploy/support.compose.yaml) has PostgreSQL, Redis, migration, API and worker plus the optional `ui` profile. [The config overlay](../deploy/support.config.compose.yaml) mounts JSON read-only and optional connector environment. Product/runtime data use persistent volumes; ports bind private loopback. Native AMD64/ARM64 source-build checks exercise the DSH/MCP/worker synthetic flow; standalone Compose verifies review, read, approval, execution and guard scenarios. These are separate from registry install and production rollout; see [release limits](RELEASE_STATUS.md). Landing and analytics are outside the required support stack.
 
-Payments are **simulated**. Real payment adapters, SSO/RBAC and managed multitenancy remain outside this implementation. Legacy MCP connections are read-only; reviewed OpenAPI catalogs have a separate controlled external-action path. The owner selected Apache-2.0; distribution licensing and attribution checks are tracked with the release work. Current verification and release checks are in [STATUS.md](STATUS.md).
+Payments are **simulated**. Real payment adapters, SSO/RBAC and managed multitenancy remain outside this implementation. Legacy MCP connections are read-only; reviewed OpenAPI catalogs have a separate controlled external-action path. Project-authored software uses Apache-2.0; [third-party distribution obligations](LICENSING.md) and [release gates](RELEASE_STATUS.md) remain separate.
