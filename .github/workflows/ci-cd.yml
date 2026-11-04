@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Run normal CI/deploy or inspect the existing deployment without changes
+        description: Run normal CI/deploy, read diagnostics, or initialize missing deployment configuration
         type: choice
         required: false
         default: normal
         options:
           - normal
           - diagnose-deploy
+          - initialize-deploy-config
 
 permissions:
   contents: read
@@ -24,7 +25,7 @@ concurrency:
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch' || inputs.operation != 'diagnose-deploy'
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'normal'
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 20
     env:
@@ -129,7 +130,7 @@ jobs:
           fi
 
   integration:
-    if: github.event_name != 'workflow_dispatch' || inputs.operation != 'diagnose-deploy'
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'normal'
     # Real PostgreSQL (with pgvector) and the cross-language OpenAPI → MCP path: the unit job above
     # runs the support store in memory, so storage claims, recovery and the sidecar are verified here.
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
@@ -184,7 +185,7 @@ jobs:
         run: npm run test:mcp-openapi
 
   sidecar-compose:
-    if: github.event_name != 'workflow_dispatch' || inputs.operation != 'diagnose-deploy'
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'normal'
     # The self-host support stack with the MCP sidecar overlay, as built images and containers: worker execution,
     # real DSH runtime (scripted model), PostgreSQL, Redis, sidecar and a synthetic Orders upstream.
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
@@ -249,7 +250,7 @@ jobs:
 
   deploy:
     needs: [check, integration, sidecar-compose]
-    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation != 'diagnose-deploy')
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation == 'normal')
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 25
     env:
@@ -403,5 +404,48 @@ jobs:
           target="$DEPLOY_USER@$DEPLOY_HOST"
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$target" "python3 - '$DEPLOY_PATH' '$PROJECT_NAME'" < scripts/deploy-diagnostics.py
       - name: Remove runner diagnostics key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  initialize-deploy-config:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'initialize-deploy-config' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/finalize-openapi-todo')
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Configure verified initialization SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          source scripts/project.sh
+          validate_project_name "$PROJECT_NAME"
+          DEPLOY_PATH=${DEPLOY_PATH:-/opt/apps/$PROJECT_NAME}
+          validate_deploy_root "$DEPLOY_PATH"
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          [[ "$DEPLOY_PORT" =~ ^[0-9]+$ && "$DEPLOY_PORT" -ge 1 && "$DEPLOY_PORT" -le 65535 ]]
+          test -n "$SSH_KEY"
+          test -n "$KNOWN_HOSTS"
+          echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+      - name: Initialize only absent admin and analytics configuration
+        run: |
+          set -euo pipefail
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$target" "python3 - '$DEPLOY_PATH' '$PROJECT_NAME'" < scripts/initialize-deploy-config.py
+      - name: Remove runner initialization key
         if: always()
         run: rm -f ~/.ssh/deploy_key
