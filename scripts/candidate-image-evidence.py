@@ -24,33 +24,61 @@ NODE_INVENTORY = r'''
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-const packages=[], nativeFiles=[], seen=new Set(); let files=0, total=0;
+const packages=[], nativeFiles=[], nativeComponents=[], seen=new Set(); let files=0, total=0, receiptTotal=0;
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const bounded=(value,max=500)=>{if(value===undefined)return null;if(typeof value!=='string'||value.length>max)throw Error('Metadata limit');return value;};
-async function walk(directory,licenses){
+const selected=name=>name==='sharp'||name==='@deepseek-ai/libreoffice-kit'||name==='@deepseek-ai/libreoffice-kit-wasm'||/^@img\/sharp-(?:libvips-)?linux(?:musl)?-(?:x64|arm64)$/.test(name??'');
+const metadataNames=new Set(['package.json','readme','readme.md','versions.json','versions.properties','build-info.json','build-metadata.json','source-info.json','source-metadata.json']);
+async function walk(directory,licenses,owner,component){
   for(const item of await fs.readdir(directory,{withFileTypes:true})){
     if(++files>100000)throw Error('File count limit');
     if(item.name==='node_modules'||item.isSymbolicLink())continue;
     const file=path.join(directory,item.name);
-    if(item.isDirectory()){await walk(file,licenses);continue;}
+    if(item.isDirectory()){await walk(file,licenses,owner,component);continue;}
     if(!item.isFile())continue;
     const handle=await fs.open(file,'r');const header=Buffer.alloc(4);await handle.read(header,0,4,0);await handle.close();
-    const native=header.equals(Buffer.from([127,69,76,70]));
-    const license=/^(licen[sc]e|copying|notice|copyright)([._-]|$)/i.test(item.name)||file.split(path.sep).some(part=>/^licen[sc]es?$/i.test(part));
-    if(!native&&!license)continue;
+    const format=header.equals(Buffer.from([127,69,76,70]))?'elf':header.equals(Buffer.from([0,97,115,109]))?'wasm':null;
+    const relative=path.relative(owner.path,file).split(path.sep).join('/');
+    const readmeNotice=component&&owner.name.startsWith('@img/sharp-libvips-')&&/^readme(?:\.md)?$/i.test(relative);
+    const license=/^(licen[sc]e|copying|notice|copyright)([._-]|$)/i.test(item.name)||/^third[-_]party[-_]notices(?:[._-]|$)/i.test(item.name)||file.split(path.sep).some(part=>/^licen[sc]es?$/i.test(part))||readmeNotice;
+    const sourceMetadata=component&&!relative.includes('/')&&metadataNames.has(relative.toLowerCase());
+    if(!format&&!license&&!sourceMetadata)continue;
     const stat=await fs.stat(file);total+=stat.size;
     if(stat.size>250000000||total>1000000000)throw Error('Input byte limit');
-    const entry={path:file,sha256:hash(await fs.readFile(file)),size:stat.size};
-    (native?nativeFiles:licenses).push(entry);
+    if(component&&(license||sourceMetadata)&&stat.size>1000000)throw Error('Native receipt byte/count limit');
+    const bytes=await fs.readFile(file),entry={path:file,sha256:hash(bytes),size:stat.size};
+    if(format){
+      const binary={...entry,format,package:{...owner}};nativeFiles.push(binary);
+      if(component)component.binaries.push(binary);
+    }
+    if(license)licenses.push(entry);
+    if(component&&(license||sourceMetadata)){
+      receiptTotal+=bytes.length;component.receiptBytes+=bytes.length;
+      if(bytes.length>1000000||component.receiptBytes>2000000||receiptTotal>6000000||component.receipts.length>=100)throw Error('Native receipt byte/count limit');
+      const text=bytes.toString('utf8');
+      if(!Buffer.from(text,'utf8').equals(bytes))throw Error('Native receipt is not lossless UTF8');
+      component.receipts.push({...entry,relativePath:relative,kind:license?'notice':'build-source-metadata',encoding:'utf-8',text,origin:'installed-package-file',package:{...owner}});
+    }
   }
 }
 async function packageAt(directory){
   if(seen.has(directory))return;seen.add(directory);
   const file=path.join(directory,'package.json');
-  let bytes;try{bytes=await fs.readFile(file);}catch(error){if(error.code==='ENOENT')return;throw error;}
+  let bytes;try{const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink())throw Error('Package manifest is not a regular file');bytes=await fs.readFile(file);}catch(error){if(error.code==='ENOENT')return;throw error;}
   if(bytes.length>1000000||packages.length>=3000)throw Error('Package limit');
-  const value=JSON.parse(bytes),licenses=[];await walk(directory,licenses);
-  packages.push({path:directory,name:bounded(value.name),version:bounded(value.version),license:bounded(typeof value.license==='object'?value.license?.type:value.license),manifestSha256:hash(bytes),licenseFiles:licenses.sort((a,b)=>a.path.localeCompare(b.path))});
+  const value=JSON.parse(bytes),licenses=[];
+  const owner={path:directory,name:bounded(value.name),version:bounded(value.version),manifestSha256:hash(bytes)};
+  const component=selected(owner.name)?{package:owner,binaries:[],receipts:[],receiptBytes:0,sourceAvailability:'not_verified'}:null;
+  if(component&&nativeComponents.length>=30)throw Error('Native component limit');
+  await walk(directory,licenses,owner,component);
+  packages.push({...owner,license:bounded(typeof value.license==='object'?value.license?.type:value.license),licenseFiles:licenses.sort((a,b)=>a.path.localeCompare(b.path))});
+  if(component){
+    component.receipts.sort((a,b)=>a.path.localeCompare(b.path));
+    component.binaries.sort((a,b)=>a.path.localeCompare(b.path));
+    component.missingKinds=['notice','build-source-metadata'].filter(kind=>!component.receipts.some(receipt=>receipt.kind===kind));
+    if(!component.binaries.length)component.missingKinds.push('binary-fingerprint');
+    nativeComponents.push(component);
+  }
   await modulesAt(path.join(directory,'node_modules'));
 }
 async function modulesAt(directory){
@@ -66,7 +94,7 @@ async function modulesAt(directory){
 const roots=process.argv[2]===undefined?['/app/node_modules','/usr/local/lib/node_modules']:JSON.parse(process.argv[2]);
 if(!Array.isArray(roots)||!roots.length||roots.length>2||roots.some(root=>typeof root!=='string'||!path.isAbsolute(root)))throw Error('Invalid inventory roots');
 for(const root of roots)await modulesAt(root);
-const output=JSON.stringify({schemaVersion:1,kind:'installed-npm-inputs',architecture:process.arch,runtimeVersions:process.versions,packages:packages.sort((a,b)=>a.path.localeCompare(b.path)),nativeFiles:nativeFiles.sort((a,b)=>a.path.localeCompare(b.path))});
+const output=JSON.stringify({schemaVersion:1,kind:'installed-npm-inputs',architecture:process.arch,runtimeVersions:process.versions,packages:packages.sort((a,b)=>a.path.localeCompare(b.path)),nativeFiles:nativeFiles.sort((a,b)=>a.path.localeCompare(b.path)),nativeComponents:nativeComponents.sort((a,b)=>a.package.path.localeCompare(b.package.path))});
 if(Buffer.byteLength(output)>8000000)throw Error('Output limit');console.log(output);
 '''
 
@@ -143,7 +171,7 @@ def build_materials(metadata: dict) -> dict:
         materials.append({"uri": uri, "digest": "sha256:" + digest})
     if not materials:
         raise ValueError("Resolved base image materials are unavailable")
-    return {"configDigest": config, "localManifestDigest": manifest, "buildMaterials": materials}
+    return {"configDigest": config, "buildxOutputDigest": manifest, "buildxOutputDigestKind": "unverified-local-exporter-digest", "buildMaterials": materials}
 
 
 def os_inventory(text: str) -> dict:
@@ -178,6 +206,34 @@ def write_json(output: pathlib.Path, name: str, value: object) -> None:
     (output / name).write_text(text, encoding="utf-8")
 
 
+def native_review_inputs(components: list[dict], image: dict, revision: str, build_source: dict) -> dict:
+    """Bind observed files to the immutable image, without approving their terms/source."""
+    if image.get("imageId") != image.get("configDigest") or not HASH.fullmatch(image.get("imageId", "")) or image.get("architecture") not in ("amd64", "arm64"):
+        raise ValueError("Native receipt image binding is invalid")
+    if len(components) > 30:
+        raise ValueError("Native component count exceeds bound")
+    text_bytes = 0
+    for component in components:
+        owner = component["package"]
+        if not isinstance(owner.get("name"), str) or not isinstance(owner.get("version"), str) or not re.fullmatch(r"[a-f0-9]{64}", owner.get("manifestSha256", "")) or component.get("sourceAvailability") != "not_verified":
+            raise ValueError("Native package identity is incomplete")
+        component_bytes = 0
+        for binary in component["binaries"]:
+            if binary.get("package") != owner or binary.get("format") not in ("elf", "wasm"):
+                raise ValueError("Native binary package binding is invalid")
+        for receipt in component["receipts"]:
+            raw = receipt["text"].encode("utf-8")
+            if receipt.get("package") != owner or receipt.get("encoding") != "utf-8" or receipt.get("origin") != "installed-package-file" or len(raw) != receipt["size"] or hashlib.sha256(raw).hexdigest() != receipt["sha256"]:
+                raise ValueError("Installed notice/source receipt is not byte-exact")
+            component_bytes += len(raw)
+            if len(raw) > 1_000_000:
+                raise ValueError("Native receipt exceeds byte bound")
+        text_bytes += component_bytes
+        if component_bytes > 2_000_000 or text_bytes > 6_000_000:
+            raise ValueError("Native receipts exceed aggregate byte bound")
+    return {"format": "eldhall-native-review-inputs-v1", "image": {key: image[key] for key in ("imageId", "configDigest", "architecture", "buildxOutputDigest", "buildxOutputDigestKind", "buildMaterials")}, "sourceRevision": revision, "buildSource": build_source, "components": components, "receiptBytes": text_bytes, "sourceAvailability": "not_verified", "scope": "Observed installed native files/notices/declared build metadata; not an SBOM, corresponding-source verification or legal approval"}
+
+
 def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, output: pathlib.Path, source_root: pathlib.Path | None = None) -> None:
     native = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
     if native.get(platform.machine()) != arch or native.get(command(["docker", "info", "--format", "{{.Architecture}}"]).strip()) != arch:
@@ -198,35 +254,37 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
         source_legal = source_root / ("apps/frontend/public/licenses" if name == "web" else f"apps/{'api' if name == 'server' else 'mcp-openapi'}/licenses")
         if name == "web":
             legal_names.append("BROWSER_NOTICES.txt")
-        legal = container(image, "/bin/sh", ["-ec", 'test "$(id -u)" -ne 0; sha256sum ' + " ".join(f"{legal_dir}/{file}" for file in legal_names)])
+        immutable_image = inspection["Id"]
+        legal = container(immutable_image, "/bin/sh", ["-ec", 'test "$(id -u)" -ne 0; sha256sum ' + " ".join(f"{legal_dir}/{file}" for file in legal_names)])
         hashes = [line.split()[0] for line in legal.splitlines()]
         expected = [hashlib.sha256((source_legal / file).read_bytes()).hexdigest() for file in legal_names]
         if hashes != expected:
             raise ValueError("Image project license/notice differs from canonical files")
-        os_record = os_inventory(container(image, "/bin/sh", ["-s"], source=OS_INVENTORY))
-        os_record["licenseFileHashes"] = container(image, "/bin/sh", ["-s"], source=OS_LICENSES).splitlines()
+        os_record = os_inventory(container(immutable_image, "/bin/sh", ["-s"], source=OS_INVENTORY))
+        os_record["licenseFileHashes"] = container(immutable_image, "/bin/sh", ["-s"], source=OS_LICENSES).splitlines()
         write_json(output, f"{name}-os-inputs.json", os_record)
         records[name] = {"image": image, "imageId": inspection["Id"], "architecture": arch, "user": expected_user, "projectNoticesMatch": True, **material}
-    node = json.loads(container(IMAGES["server"], "node", ["--input-type=module", "-"], source=NODE_INVENTORY))
+    node = json.loads(container(records["server"]["imageId"], "node", ["--input-type=module", "-"], source=NODE_INVENTORY))
     if node.get("architecture") != {"amd64": "x64", "arm64": "arm64"}[arch]:
         raise ValueError("Node runtime architecture does not match the matrix")
+    components = node.pop("nativeComponents")
     write_json(output, "server-npm-inputs.json", node)
-    python = json.loads(container(IMAGES["mcp"], "python", ["-"], source=PYTHON_INVENTORY))
+    python = json.loads(container(records["mcp"]["imageId"], "python", ["-"], source=PYTHON_INVENTORY))
     if native.get(python.get("architecture")) != arch:
         raise ValueError("Python runtime architecture does not match the matrix")
     write_json(output, "mcp-python-inputs.json", python)
-    caddy = container(IMAGES["web"], "caddy", ["build-info"]).splitlines()
+    caddy = container(records["web"]["imageId"], "caddy", ["build-info"]).splitlines()
     if not caddy or len(caddy) > 2000:
         raise ValueError("Web native build inventory is unavailable")
     write_json(output, "web-caddy-build-inputs.json", {"schemaVersion": 1, "kind": "native-binary-declared-modules", "lines": caddy})
-    help_output = container(IMAGES["server"], "eldhall", ["help"])
+    help_output = container(records["server"]["imageId"], "eldhall", ["help"])
     if "version" not in help_output or "config validate" not in help_output or len(help_output) > 20_000:
         raise ValueError("Image CLI help is incomplete")
-    cli = json.loads(container(IMAGES["server"], "eldhall", ["version"]))
+    cli = json.loads(container(records["server"]["imageId"], "eldhall", ["version"]))
     if cli.get("name") != "eldhall" or cli.get("version") != version or cli.get("sourceRevision") != revision or cli.get("buildMetadata") != "recorded":
         raise ValueError("Image CLI does not report its baked build identity")
     # Deliberately conflicting runtime values must not rewrite baked version information.
-    injected = json.loads(command(["docker", "run", "--rm", "--network", "none", "--read-only", "-e", "ELDHALL_VERSION=9.9.9", "-e", "ELDHALL_SOURCE_REVISION=" + "f" * 40, IMAGES["server"], "eldhall", "version"]))
+    injected = json.loads(command(["docker", "run", "--rm", "--network", "none", "--read-only", "-e", "ELDHALL_VERSION=9.9.9", "-e", "ELDHALL_SOURCE_REVISION=" + "f" * 40, records["server"]["imageId"], "eldhall", "version"]))
     if injected != cli:
         raise ValueError("Runtime environment replaced baked image identity")
     inputs = ("LICENSE", "NOTICE", "apps/api/package-lock.json", "apps/mcp-openapi/uv.lock", "apps/frontend/package-lock.json", "apps/api/Dockerfile", "apps/frontend/Dockerfile", "apps/mcp-openapi/Dockerfile")
@@ -238,6 +296,7 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
         build_source = {"kind": "verified-vetted-commit-archive", "commit": revision, "tree": source_identity["tree"], "fileManifestSha256": hashlib.sha256(source_manifest.read_bytes()).hexdigest()}
     else:
         raise ValueError("Native images require the verified archive source manifest")
+    write_json(output, "server-native-review-inputs.json", native_review_inputs(components, records["server"], revision, build_source))
     write_json(output, "identity.json", {"schemaVersion": 1, "mode": "native-archive-source-build-not-published", "buildSource": build_source, "sourceRevision": revision, "candidateVersion": version, "cli": cli, "images": records, "sourceReceiptInputs": [{"path": file, "sha256": hashlib.sha256((source_root / file).read_bytes()).hexdigest()} for file in inputs], "limitations": ["No registry push/pull or release publication", "No signed attestation/SBOM or legal/source-access approval", "Base materials and installed inventories are review inputs only", "Web/sidecar source identity comes from archive build inputs; they do not self-report release metadata"]})
 
 
