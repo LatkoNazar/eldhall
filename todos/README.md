@@ -1,10 +1,10 @@
 # Eldhall — план розвитку після головного TODO
 
-Ця папка містить задачі, які виконуються **після завершення основного OpenAPI/MCP/permissions плану**. Вхідна точка попереднього етапу: [TODO.md на зафіксованому commit](https://github.com/LatkoNazar/eldhall/blob/858985f38b82e4e26dafb563e4e794ff01cc9196/TODO.md). Посилання лишиться доступним після видалення кореневого TODO.
+Ця папка містить наступні задачі **після завершеного основного OpenAPI/MCP/permissions плану**. Його історія: [TODO.md на зафіксованому commit](https://github.com/LatkoNazar/eldhall/blob/858985f38b82e4e26dafb563e4e794ff01cc9196/TODO.md), [PR #9](https://github.com/LatkoNazar/eldhall/pull/9), [PR #10](https://github.com/LatkoNazar/eldhall/pull/10), [постійний status/evidence](../docs/STATUS.md). Кореневий TODO видалено в [`7728f5d`](https://github.com/LatkoNazar/eldhall/commit/7728f5d7371e9cbaacb7d77fe3dab9923c52d995).
 
-**Підготовлено:** 2026-11-01.  
-**Baseline коду:** `858985f38b82e4e26dafb563e4e794ff01cc9196`.  
-**Статус усіх нових задач:** заплановано. Ці документи не означають, що Docker Hub images, SDK або нові API вже опубліковані.
+**Підготовлено:** 2026-11-01; **оновлено:** 2026-11-04.
+**Поточний baseline:** `7728f5d7371e9cbaacb7d77fe3dab9923c52d995`; runtime source — `2ba80ca`. Історичні task files зберігають початкову дату; актуальні відмінності й докази — у [D00](00-baseline-and-release-gates.md).
+**Статус:** передумова основного TODO виконана; перша хвиля D01/D02/D13 розпочата. Docker Hub publication, clean pull-only install, M1/M2 і SDK ще не підтверджені.
 
 ## Мета
 
@@ -14,7 +14,7 @@
 
 ## Як працювати з цим планом
 
-1. Завершити головний TODO та перенести його постійні контракти у docs.
+1. Передумову головного TODO завершено; використовувати його [постійні guides](../docs/OPENAPI_QUICKSTART.md) та [API contracts](../docs/API_CONTRACTS.md).
 2. Прочитати [D00: baseline і release gates](00-baseline-and-release-gates.md).
 3. Для вибраного напряму перевірити актуальний main: частину прогалин може вже закрити попередня реалізація.
 4. Брати конкретний task ID, наприклад `D01-02`, у невелику реалізаційну задачу/PR.
@@ -23,6 +23,17 @@
 7. Завершені плани переносити у history або позначати виконаними після перенесення permanent docs; автоматично видаляти всю папку не потрібно.
 
 Номери файлів — тематичні ідентифікатори, а не сувора черга. Dependencies часто означають узгоджений контракт іншої задачі, а не необхідність завершити весь сусідній документ. Наприклад, image roles D01 і install bundle D02 проектуються разом.
+
+## Поточний облік — 4 листопада
+
+| Slice | Стан і доказ | Що залишається |
+| --- | --- | --- |
+| Попередній OpenAPI/MCP/permissions етап | Завершено; [main CI/deploy 41832367634](https://github.com/LatkoNazar/eldhall/actions/runs/41832367634), [post-deployment diagnostics](https://github.com/LatkoNazar/eldhall/actions/runs/41834098842) | Бізнесові connector mounts/review/activation лишаються явним deployment кроком |
+| D00 refresh | Поточну базу відокремлено від immutable 1 November snapshot у [D00](00-baseline-and-release-gates.md) | Release gates виконуються окремо для кожного candidate |
+| D01-01 / D01-02 / D02-01 contract | [Proposed distribution contract](../docs/distribution-contract.md): public namespace, image roles, prerelease, metadata та installation identity | Review, machine schema/validator, CLI, pull-only bundle і published-image evidence; ці task IDs ще не закриті |
+| D13-02 owner decision | Owner обрав Apache-2.0 і public Docker Hub images під `latkonazar` | License/attribution inventory, metadata та public source-access evidence перед publication |
+
+Жоден M1/M2 checkbox не позначено на підставі цього документа. Поточний ARM64 source-build/deploy proof не замінює AMD64 native smoke, published-image install або restore report.
 
 ## Карта задач
 
