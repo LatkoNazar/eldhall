@@ -34,6 +34,7 @@ class ReleaseIsolationTests(unittest.TestCase):
             "LANDING_IMAGE",
             "FAKE_FAIL",
             "FAKE_FAIL_IMAGE",
+            "FAKE_LEGACY_MODE",
         ):
             self.environment.pop(key, None)
         self.environment.update(
@@ -280,6 +281,58 @@ class ReleaseIsolationTests(unittest.TestCase):
             is_historical = call["composition"].endswith(SHA1 + "/compose.yaml")
             self.assertEqual("rabbitmq" in call["args"], is_historical)
         self.assertEqual((root / "current").resolve().name, SHA1)
+
+    def test_legacy_cutover_drains_before_backup_and_migration_under_same_project(self):
+        root = self.project("alpha")
+        self.make_legacy(root / "releases" / SHA1)
+        self.deploy(root, SHA1, "alpha")
+        self.log.write_text("")
+        result = self.run_script("deploy.sh", root, SHA2, "alpha", overrides={"FAKE_LEGACY_MODE": "busy_then_empty"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        api_stop = next(i for i, call in enumerate(calls) if "stop" in call["args"] and call["args"][-1] == "api")
+        worker_stop = next(i for i, call in enumerate(calls) if "stop" in call["args"] and call["args"][-1] == "worker")
+        backup = next(i for i, call in enumerate(calls) if "pg_dump" in " ".join(call["args"]))
+        migration = next(i for i, call in enumerate(calls) if "run" in call["args"] and "migrate" in call["args"])
+        self.assertLess(api_stop, worker_stop)
+        self.assertLess(worker_stop, backup)
+        self.assertLess(backup, migration)
+        self.assertGreaterEqual(sum(call["args"][:2] == ["exec", "b" * 64] for call in calls[api_stop + 1:worker_stop]), 2)
+        self.assertTrue(any(call["args"][:2] == ["exec", "a" * 64] for call in calls[worker_stop + 1:backup]))
+        for index in (api_stop, worker_stop):
+            self.assertIn(SHA1, calls[index]["composition"])
+        self.assertTrue(all(call["project"] in (None, "alpha") for call in calls))
+        self.assertFalse(any("--volumes" in call["args"] or "rm" in call["args"] for call in calls))
+        self.assertEqual((root / "current").resolve().name, SHA2)
+
+    def test_legacy_unknown_or_post_stop_work_restores_old_release_without_migrating(self):
+        for mode in ("unknown_after_stop", "pending_after_worker", "consumers_after_worker"):
+            with self.subTest(mode=mode):
+                root = self.project("cutover-" + mode.replace("_", "-"))
+                project = root.name
+                self.make_legacy(root / "releases" / SHA1)
+                self.deploy(root, SHA1, project)
+                self.log.write_text("")
+                result = self.run_script("deploy.sh", root, SHA2, project, overrides={"FAKE_LEGACY_MODE": mode})
+                self.assertNotEqual(result.returncode, 0)
+                calls = self.calls()
+                self.assertTrue(any("stop" in call["args"] and call["args"][-1] == "api" for call in calls))
+                self.assertFalse(any("run" in call["args"] and "migrate" in call["args"] for call in calls))
+                self.assertFalse(any("pg_dump" in " ".join(call["args"]) for call in calls))
+                restored = [call for call in calls if "up" in call["args"] and "api" in call["args"]]
+                self.assertEqual(len(restored), 1)
+                self.assertEqual(restored[0]["image"], f"{project}:{SHA1}")
+                self.assertIn("worker", restored[0]["args"])
+                self.assertIn(SHA1, restored[0]["composition"])
+                self.assertEqual((root / "current").resolve().name, SHA1)
+                self.assertNotIn("private-legacy-error", result.stdout + result.stderr)
+
+    def test_nonlegacy_upgrade_does_not_probe_or_stop_existing_application(self):
+        root = self.project("alpha")
+        self.deploy(root, SHA1, "alpha")
+        self.log.write_text("")
+        self.deploy(root, SHA2, "alpha")
+        self.assertFalse(any(call["args"][0] in ("ps", "inspect", "exec") or "stop" in call["args"] for call in self.calls()))
 
     def test_legacy_upgrade_and_rollback_restores_proxy_then_removes_only_frontend(self):
         root = self.project("alpha")
