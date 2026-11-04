@@ -2,7 +2,7 @@
 
 API-агент підтримки на TypeScript/Node.js: DeepSeek Harness виконує model/tool loop, а backend перевіряє дані, політики, approval та виконання. PostgreSQL зберігає звернення, повідомлення, дії й аудит; Redis/BullMQ доставляє фонові запуски. Dashboard і клієнтський `/chat` — опційні web-клієнти, API працює без них.
 
-**MVP:** подвійне списання → перевірена пропозиція → окремі **Approve** та **Execute**. Повторне виконання блокується; невизначений результат потребує звірки. Оператор може перебрати діалог, відповісти й явно повернути його боту. Є versioned KB, prose-skills, settings та налаштовані read-only MCP tools.
+**MVP:** подвійне списання → перевірена пропозиція → окремі **Approve** та **Execute**. Повторне виконання блокується; невизначений результат потребує звірки. Оператор може перебрати діалог, відповісти й явно повернути його боту. Є versioned KB, prose-skills, settings, налаштовані read-only MCP tools та окремий контрольований шлях для reviewed OpenAPI-операцій.
 
 **Класифікація:** бізнес задає власні класи, наприклад `1`–`5` та `other`, у [JSON-конфігурації](examples/support.config.json). Визначення й результати мають версії; низька оцінка переводить тікет на перевірку. DSH/Gemini веде діалог та інструменти, а [OpenRouter Decisions](docs/openrouter.md) з `openai/gpt-6-luna-decisions` окремо оцінює категорію. Оцінка не надає прав виконувати дії.
 
@@ -10,7 +10,7 @@ API-агент підтримки на TypeScript/Node.js: DeepSeek Harness ви
 
 **Зовнішні дані:** [підключення до централізованої Qdrant](docs/EXTERNAL_DATA.md) через конфігурацію без імпорту корпусу; зовнішня PostgreSQL через `DATABASE_URL`; інші бізнесові БД через налаштовані MCP-конектори. Qdrant працює лише на читання з явною embedding-моделлю, колекцією та фільтрами доступу.
 
-**Власний API бізнесу:** [OpenAPI → MCP](docs/integrations-manifest.md) перетворює локальну специфікацію на версійований каталог. TypeScript backend керує reviewed activation, режимами `auto / ask / deny`, погодженнями й журналом виконання; Python sidecar викликає upstream API. Нові операції початково вимкнені. Для `ask` кнопки **Approve** та **Execute** залишаються окремими. Приклад Orders використовує тільки синтетичні дані.
+**Власний API бізнесу:** [OpenAPI → MCP](docs/integrations-manifest.md) перетворює локальну специфікацію на версійований каталог. TypeScript backend керує reviewed activation, режимами `auto / ask / deny`, погодженнями й журналом виконання; Python sidecar викликає upstream API. Нові операції початково вимкнені. Для `ask` читання чи запису backend зберігає пропозицію, завершує поточний model turn і повертає повідомлення про очікування; кнопки **Approve** та **Execute** залишаються окремими. Приклад Orders використовує тільки синтетичні дані. Перевірений commit і стан релізу наведені в [STATUS](docs/STATUS.md).
 
 **Межі:** платіжний провайдер симульований (`SIM-RF-*`), реальні гроші не рухаються. Локальний KB використовує гібридний пошук; staff auth — один серверний bearer, без OAuth, запрошень і повного RBAC. Ліцензію ще не обрано. Документи з пропозиціями нижче не є списком реалізованих можливостей.
 
@@ -232,9 +232,9 @@ Production не запускає Vite dev/preview server: образ місти�
 | Secret | `DEPLOY_SSH_KEY` | окремий приватний ключ для Actions |
 | Secret | `DEPLOY_KNOWN_HOSTS` | перевірений SSH host key сервера |
 
-CI запускає Node API/worker lint, typecheck, unit tests і build, тести хостових Python-утиліт, перевірки frontend і landing, тести спільного analytics SDK та release-скриптів. Він збирає три образи, мігрує чисту БД, перевіряє маршрути frontend і виконує задачу через його proxy та справжню чергу. Обидва jobs, перевірка й деплой, використовують `RUNNER_LABEL` та збирають образи нативної архітектури runner: `linux/amd64` або `linux/arm64`. Обери ту саму архітектуру, що на VPS.
+CI запускає Node API/worker lint, typecheck, unit tests і build, тести хостових Python-утиліт, перевірки frontend і landing, тести спільного analytics SDK та release-скриптів. Окремі gates перевіряють конкурентне виконання й recovery у справжній PostgreSQL та standalone Compose із Python MCP sidecar, синтетичним Orders API і локальним scripted model. Starter-перевірка мігрує чисту БД, перевіряє маршрути frontend і виконує задачу через його proxy та справжню чергу. Jobs використовують `RUNNER_LABEL` та збирають образи нативної архітектури runner; поточні runtime gates пройшли на ARM64. Обери ту саму архітектуру, що на VPS. Це не публікація multi-platform образів у Docker Hub.
 
-Деплой запускається лише після успішного CI для `main` та за ввімкненого `DEPLOY_ENABLED`. Перед збиранням релізних образів preflight перевіряє Docker/Compose на сервері, каталог і серверний `.env`, а також збіг архітектур сервера й runner. API, frontend і landing з тегом одного Git SHA передаються через SSH в одному архіві: серверу не потрібні GitHub registry credentials.
+Деплой запускається лише після успішного CI для `main` та за ввімкненого `DEPLOY_ENABLED`. Перед збиранням релізних образів preflight перевіряє Docker/Compose на сервері, каталог і серверний `.env`, а також збіг архітектур сервера й runner. API, frontend, landing та Python MCP sidecar з тегом одного Git SHA передаються через SSH в одному архіві. Release bundle містить `support-images.env`, Compose-рецепти, Orders-приклад та документацію; серверу не потрібні GitHub registry credentials. Успішні gates самі по собі не підтверджують production deploy; актуальний результат наведений у [STATUS](docs/STATUS.md).
 
 Після успішного релізу відкрий тунель із локального комп'ютера й залиш команду працювати:
 

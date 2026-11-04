@@ -15,6 +15,8 @@ Identity comes only from this header (demo personas `demo-olena`, `demo-taras`, 
 
 The customer never receives analysis, proposals or policy internals. Bot-owned conversations allow one bounded run at a time. Worker mode commits the customer message and durable outbox row atomically; it never runs DSH in the API process. Poll the case history for completion. A repeated `clientMessageId` with identical content returns the original run; changed content is rejected. Staff-owned messages are recorded and routed to staff without a model call (`reply:null`). Whitespace-only messages are rejected before storing. Ownership changes fence tools and final delivery from the old run.
 
+An external operation in `ask` mode saves its pending proposal and ends the bounded model turn, for reads as well as writes. The application supplies the pending reply and blocks subsequent business tools, knowledge searches and builtin actions from that turn. Human approval happens later through the separate operator endpoints; no model or worker lease waits for a person. Native DSH termination uses a trusted application control field outside the business result. An upstream payload containing `status:"awaiting_approval"` cannot create approval state or end a turn.
+
 The worker republishes pending PostgreSQL rows to BullMQ, so a broker outage or lost publish does not discard accepted input. Delivery is at least once; database leases/fences, logical proposal keys and atomic final-message/job completion prevent duplicate customer input, proposals and final output after redelivery. Leases renew every five seconds and expire after 30 seconds; recovery is limited to three claimed attempts. Recovered DSH attempts have isolated native checkpoints. Normal turns resume the stable conversation session and always receive current, bounded product history. Financial side effects remain separate approved executions with permanent payment reservations.
 
 ## Operator console — header `Authorization: Bearer <OPERATOR_TOKEN>`
@@ -39,7 +41,7 @@ Approval expires after 15 minutes. The verified bearer maps to the deployment's 
 
 ## Headless administration
 
-These endpoints use the same operator bearer. `?businessId=<uuid>` selects a configured business; omit it only when intentionally selecting the first business. Documents are shared with authenticated customers of that business after publication; per-document private ACLs are outside this version.
+These endpoints use the same operator bearer. `?businessId=<uuid>` selects a configured business; omit it only when intentionally selecting the first business. Customer retrieval includes published documents in that business with customer audience and a matching plan, when restricted. Internal documents and other-plan documents are excluded. Arbitrary per-user document ACLs are outside this version.
 
 | Method | Path | Body / result |
 |---|---|---|
@@ -62,9 +64,9 @@ These endpoints use the same operator bearer. `?businessId=<uuid>` selects a con
 | PATCH | `/api/v1/settings` | `{version,language,tone,requireApproval:true,refundLimitCents,duplicateWindowMinutes,enabledTools,classification?}` → new version; 409 stale; omitted classification is preserved |
 | GET | `/api/v1/team` | Real bootstrap bearer principal and assigned-case count; invite/role changes disabled |
 
-Knowledge retrieval is hybrid (BM25 over UA/EN terms + local hashing embeddings, fused with RRF) over heading-aware passages of published sources in the trusted business scope; a reply's `sourceRefs` list only the sources retrieved during that turn (see `docs/KNOWLEDGE_BASE.md`). Draft/revoked documents never enter new model context. Mid-run revocation or policy/skill changes fence final output. Skills cannot enable tools or turn off refund approval. Postgres persists messages, cases, proposals, runs, audit, documents, skills and settings; DSH owns its native session store separately.
+Knowledge retrieval is hybrid (BM25 over UA/EN terms + local hashing embeddings, fused with RRF) over heading-aware passages of published sources in the trusted business scope. A reply's `sourceRefs` conservatively cover the eligible published source snapshot because native sessions and product history can reuse earlier facts without a fresh search. Retrieval audit events separately identify the passages actually searched; precise transitive citation tracking is not implemented (see [the knowledge-base contract](KNOWLEDGE_BASE.md)). Draft/revoked documents never enter new model context. Mid-run revocation or policy/skill changes fence final output. Skills cannot enable tools or turn off refund approval. Postgres persists messages, cases, proposals, runs, audit, documents, skills and settings; DSH owns its native session store separately.
 Demo records are seeded only with `DEMO_RESET_ENABLED=true` (development default; production default false). Clean production setup creates a business and customers through the authenticated administration API; public demo session tokens are not provisioned automatically.
-`SUPPORT_EXECUTION=worker` requires PostgreSQL and the worker process; it is the PostgreSQL default. `SUPPORT_EXECUTION=inline` is an explicit local demo option and the default for the memory store. Run the release migrations (`0002_support`, `0003_support_turns`, and `0004_classification`) before starting API or worker. PostgreSQL startup checks reject a missing support queue or classification schema.
+`SUPPORT_EXECUTION=worker` requires PostgreSQL and the worker process; it is the PostgreSQL default. `SUPPORT_EXECUTION=inline` is an explicit local demo option and the default for the memory store. Run the complete release migration chain through `0008_integrations` before starting API or worker: support state, durable turns, classification, insights, knowledge, external knowledge and integration state. PostgreSQL startup checks reject missing required schema.
 
 ### Configurable ticket classes
 
