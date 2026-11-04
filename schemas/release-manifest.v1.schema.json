@@ -6,39 +6,88 @@
   "properties": {
     "artifacts": {
       "items": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "enum": [
-              "bundle",
-              "docs",
-              "openapi",
-              "sbom",
-              "notices",
-              "inventory",
-              "provenance",
-              "test-report",
-              "signature"
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "bundle",
+                  "docs",
+                  "openapi",
+                  "sbom",
+                  "notices",
+                  "inventory",
+                  "provenance",
+                  "test-report"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 300,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                "type": "string"
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "kind"
             ],
-            "type": "string"
+            "type": "object"
           },
-          "path": {
-            "maxLength": 300,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
-            "type": "string"
-          },
-          "sha256": {
-            "pattern": "^[a-f0-9]{64}$",
-            "type": "string"
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "signature",
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 300,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                "type": "string"
+              },
+              "sha256": {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              "subject": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.-]+(?:\\/[A-Za-z0-9_.-]+)*$",
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "kind",
+              "subject"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "path",
-          "sha256",
-          "kind"
-        ],
-        "type": "object"
+        ]
       },
       "maxItems": 5000,
       "minItems": 1,

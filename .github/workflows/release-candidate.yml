@@ -45,16 +45,23 @@ jobs:
           npm --prefix apps/landing ci
           python3 scripts/license-artifacts.py --check
           python3 -m unittest discover -s scripts/tests -p 'test_candidate_evidence.py' -v
-      - name: Build native local images (no registry publication)
+          python3 -m unittest discover -s scripts/tests -p 'test_source_archive.py' -v
+      - name: Prepare and verify private exact-commit source archive
+        run: |
+          test "$(git rev-parse HEAD)" = "$ELDHALL_SOURCE_REVISION"
+          python3 scripts/candidate-image-source.py --commit "$ELDHALL_SOURCE_REVISION" --review-directory .omc/artifacts/candidate-source --extract-directory "$RUNNER_TEMP/candidate-source-build" --evidence candidate-evidence/source.json
+          echo "CANDIDATE_SOURCE_ROOT=$RUNNER_TEMP/candidate-source-build/eldhall-source-$ELDHALL_SOURCE_REVISION" >> "$GITHUB_ENV"
+      - name: Build native images from the verified archive (no registry publication)
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/candidate-build" candidate-evidence
-          test "$(git rev-parse HEAD)" = "$ELDHALL_SOURCE_REVISION"
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_SERVER_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/server.json" --build-arg ELDHALL_VERSION --build-arg ELDHALL_SOURCE_REVISION apps/api
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_WEB_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/web.json" --build-arg PUBLIC_APP_URL=http://localhost:18001 --file apps/frontend/Dockerfile .
-          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_MCP_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/mcp.json" apps/mcp-openapi
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_SERVER_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/server.json" --build-arg ELDHALL_VERSION --build-arg ELDHALL_SOURCE_REVISION "$CANDIDATE_SOURCE_ROOT/apps/api"
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_WEB_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/web.json" --build-arg PUBLIC_APP_URL=http://localhost:18001 --file "$CANDIDATE_SOURCE_ROOT/apps/frontend/Dockerfile" "$CANDIDATE_SOURCE_ROOT"
+          docker buildx build --load --platform "linux/$CANDIDATE_ARCH" --target production --tag "$SUPPORT_MCP_IMAGE" --metadata-file "$RUNNER_TEMP/candidate-build/mcp.json" "$CANDIDATE_SOURCE_ROOT/apps/mcp-openapi"
       - name: Collect bounded native identity and installed license inputs
-        run: python3 scripts/candidate-image-evidence.py --arch "$CANDIDATE_ARCH" --version "$ELDHALL_VERSION" --revision "$ELDHALL_SOURCE_REVISION" --metadata-dir "$RUNNER_TEMP/candidate-build" --output candidate-evidence
+        run: python3 scripts/candidate-image-evidence.py --arch "$CANDIDATE_ARCH" --version "$ELDHALL_VERSION" --revision "$ELDHALL_SOURCE_REVISION" --source-root "$CANDIDATE_SOURCE_ROOT" --metadata-dir "$RUNNER_TEMP/candidate-build" --output candidate-evidence
+      - name: Offline native image init and replay with private modes
+        run: docker run --rm -i --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777 --entrypoint node "$SUPPORT_SERVER_IMAGE" --input-type=module < scripts/installation-image-smoke.mjs > candidate-evidence/installation-init.json
       - name: Synthetic DSH, MCP, worker and web smoke
         run: bash scripts/candidate-image-smoke.sh
       - name: Retain small sanitized evidence only
@@ -67,8 +74,22 @@ jobs:
           retention-days: 14
           compression-level: 9
           include-hidden-files: false
+      - name: Retain vetted source privately for review (no image archive)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: source-review-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            .omc/artifacts/candidate-source/eldhall-source-${{ github.sha }}.tar.gz
+            .omc/artifacts/candidate-source/eldhall-source-${{ github.sha }}.files.json
+            .omc/artifacts/candidate-source/eldhall-source-${{ github.sha }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          include-hidden-files: true
 
-# This workflow builds from checkout and retains validation inputs only. It does
+# This workflow builds from a verified exact-commit vetted archive and retains
+# that bounded source artifact privately alongside validation inputs. It does
 # not push/tag public repositories, sign a release, upload images or access
 # publication/deployment credentials. Native evidence is not a legal approval,
 # an SBOM/provenance attestation or a registry pull-only installation claim.

@@ -83,6 +83,11 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+      - name: Installation Compose parser and service environment interoperability
+        working-directory: apps/api
+        run: |
+          node --import tsx --test tests/installation-compose.integration.ts
+          node --import tsx --test tests/installation-service-env.integration.ts
       - name: Test project isolation and deployment guards
         run: |
           for script in scripts/*.sh scripts/tests/*.sh; do bash -n "$script"; done

@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "initRequestFormat": {
+      "type": "number",
+      "const": 1
+    },
+    "project": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "evaluation",
+        "production"
+      ]
+    },
+    "database": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "bundled"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "external"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "env": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+                    }
+                  },
+                  "required": [
+                    "env"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "mode",
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "provider": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "rules"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "google"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "env": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+                    }
+                  },
+                  "required": [
+                    "env"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "model",
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "openai"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "env": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+                    }
+                  },
+                  "required": [
+                    "env"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "model",
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "anthropic"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "env": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+                    }
+                  },
+                  "required": [
+                    "env"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "model",
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "local"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "baseUrl": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "env": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{0,99}$"
+                    }
+                  },
+                  "required": [
+                    "env"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "model",
+            "baseUrl"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "initRequestFormat",
+    "project",
+    "mode",
+    "database",
+    "provider"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:eldhall:init-request:1",
+  "$comment": "Structural schema only; use the application validator for namespace, mode, literal-value and other semantic checks. Prepared/unbound local metadata is not release acceptance or resource ownership."
+}

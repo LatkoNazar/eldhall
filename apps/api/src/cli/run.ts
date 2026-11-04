@@ -11,11 +11,14 @@ Usage:
   eldhall version
   eldhall config validate [--file PATH]
   eldhall release validate --file PATH
+  eldhall init --directory NEW_CHILD_DIRECTORY --request-file PATH
 
 config validate uses --file or SUPPORT_CONFIG_FILE; it does not read .env.
 Validation checks static JSON contracts only. It does not connect to services,
 bootstrap data, verify provider access, fetch artifacts or enforce database epochs.
 API, worker and migrations keep their existing direct container commands.
+init is offline Linux preparation only: private files, prepared/unbound identity,
+no service startup or release/resource-ownership proof. support.env is Compose-only.
 
 Exit codes: 0 success; 1 invalid/unreadable input; 2 invalid command arguments.
 `;
@@ -52,12 +55,37 @@ export async function versionInfo(root: URL = application, metadataFile: URL = n
 
 type Output = { stdout: (value: string) => void; stderr: (value: string) => void };
 
-export async function runCli(args: string[], output: Output, environment: Partial<Pick<NodeJS.ProcessEnv, 'SUPPORT_CONFIG_FILE'>> = process.env): Promise<number> {
+export async function runCli(args: string[], output: Output, environment: Record<string, string | undefined> = process.env): Promise<number> {
   const usage = () => { output.stderr('Invalid command arguments. Run eldhall help.'); return 2; };
   if (args.length === 0 || (args.length === 1 && ['help', '--help', '-h'].includes(args[0]!))) { output.stdout(help); return 0; }
   if (args.length === 1 && ['version', '--version'].includes(args[0]!)) {
     try { output.stdout(JSON.stringify(await versionInfo())); return 0; }
     catch { output.stderr('Build identity is invalid or unreadable.'); return 1; }
+  }
+  if (args[0] === 'init') {
+    if (args.length !== 5) return usage();
+    const options: Record<string, string> = {};
+    for (let index = 1; index < args.length; index += 2) {
+      const name = args[index]!, value = args[index + 1]!;
+      if (!['--directory', '--request-file'].includes(name) || Object.hasOwn(options, name) || !value || value.startsWith('--')) return usage();
+      options[name] = value;
+    }
+    if (!options['--directory'] || !options['--request-file']) return usage();
+    try {
+      const { loadInitRequest, prepareInstallation, InstallationFailure } = await import('../installation/prepare.js');
+      const { initializeOffline } = await import('../installation/filesystem.js');
+      try {
+        const request = await loadInitRequest(options['--request-file']);
+        const build = await versionInfo();
+        const prepared = await prepareInstallation(request, { version: build.version, packageVersion: build.packageVersion, sourceRevision: build.sourceRevision }, environment);
+        const result = await initializeOffline(options['--directory'], prepared);
+        output.stdout(JSON.stringify({ status: result.status, state: 'prepared', releaseBinding: 'unbound', files: ['support.env', 'support.json', 'installation.json'] }));
+        return 0;
+      } catch (error) {
+        output.stderr(`Offline preparation refused: ${error instanceof InstallationFailure ? error.reason : 'invalid_request'}.`);
+        return 1;
+      }
+    } catch { output.stderr('Offline preparation is unavailable.'); return 1; }
   }
   if (!['config', 'release'].includes(args[0] ?? '') || args[1] !== 'validate') return usage();
   let file: string | undefined;

@@ -1,8 +1,10 @@
 import importlib.util
+import io
 import json
 import pathlib
 import subprocess
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +12,12 @@ SCRIPT = pathlib.Path(__file__).parents[1] / "candidate-image-evidence.py"
 SPEC = importlib.util.spec_from_file_location("candidate_image_evidence", SCRIPT)
 evidence = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evidence)
+SOURCE_SPEC = importlib.util.spec_from_file_location("candidate_image_source", SCRIPT.with_name("candidate-image-source.py"))
+candidate_source = importlib.util.module_from_spec(SOURCE_SPEC)
+SOURCE_SPEC.loader.exec_module(candidate_source)
+FIXTURE_SPEC = importlib.util.spec_from_file_location("source_archive_test_fixture", pathlib.Path(__file__).with_name("test_source_archive.py"))
+archive_fixture = importlib.util.module_from_spec(FIXTURE_SPEC)
+FIXTURE_SPEC.loader.exec_module(archive_fixture)
 
 
 class CandidateEvidenceTests(unittest.TestCase):
@@ -112,6 +120,52 @@ class CandidateEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 evidence.write_json(root, "oversized.json", "x" * evidence.LIMIT)
             self.assertFalse((root / "oversized.json").exists())
+
+    def source_fixture(self):
+        fixture = archive_fixture.SourceArchiveTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        result, path = fixture.archive()
+        base = path.name.removesuffix('.tar.gz')
+        return fixture, result, path, path.with_name(base + '.files.json'), path.with_name(base + '.sha256')
+
+    def test_archive_verified_before_extraction_preserves_exact_commit_bytes(self):
+        fixture, result, path, manifest, checksum = self.source_fixture()
+        destination = fixture.root / 'extracted'
+        receipt = candidate_source.verify_extract(path, manifest, checksum, fixture.commit, destination)
+        self.assertEqual(receipt['commit'], fixture.commit)
+        self.assertEqual(receipt['archive']['sha256'], result['sha256'])
+        extracted = destination / ('eldhall-source-' + fixture.commit)
+        self.assertEqual((extracted / 'apps/api/src/main.ts').read_bytes(), b"export const marker = 'committed';\r\n")
+        self.assertEqual((extracted / 'SOURCE-MANIFEST.json').read_bytes(), manifest.read_bytes())
+        self.assertFalse((extracted / '.git').exists())
+        with self.assertRaisesRegex(ValueError, 'must not exist'):
+            candidate_source.verify_extract(path, manifest, checksum, fixture.commit, destination)
+
+    def test_tampered_link_traversal_or_file_checksum_never_extracts(self):
+        fixture, _, path, manifest, checksum = self.source_fixture()
+        original = path.read_bytes()
+        for kind in ('symlink', 'traversal', 'content'):
+            path.write_bytes(original)
+            with tarfile.open(path, 'r:gz') as source:
+                members = [(item, source.extractfile(item).read()) for item in source]
+            with tarfile.open(path, 'w:gz') as altered:
+                for index, (item, data) in enumerate(members):
+                    if kind == 'content' and index == len(members) - 1:
+                        data = data[:-1] + (b'X' if data[-1:] != b'X' else b'Y')
+                    altered.addfile(item, io.BytesIO(data))
+                if kind != 'content':
+                    item = tarfile.TarInfo('eldhall-source-' + fixture.commit + '/../escape')
+                    if kind == 'symlink':
+                        item.type = tarfile.SYMTYPE
+                        item.linkname = '/outside'
+                    altered.addfile(item)
+            checksum.write_text(evidence.hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n')
+            destination = fixture.root / kind
+            with self.assertRaises(ValueError):
+                candidate_source.verify_extract(path, manifest, checksum, fixture.commit, destination)
+            self.assertFalse(destination.exists())
+        self.assertFalse((fixture.root / 'escape').exists())
 
 
 if __name__ == "__main__":

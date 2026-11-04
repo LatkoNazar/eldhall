@@ -11,7 +11,7 @@ const hash = (name: string) => createHash('sha256').update(`synthetic-test:${nam
 const digest = (name: string) => `sha256:${hash(name)}`;
 function candidate(): ReleaseManifest {
   const artifacts: ReleaseManifest['artifacts'] = [];
-  const artifact = (kind: ReleaseManifest['artifacts'][number]['kind'], name: string) => {
+  const artifact = (kind: Exclude<ReleaseManifest['artifacts'][number]['kind'], 'signature'>, name: string) => {
     const ref = { path: `artifacts/${name}`, sha256: hash(name) };
     artifacts.push({ ...ref, kind });
     return ref;
@@ -29,7 +29,9 @@ function candidate(): ReleaseManifest {
   const schemas = (['starter', 'support'] as const).map(id => ({ id, target: 1, roles: { api: roleRange(), worker: roleRange(), migrate: { read: { min: 0, max: 1 }, write: { min: 0, max: 1 } } }, migration: { from: { min: 0, max: 1 }, target: 1, fileSet: [{ path: `migrations/${id}.sql`, sha256: hash(id) }] } }));
   const dependency = (name: string, major: number) => ({ repository: `docker.io/library/${name}`, indexDigest: digest(`${name}/index`), version: `${major}.1`, supportedMajorVersions: { min: major, max: major }, platforms: platforms.map(platform => ({ platform, manifestDigest: digest(`${name}/${platform}`) })) });
   const license = { spdx: 'Apache-2.0', inventory: artifact('inventory', 'inventory.json'), notices: artifact('notices', 'NOTICE') };
-  for (const kind of ['bundle', 'docs', 'openapi', 'signature'] as const) artifact(kind, `${kind}.txt`);
+  const bundle = artifact('bundle', 'bundle.txt');
+  for (const kind of ['docs', 'openapi'] as const) artifact(kind, `${kind}.txt`);
+  artifacts.push({ path: 'artifacts/payload-signature.txt', sha256: hash('payload-signature'), kind: 'signature', subject: bundle });
   const verification = {
     platforms: platforms.map(platform => ({ platform, execution: 'native', sourceCommit, imageDigests: { server: digest(`server/${platform}`), web: digest(`web/${platform}`), mcpOpenapi: digest(`mcp-openapi/${platform}`) }, report: artifact('test-report', `native-${platform.replace('/', '-')}.json`) })),
     installProfiles: platforms.flatMap(platform => (['headless', 'ui', 'openapi-sidecar', 'external-postgres'] as const).map(id => ({ id, platform, report: artifact('test-report', `${id}-${platform.replace('/', '-')}.json`) }))),
@@ -134,6 +136,30 @@ test('strict JSON parsing rejects duplicate escaped keys and redacts malformed i
   assert.throws(() => parseReleaseManifest('{"password":"secret",broken'), error => error instanceof Error && error.message === 'Release manifest is not valid JSON');
   assert.throws(() => parseReleaseManifest(JSON.stringify({ ...candidate(), unexpected: true })));
   assert.throws(() => parseReleaseManifest(' '.repeat(4_000_001)), /size limit/);
+});
+
+test('signature subjects form a non-circular payload graph and exclude envelope objects', () => {
+  const candidateWith = (mutate: (value: ReleaseManifest) => void) => {
+    const value = candidate(); mutate(value); return releaseManifestSchema.safeParse(value).success;
+  };
+  assert.equal(candidateWith(value => { value.artifacts.push({ path: 'artifacts/second-signature.sig', sha256: hash('second-signature'), kind: 'signature', subject: { path: 'artifacts/docs.txt', sha256: hash('docs.txt') } }); }), true);
+  for (const reserved of ['release.json', 'release.json.sig', 'SHA256SUMS']) {
+    assert.equal(candidateWith(value => { value.artifacts.push({ path: reserved, sha256: hash(reserved), kind: 'docs' }); }), false, reserved);
+  }
+  for (const subject of [
+    { path: 'missing.tar.gz', sha256: hash('missing') },
+    { path: 'artifacts/bundle.txt', sha256: hash('wrong-payload') },
+    { path: 'artifacts/payload-signature.txt', sha256: hash('payload-signature') },
+  ]) {
+    assert.equal(candidateWith(value => { const signature = value.artifacts.find(entry => entry.kind === 'signature')!; Object.assign(signature, { subject }); }), false);
+  }
+  assert.equal(candidateWith(value => {
+    value.artifacts.push({ path: 'artifacts/second-signature.sig', sha256: hash('second-signature'), kind: 'signature', subject: { path: 'artifacts/payload-signature.txt', sha256: hash('payload-signature') } });
+  }), false, 'signature chains cannot bypass self-reference checks');
+  const value = candidate(); const signature = value.artifacts.find(entry => entry.kind === 'signature')!;
+  const { subject: omitted, ...withoutSubject } = signature;
+  assert.ok(omitted);
+  assert.equal(releaseManifestSchema.safeParse({ ...value, artifacts: value.artifacts.map(entry => entry === signature ? withoutSubject : entry) }).success, false);
 });
 
 test('checked-in structural JSON Schema is deterministic, strict and separate from semantic checks', async () => {
