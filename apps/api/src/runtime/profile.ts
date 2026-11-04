@@ -50,12 +50,17 @@ export async function prepareProfile(options: ProfileOptions): Promise<{ home: s
   return { home, workspace, sessionId: `support-${identity}` };
 }
 
-export function childEnvironment(values: { apiKey: string; gatewayUrl: string; capability: string; maxToolCalls: number; businessToolsEnabled?: boolean; classificationClassIds?: string[] }): NodeJS.ProcessEnv {
+export function childEnvironment(values: { apiKey: string; gatewayUrl: string; capability: string; maxToolCalls: number; home: string; businessToolsEnabled?: boolean; classificationClassIds?: string[] }): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ['PATH', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'TZ']) {
     if (process.env[key]) env[key] = process.env[key];
   }
-  return { ...env, SUPPORT_MODEL_API_KEY: values.apiKey, SUPPORT_GATEWAY_URL: values.gatewayUrl,
+  // DSH defaults some state to the OS home (`~/.agents`). In a read-only container that is not writable, and the
+  // real user's home must never be shared between conversations: pin both to this profile's own directory.
+  // DSH's native addon loader copies its .node binary into os.tmpdir() before loading it. Containers mount /tmp
+  // noexec, so that copy cannot be loaded; load it in place from the (read-only, executable) image instead.
+  const nativeLoader = process.platform === 'win32' ? {} : { NARB_DISABLE_NATIVE_CACHE: '1' };
+  return { ...env, ...nativeLoader, HOME: values.home, USERPROFILE: values.home, DSH_AGENTS_HOME: join(values.home, 'agents'), SUPPORT_MODEL_API_KEY: values.apiKey, SUPPORT_GATEWAY_URL: values.gatewayUrl,
     SUPPORT_GATEWAY_CAPABILITY: values.capability, SUPPORT_MAX_TOOL_CALLS: String(values.maxToolCalls),
     SUPPORT_BUSINESS_TOOL_ENABLED: String(values.businessToolsEnabled === true),
     SUPPORT_CLASSIFICATION_IDS: JSON.stringify(values.classificationClassIds ?? []) };

@@ -90,7 +90,7 @@ export function apply(ctx) {
   }));
   if (ALLOWED.includes('call_business_tool')) ctx.tools.register(defineTool({
     name: 'call_business_tool',
-    description: 'Read from one explicitly allowed business integration tool listed in the current application context. The gateway fixes customer/business scope. Server URLs, credentials, tool registration and write operations are unavailable.',
+    description: 'Call one explicitly allowed business integration tool listed in the current application context. The gateway fixes customer/business scope. The backend decides per operation: reads may return data; actions may return {status:"awaiting_approval"} (a human must approve; nothing has happened yet), "denied", "failed" or "unknown" (not confirmed). Never tell the customer an action succeeded unless the result status is "executed". At most one action per turn. Server URLs, credentials and tool registration are unavailable.',
     parameters: {
       integrationId: { type: 'string', required: true }, name: { type: 'string', required: true },
       input: { type: 'object', additionalProperties: true, required: true },

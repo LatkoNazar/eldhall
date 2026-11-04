@@ -1,6 +1,22 @@
 import { HarnessError, type SupportHarness } from '../agent/harness.js';
 import type { SupportStore } from './store.js';
 
+/** Worker ticks share one sweep; a slow sweep cannot overlap the next timer tick.
+ * Lifecycle maintenance is independent of Redis and does not need an operator page visit. */
+export function createSupportMaintenance(store: Pick<SupportStore, 'recoverInterruptedExecutions'>, clock = Date.now) {
+  let nextSweepAt = 0;
+  let sweep: Promise<void> | undefined;
+  return (): Promise<void> => {
+    if (sweep) return sweep;
+    if (clock() < nextSweepAt) return Promise.resolve();
+    sweep = Promise.resolve().then(() => store.recoverInterruptedExecutions()).finally(() => {
+      nextSweepAt = clock() + 10000;
+      sweep = undefined;
+    });
+    return sweep;
+  };
+}
+
 /** PostgreSQL is authoritative; BullMQ delivery may be repeated or reconstructed. */
 export async function publishPendingTurns(store: SupportStore, publish: (id: string) => Promise<void>): Promise<number> {
   const jobs = await store.pendingTurnJobs(50);

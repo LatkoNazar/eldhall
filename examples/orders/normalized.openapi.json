@@ -1,0 +1,341 @@
+{
+  "components": {
+    "parameters": {
+      "CustomerScope": {
+        "description": "Trusted customer scope, set by the integration boundary",
+        "in": "header",
+        "name": "X-Customer-Id",
+        "required": true,
+        "schema": {
+          "maxLength": 64,
+          "type": "string"
+        }
+      },
+      "OrderId": {
+        "in": "path",
+        "name": "order_id",
+        "required": true,
+        "schema": {
+          "maxLength": 50,
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Order": {
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "internal_note": {
+            "description": "Private; must never reach the model",
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "paid",
+              "shipped",
+              "delivered",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "total_cents": {
+            "type": "integer"
+          },
+          "tracking_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "order_id",
+          "status",
+          "total_cents",
+          "currency"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Orders API (synthetic fixture)",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/customers/{customer_id}": {
+      "delete": {
+        "description": "Destructive admin operation. Present to prove that imported operations stay disabled until reviewed.",
+        "operationId": "deleteCustomer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          }
+        },
+        "summary": "Delete customer",
+        "tags": [
+          "Customers"
+        ]
+      }
+    },
+    "/orders/{order_id}": {
+      "get": {
+        "description": "Status of one order owned by the scoped customer.",
+        "operationId": "getOrderStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maxLength": 50,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Trusted customer scope, set by the integration boundary",
+            "in": "header",
+            "name": "X-Customer-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "currency": {
+                      "type": "string"
+                    },
+                    "internal_note": {
+                      "description": "Private; must never reach the model",
+                      "type": "string"
+                    },
+                    "order_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "paid",
+                        "shipped",
+                        "delivered",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    },
+                    "total_cents": {
+                      "type": "integer"
+                    },
+                    "tracking_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "order_id",
+                    "status",
+                    "total_cents",
+                    "currency"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Order"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unknown order or not owned by this customer"
+          }
+        },
+        "summary": "Get order status",
+        "tags": [
+          "Orders"
+        ]
+      }
+    },
+    "/orders/{order_id}/cancel": {
+      "post": {
+        "description": "Cancel an order before shipment. Replays with the same Idempotency-Key return the original result.",
+        "operationId": "cancelOrder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "maxLength": 50,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Trusted customer scope, set by the integration boundary",
+            "in": "header",
+            "name": "X-Customer-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "reason": {
+                    "maxLength": 500,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "currency": {
+                      "type": "string"
+                    },
+                    "internal_note": {
+                      "description": "Private; must never reach the model",
+                      "type": "string"
+                    },
+                    "order_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "paid",
+                        "shipped",
+                        "delivered",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    },
+                    "total_cents": {
+                      "type": "integer"
+                    },
+                    "tracking_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "order_id",
+                    "status",
+                    "total_cents",
+                    "currency"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Cancelled"
+          },
+          "404": {
+            "description": "Unknown order or not owned by this customer"
+          },
+          "409": {
+            "description": "Order already shipped, delivered or cancelled"
+          }
+        },
+        "summary": "Cancel order",
+        "tags": [
+          "Orders"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8090"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Orders"
+    },
+    {
+      "name": "Customers"
+    }
+  ]
+}

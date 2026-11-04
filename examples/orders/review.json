@@ -1,0 +1,22 @@
+{
+  "integrationId": "orders",
+  "operations": {
+    "GET /orders/{order_id}": {
+      "effect": "read",
+      "scope": { "customerId": { "in": "header", "name": "X-Customer-Id" } },
+      "outputFields": ["order_id", "status", "total_cents", "currency", "tracking_url"]
+    },
+    "POST /orders/{order_id}/cancel": {
+      "effect": "write",
+      "scope": { "customerId": { "in": "header", "name": "X-Customer-Id" } },
+      "outputFields": ["order_id", "status"],
+      "guard": "orders.cancel_before_shipment",
+      "idempotency": { "header": "Idempotency-Key" },
+      "reconciliation": { "operationKey": "GET /orders/{order_id}" }
+    },
+    "DELETE /customers/{customer_id}": {
+      "scope": { "customerId": { "in": "path", "name": "customer_id" } },
+      "outputFields": ["customer_id"]
+    }
+  }
+}

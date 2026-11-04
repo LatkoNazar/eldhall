@@ -118,8 +118,125 @@ jobs:
             docker compose --env-file .env.ci -f compose.yaml -f compose.prod.yaml down --volumes
           fi
 
+  integration:
+    # Real PostgreSQL (with pgvector) and the cross-language OpenAPI → MCP path: the unit job above
+    # runs the support store in memory, so storage claims, recovery and the sidecar are verified here.
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: development-only
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Throwaway service credentials for this job only; tests create and drop their own schemas.
+      TEST_POSTGRES_HOST: 127.0.0.1
+      TEST_POSTGRES_PORT: "5432"
+      TEST_POSTGRES_DB: app
+      TEST_POSTGRES_USER: app
+      TEST_POSTGRES_PASSWORD: development-only
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.8"
+      - name: Install locked dependencies
+        run: |
+          npm --prefix apps/api ci
+          uv sync --locked --project apps/mcp-openapi
+      - name: PostgreSQL store, recovery and insights
+        working-directory: apps/api
+        run: npm run test:postgres
+      - name: pgvector knowledge persistence
+        working-directory: apps/api
+        run: node --import tsx --test tests/knowledge.test.ts
+      - name: Python OpenAPI importer and MCP sidecar
+        working-directory: apps/mcp-openapi
+        run: uv run --locked python -m unittest discover -s tests -v
+      - name: OpenAPI → MCP end to end (mock upstream, real sidecar)
+        working-directory: apps/api
+        run: npm run test:mcp-openapi
+
+  sidecar-compose:
+    # The self-host support stack with the MCP sidecar overlay, as built images and containers: worker execution,
+    # real DSH runtime (scripted model), PostgreSQL, Redis, sidecar and a synthetic Orders upstream.
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
+    timeout-minutes: 25
+    env:
+      COMPOSE: docker compose --env-file .env.mcp-smoke -f deploy/support.compose.yaml -f deploy/support.config.compose.yaml -f deploy/support.mcp.compose.yaml -f deploy/smoke/support.mcp.smoke.compose.yaml
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Generate private smoke secrets
+        run: |
+          umask 077
+          : > .env.mcp-smoke
+          # The mask command must go to this step's stdout, not into a command substitution or the file.
+          for name in POSTGRES_PASSWORD REDIS_PASSWORD API_TOKEN OPERATOR_TOKEN MCP_SERVICE_TOKEN MCP_UPSTREAM_TOKEN ORDERS_TEST_CONTROL_TOKEN; do
+            value=$(openssl rand -hex 32)
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> .env.mcp-smoke
+          done
+          {
+            echo "PROJECT_NAME=mcp-smoke-$GITHUB_RUN_ID"
+            echo "MCP_UPSTREAM_BASE_URL=http://orders-mock:8090"
+            echo "MCP_MANIFEST_PATH=../examples/orders/manifest.json"
+            echo "SUPPORT_CONFIG_PATH=$RUNNER_TEMP/support.smoke.json"
+          } >> .env.mcp-smoke
+          # Fail here, not later, if the file is not plain KEY=value lines.
+          ! grep -qvE '^[A-Z_]+=[^[:space:]]+$' .env.mcp-smoke
+      - name: Write the support config (no secrets; readable by the container user)
+        id: smoke_env
+        run: |
+          node scripts/mcp-sidecar-smoke.mjs prepare --out "$RUNNER_TEMP/support.smoke.json" --url http://mcp-openapi:8000/mcp
+          chmod 644 "$RUNNER_TEMP/support.smoke.json"
+      - name: Validate composition
+        run: $COMPOSE config --quiet
+      - name: Build images
+        run: $COMPOSE build api mcp-openapi
+      - name: Start dependencies and migrate
+        run: |
+          $COMPOSE up -d --wait --wait-timeout 180 postgres redis
+          $COMPOSE run --rm --no-deps migrate
+      - name: Start API, worker, sidecar and fixtures
+        run: $COMPOSE up -d --no-build --wait --wait-timeout 240 orders-mock fake-llm mcp-openapi api worker
+      - name: Chat → MCP → upstream; ask → approve → execute
+        run: |
+          OPERATOR_TOKEN=$(sed -n 's/^OPERATOR_TOKEN=//p' .env.mcp-smoke) \
+          ORDERS_TEST_CONTROL_TOKEN=$(sed -n 's/^ORDERS_TEST_CONTROL_TOKEN=//p' .env.mcp-smoke) \
+          SMOKE_API_URL=http://127.0.0.1:18000 ORDERS_CONTROL_URL=http://127.0.0.1:18090 node scripts/mcp-sidecar-smoke.mjs run
+      - name: Diagnostics
+        if: failure() && steps.smoke_env.outcome == 'success'
+        run: |
+          $COMPOSE ps --all
+          $COMPOSE logs --tail 150 api worker mcp-openapi orders-mock fake-llm
+      - name: Clean smoke environment
+        if: always() && hashFiles('.env.mcp-smoke') != ''
+        run: |
+          trap 'rm -f -- .env.mcp-smoke "$RUNNER_TEMP/support.smoke.json"' EXIT
+          $COMPOSE down --volumes --remove-orphans || true
+
   deploy:
-    needs: check
+    needs: [check, integration, sidecar-compose]
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     timeout-minutes: 25
@@ -202,9 +319,11 @@ jobs:
           docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/api
           docker build -f apps/frontend/Dockerfile --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build --target production --tag "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" apps/mcp-openapi
           mkdir -p .deploy
-          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
-          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml infra scripts apps/api/scripts/smoke.mjs
+          docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz
+          printf 'SUPPORT_SERVER_IMAGE=%s:%s\nSUPPORT_WEB_IMAGE=%s-frontend:%s\nSUPPORT_MCP_IMAGE=%s-mcp-openapi:%s\n' "$PROJECT_NAME" "$GITHUB_SHA" "$PROJECT_NAME" "$GITHUB_SHA" "$PROJECT_NAME" "$GITHUB_SHA" > support-images.env
+          tar -czf .deploy/release.tar.gz compose.yaml compose.prod.yaml support-images.env infra scripts deploy examples/orders docs apps/api/scripts/smoke.mjs
       - name: Upload release and deploy
         run: |
           set -euo pipefail

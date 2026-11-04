@@ -3,9 +3,10 @@ import type pg from 'pg';
 import type { AgentRun, AuditEvent, Business, CaseStatus, Customer, KnowledgeSource, Message, MessageRole, Metrics, Payment, Proposal, Refund, SupportCase, SupportSettings, SupportSkill, TurnLease } from './contracts.js';
 import { PostgresTurnJobs } from './postgres-turn-jobs.js';
 import type { SeedData } from './seed.js';
-import { DuplicateRefund, StaleTurn, VersionConflict, type CasePatch, type NewProposal, type SupportStore, type TurnContext } from './store.js';
+import { AUTO_CLAIMABLE, DuplicateRefund, StaleTurn, VersionConflict, type CasePatch, type NewProposal, type SupportStore, type TurnContext } from './store.js';
 import { sameClassificationConfig } from '../agent/classification.js';
 import { canReplaceClassification, classificationState, storedClassification, visibleClassification, type StoredClassification } from './classification-storage.js';
+import { PostgresIntegrationStore, externalAdmissionReason, lockIntegration, type IntegrationState } from '../../integrations/state.js';
 type StoredSettings = Omit<SupportSettings, 'classification'> & { classification?: StoredClassification };
 
 type Queryable = Pick<pg.Pool,'query'>;
@@ -15,7 +16,8 @@ const first=<T>(rows:Record<string,unknown>[])=>rows[0]?map<T>(rows[0]):null;
 const caseSelect='SELECT c.*,u.name AS customer_name FROM support_cases c JOIN support_customers u ON u.id=c.customer_id';
 export class PostgresSupportStore implements SupportStore {
   private readonly turnJobs: PostgresTurnJobs;
-  constructor(private readonly pool:pg.Pool) { this.turnJobs = new PostgresTurnJobs(pool); }
+  readonly integrationStore: PostgresIntegrationStore;
+  constructor(private readonly pool:pg.Pool) { this.turnJobs = new PostgresTurnJobs(pool); this.integrationStore = new PostgresIntegrationStore(pool); }
   enqueueTurn(caseId:string,customerId:string,body:string,clientMessageId?:string) { return this.turnJobs.enqueue(caseId,customerId,body,clientMessageId); }
   pendingTurnJobs(limit?:number) { return this.turnJobs.pending(limit); }
   activeTurnJob(caseId:string) { return this.turnJobs.active(caseId); }
@@ -33,11 +35,14 @@ export class PostgresSupportStore implements SupportStore {
     for (const c of seed.customers) await client.query('INSERT INTO support_customers(id,business_id,name,email,plan,session_token) VALUES($1,$2,$3,$4,$5,$6)',[c.id,c.businessId,c.name,c.email,c.plan,c.sessionToken]);
     for (const p of seed.payments) await client.query('INSERT INTO support_payments(id,customer_id,amount_cents,currency,merchant_ref,description,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[p.id,p.customerId,p.amountCents,p.currency,p.merchantRef,p.description,p.status,p.createdAt]);
   }
-  async reset(seed:SeedData) { await this.transaction(async client=> { await client.query("SELECT pg_advisory_xact_lock(hashtext('support-seed'))"); await client.query('TRUNCATE support_knowledge_versions,support_insight_runs,support_turn_jobs,support_settings,support_skills,support_knowledge,support_agent_runs,support_audit_events,support_refunds,support_payment_executions,support_proposals,support_messages,support_cases,support_payments,support_customers,support_businesses'); await this.seed(client,seed); }); }
+  async reset(seed:SeedData) { await this.transaction(async client=> { await client.query("SELECT pg_advisory_xact_lock(hashtext('support-seed'))"); await client.query('TRUNCATE support_external_executions,support_integration_audit,support_integration_manifests,support_integrations,support_knowledge_versions,support_insight_runs,support_turn_jobs,support_settings,support_skills,support_knowledge,support_agent_runs,support_audit_events,support_refunds,support_payment_executions,support_proposals,support_messages,support_cases,support_payments,support_customers,support_businesses'); await this.seed(client,seed); }); }
   async seedIfEmpty(seed:SeedData) { await this.transaction(async client=> { await client.query("SELECT pg_advisory_xact_lock(hashtext('support-seed'))"); if (!(await client.query('SELECT 1 FROM support_businesses LIMIT 1')).rowCount) await this.seed(client,seed); }); }
   async recoverInterruptedExecutions() {
+    await this.expireExternalActions();
+    const interrupted = await this.pool.query("SELECT p.id,e.status FROM support_proposals p JOIN support_external_executions e ON e.action_id=p.id WHERE p.status='executing' AND p.decided_at<now()-interval '180 seconds'");
+    for (const row of interrupted.rows) await this.finishExternalAction(row.id, row.status==='admitted'?'failed':'unknown', null, row.status==='admitted'?'interrupted_before_dispatch':'interrupted_after_dispatch', 'Результат зовнішньої дії потребує перевірки спеціалістом. Автоматичний повтор заблоковано.', 'system:recovery');
     await this.transaction(async client=> {
-      const rows=await client.query("UPDATE support_proposals SET status='unknown',error='Execution confirmation was interrupted; manual reconciliation required' WHERE status='executing' AND decided_at<now()-interval '180 seconds' RETURNING id,case_id");
+      const rows=await client.query("UPDATE support_proposals SET status='unknown',error='Execution confirmation was interrupted; manual reconciliation required' WHERE tool<>'external_action' AND status='executing' AND decided_at<now()-interval '180 seconds' RETURNING id,case_id");
       for(const row of rows.rows) await client.query("INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,'action.unknown','system:recovery',$3)",[randomUUID(),row.case_id,json({proposalId:row.id})]);
     });
   }
@@ -101,6 +106,15 @@ export class PostgresSupportStore implements SupportStore {
   async releaseTurn(lease:TurnLease) { await this.pool.query('UPDATE support_cases SET active_run_id=NULL,active_run_at=NULL WHERE id=$1 AND active_run_id=$2 AND ($3::int IS NULL OR EXISTS(SELECT 1 FROM support_turn_jobs WHERE id=$2 AND fence=$3))',[lease.caseId,lease.runId,lease.jobFence??null]); }
   async completeTurn(lease:TurnLease,patch:CasePatch,body:string,sourceRefs:Message['sourceRefs']=[],context?:TurnContext) {
     return this.transaction(async client=> {
+      if(context?.integrationRefs?.length) {
+        const businessId=(await client.query('SELECT business_id FROM support_cases WHERE id=$1',[lease.caseId])).rows[0]?.business_id;
+        if(!businessId) return null;
+        for(const ref of [...context.integrationRefs].sort((a,b)=>a.integrationId.localeCompare(b.integrationId))) {
+          await lockIntegration(client,businessId,ref.integrationId);
+          const state=(await client.query('SELECT state FROM support_integrations WHERE business_id=$1 AND integration_id=$2',[businessId,ref.integrationId])).rows[0]?.state as IntegrationState|undefined;
+          if(!state||!state.enabled||state.draining||state.activeManifestHash!==ref.manifestHash||state.connectionRevision!==ref.connectionRevision||state.policy.policyRevision!==ref.policyRevision) return null;
+        }
+      }
       if (!await this.active(client,lease,true)) return null;
       if(sourceRefs.length) {
         const sources=await client.query('SELECT id,version,status FROM support_knowledge WHERE business_id=(SELECT business_id FROM support_cases WHERE id=$1) AND id=ANY($2::uuid[]) FOR SHARE',[lease.caseId,sourceRefs.map(ref=>ref.id)]);
@@ -120,7 +134,8 @@ export class PostgresSupportStore implements SupportStore {
         await client.query("UPDATE support_cases SET ownership_version=ownership_version+1,assigned_to='queue:tier-2' WHERE id=$1",[lease.caseId]);
         await client.query("UPDATE support_proposals SET status='rejected',error='Conversation handed to staff' WHERE case_id=$1 AND status IN ('pending','approved')",[lease.caseId]);
       }
-      const reply=await this.insertMessage(client,lease.caseId,'assistant',body,sourceRefs,context?.externalSourceRefs);
+      const existingMessage=context?.completionActionId?first<Message>((await client.query('SELECT m.* FROM support_messages m JOIN support_external_executions e ON e.completion_message_id=m.id WHERE e.action_id=$1 AND m.case_id=$2',[context.completionActionId,lease.caseId])).rows):null;
+      const reply=existingMessage??await this.insertMessage(client,lease.caseId,'assistant',body,sourceRefs,context?.externalSourceRefs);
       if(lease.jobFence!==undefined) {
         await client.query("UPDATE support_turn_jobs SET status='completed',worker_id=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1",[lease.runId]);
         await client.query('UPDATE support_cases SET active_run_id=NULL,active_run_at=NULL WHERE id=$1',[lease.caseId]);
@@ -147,22 +162,99 @@ export class PostgresSupportStore implements SupportStore {
   async proposal(id:string) { return first<Proposal>((await this.pool.query('SELECT * FROM support_proposals WHERE id=$1',[id])).rows); }
   async proposals(caseId:string) { return (await this.pool.query('SELECT * FROM support_proposals WHERE case_id=$1 ORDER BY created_at,id',[caseId])).rows.map(r=>map<Proposal>(r)); }
   async decideProposal(id:string,argsHash:string,decision:'approved'|'rejected',actor:string) {
+    if(decision==='approved') return this.transaction(async client=> {
+      await this.lockExternal(client,id);
+      const proposal=first<Proposal>((await client.query("SELECT p.* FROM support_proposals p JOIN support_cases c ON c.id=p.case_id WHERE p.id=$1 AND p.args_hash=$2 AND p.status='pending' FOR UPDATE OF p,c",[id,argsHash])).rows);
+      if(!proposal || (proposal.tool==='external_action' && !await this.admitExternal(client,proposal,actor,false))) return null;
+      return first<Proposal>((await client.query("UPDATE support_proposals SET status='approved',decided_by=$2,decided_at=now() WHERE id=$1 RETURNING *",[id,actor])).rows);
+    });
     return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status=$3,decided_by=$4,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' RETURNING *",[id,argsHash,decision,actor])).rows);
   }
   async claimExecution(id:string,argsHash:string,actor:string) {
     return this.transaction(async client=> {
+      await this.lockExternal(client,id);
       const proposal=first<Proposal>((await client.query("SELECT p.* FROM support_proposals p JOIN support_cases c ON c.id=p.case_id WHERE p.id=$1 AND p.args_hash=$2 AND p.status='approved' AND p.decided_at>now()-interval '15 minutes' FOR UPDATE OF p,c",[id,argsHash])).rows);
       if (!proposal) return null;
+      if(proposal.tool==='external_action' && !await this.admitExternal(client,proposal,actor,true)) return null;
       if (proposal.tool==='refund_payment') {
         const result=await client.query('INSERT INTO support_payment_executions(payment_id,proposal_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[proposal.args.payment_id,proposal.id]);
         if (!result.rowCount) return null;
       }
-      return map<Proposal>((await client.query("UPDATE support_proposals SET status='executing',decided_by=$2,decided_at=now() WHERE id=$1 RETURNING *",[id,actor])).rows[0]);
+      return map<Proposal>((await client.query("UPDATE support_proposals SET status='executing',decided_by=$2,decided_at=now(),authorization_origin=CASE WHEN tool='external_action' THEN 'operator_approval' ELSE authorization_origin END WHERE id=$1 RETURNING *",[id,actor])).rows[0]);
     });
   }
   async claimProposal(id:string,argsHash:string,to:'executing'|'rejected',actor:string) {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
-    return first<Proposal>((await this.pool.query("UPDATE support_proposals SET status='executing',decided_by=$3,decided_at=now() WHERE id=$1 AND args_hash=$2 AND status='pending' AND tool='escalate_to_human' RETURNING *",[id,argsHash,actor])).rows);
+    return this.transaction(async client=> {
+      await this.lockExternal(client,id);
+      const proposal=first<Proposal>((await client.query("SELECT p.* FROM support_proposals p JOIN support_cases c ON c.id=p.case_id WHERE p.id=$1 AND p.args_hash=$2 AND p.status='pending' AND p.tool=ANY($3) AND (p.policy->>'requiresApproval')='false' FOR UPDATE OF p,c",[id,argsHash,AUTO_CLAIMABLE])).rows);
+      if(!proposal || (proposal.tool==='external_action' && !await this.admitExternal(client,proposal,actor,true))) return null;
+      return first<Proposal>((await client.query("UPDATE support_proposals SET status='executing',decided_by=$2,decided_at=now(),authorization_origin=CASE WHEN tool='external_action' THEN 'policy_auto' ELSE authorization_origin END WHERE id=$1 RETURNING *",[id,actor])).rows);
+    });
+  }
+  private async lockExternal(client:pg.PoolClient,id:string) {
+    const row=(await client.query("SELECT p.case_id,p.tool,c.business_id,p.args->>'integrationId' AS integration_id FROM support_proposals p JOIN support_cases c ON c.id=p.case_id WHERE p.id=$1",[id])).rows[0];
+    if(!row) return;
+    if(row.tool==='external_action') await lockIntegration(client,row.business_id,row.integration_id);
+    await client.query('SELECT id FROM support_cases WHERE id=$1 FOR UPDATE',[row.case_id]);
+  }
+  private async admitExternal(client:pg.PoolClient,proposal:Proposal,actor:string,claim:boolean) {
+    const supportCase=map<SupportCase>((await client.query('SELECT * FROM support_cases WHERE id=$1',[proposal.caseId])).rows[0]);
+    const state=(await client.query('SELECT state FROM support_integrations WHERE business_id=$1 AND integration_id=$2',[supportCase.businessId,proposal.args.integrationId])).rows[0]?.state as IntegrationState | undefined;
+    const unknown=(await client.query("SELECT 1 FROM support_external_executions e JOIN support_proposals p ON p.id=e.action_id WHERE p.case_id=$1 AND e.status='unknown' AND e.action_id<>$2 LIMIT 1",[proposal.caseId,proposal.id])).rowCount;
+    const reason=unknown?'unknown_execution_pending':externalAdmissionReason(proposal,supportCase,state??null);
+    if(reason) { await this.terminalExternal(client,proposal,reason);return false; }
+    if(claim) {
+      const inserted=await client.query("INSERT INTO support_external_executions(action_id,business_id,integration_id,idempotency_key,authorization_origin,status) VALUES($1,$2,$3,$1,$4,'admitted') ON CONFLICT DO NOTHING",[proposal.id,supportCase.businessId,proposal.args.integrationId,actor==='agent:auto'?'policy_auto':'operator_approval']);
+      if(!inserted.rowCount) return false;
+      await client.query("INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,'action.claimed',$3,$4)",[randomUUID(),proposal.caseId,actor,json({proposalId:proposal.id,integrationId:proposal.args.integrationId,operationKey:proposal.args.operationKey,manifestHash:proposal.args.manifestHash,connectionRevision:proposal.args.connectionRevision,policyRevision:proposal.args.policyRevision,argsHash:proposal.argsHash,origin:actor==='agent:auto'?'policy_auto':'operator_approval'})]);
+    }
+    return true;
+  }
+  async markExternalDispatched(id:string) {
+    return Boolean((await this.pool.query("WITH moved AS (UPDATE support_external_executions SET status='dispatched',dispatched_at=now() WHERE action_id=$1 AND status='admitted' AND EXISTS(SELECT 1 FROM support_proposals WHERE id=$1 AND status='executing') RETURNING action_id,authorization_origin) INSERT INTO support_audit_events(id,case_id,type,actor,data) SELECT $2,p.case_id,'action.dispatched',COALESCE(p.decided_by,'system'),jsonb_build_object('proposalId',p.id,'integrationId',p.args->>'integrationId','operationKey',p.args->>'operationKey','manifestHash',p.args->>'manifestHash','connectionRevision',p.args->>'connectionRevision','policyRevision',p.args->'policyRevision','argsHash',p.args_hash,'origin',m.authorization_origin) FROM moved m JOIN support_proposals p ON p.id=m.action_id RETURNING id",[id,randomUUID()])).rowCount);
+  }
+  async expireExternalActions(caseId?:string) {
+    const candidates=await this.pool.query("SELECT id,case_id FROM support_proposals WHERE ($1::uuid IS NULL OR case_id=$1) AND tool='external_action' AND status IN ('pending','approved') AND args->>'expiresAt' IS NOT NULL AND (args->>'expiresAt')::timestamptz<=now()",[caseId??null]);
+    for(const candidate of candidates.rows) await this.transaction(async client=>{
+      await client.query('SELECT id FROM support_cases WHERE id=$1 FOR UPDATE',[candidate.case_id]);
+      const expired=(await client.query("SELECT args FROM support_proposals WHERE id=$1 AND status IN ('pending','approved') AND (args->>'expiresAt')::timestamptz<=now() FOR UPDATE",[candidate.id])).rows[0];
+      if(!expired) return;
+      await this.terminalExternal(client,{id:candidate.id,caseId:candidate.case_id,args:expired.args},'approval_expired');
+    });
+  }
+  private async terminalExternal(client:pg.PoolClient,proposal:Pick<Proposal,'id'|'caseId'|'args'>,reason:string) {
+    const expired=reason==='approval_expired';const changed=await client.query("UPDATE support_proposals SET status=$2,error=$3 WHERE id=$1 AND status IN ('pending','approved') RETURNING id",[proposal.id,expired?'expired':'invalidated',reason]);
+    if(!changed.rowCount) return;
+    await this.insertMessage(client,proposal.caseId,'assistant',expired?`Строк погодження дії «${String(proposal.args.title)}» минув. Дію не виконано; звернення передано спеціалісту.`:`Дію «${String(proposal.args.title)}» не виконано: дозвіл змінився або попередній результат потребує перевірки спеціалістом.`);
+    await client.query('INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,$3,$4,$5)',[randomUUID(),proposal.caseId,expired?'action.expired':'action.invalidated','system:integration',json({proposalId:proposal.id,reasonCode:reason})]);
+    await client.query("UPDATE support_cases SET ownership='staff',ownership_version=ownership_version+1,assigned_to='queue:tier-2',status='escalated',active_run_id=NULL,active_run_at=NULL,updated_at=now() WHERE id=$1",[proposal.caseId]);
+    await client.query("UPDATE support_proposals SET status=CASE WHEN tool='external_action' THEN 'invalidated' ELSE 'rejected' END,error='Conversation handed to staff' WHERE case_id=$1 AND status IN ('pending','approved')",[proposal.caseId]);
+    await client.query("UPDATE support_turn_jobs SET status='cancelled',worker_id=NULL,lease_expires_at=NULL,updated_at=now() WHERE case_id=$1 AND status IN ('queued','running')",[proposal.caseId]);
+  }
+  async finishExternalAction(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null,message:string|null,actor:string,reconciliation=false) {
+    return this.transaction(async client=> {
+      const origin=(await client.query('SELECT case_id FROM support_proposals WHERE id=$1',[id])).rows[0];
+      if(!origin) throw new Error('External execution not found');
+      await client.query('SELECT id FROM support_cases WHERE id=$1 FOR UPDATE',[origin.case_id]);
+      const locked=await client.query('SELECT p.*,e.status AS execution_status FROM support_proposals p JOIN support_external_executions e ON e.action_id=p.id JOIN support_cases c ON c.id=p.case_id WHERE p.id=$1 FOR UPDATE OF p,e,c',[id]);
+      const executionStatus=locked.rows[0]?.execution_status;const raw=locked.rows[0]?Object.fromEntries(Object.entries(locked.rows[0]).filter(([key])=>key!=='execution_status')):null;
+      const proposal=raw?map<Proposal>(raw):null;
+      if(!proposal) throw new Error('External execution not found');
+      if(reconciliation&&proposal.status!=='unknown') throw new VersionConflict('Execution was already reconciled');
+      if(!reconciliation&&proposal.status!=='executing') return proposal;
+      if(actor==='system:recovery') {
+        if(!proposal.decidedAt||Date.now()-Date.parse(proposal.decidedAt)<=180000) return proposal;
+        status=executionStatus==='admitted'?'failed':'unknown';error=executionStatus==='admitted'?'interrupted_before_dispatch':'interrupted_after_dispatch';
+      }
+      const done=map<Proposal>((await client.query('UPDATE support_proposals SET status=$2,result=$3,error=$4 WHERE id=$1 RETURNING *',[id,status,json(result),error])).rows[0]);
+      let messageId:string|null=null;
+      if(message) messageId=(await this.insertMessage(client,proposal.caseId,'assistant',message)).id;
+      await client.query('UPDATE support_external_executions SET status=$2,result=$3,error=$4,completed_at=now(),completion_message_id=COALESCE($5::uuid,completion_message_id),provider_ref=COALESCE($6,provider_ref) WHERE action_id=$1',[id,status,json(result),error,messageId,typeof result?.providerRef==='string'?result.providerRef:null]);
+      await client.query("UPDATE support_cases SET status=CASE WHEN $2='resolved' AND ownership='staff' THEN status ELSE $2 END,updated_at=now(),ownership=CASE WHEN $3 THEN 'staff' ELSE ownership END,ownership_version=ownership_version+CASE WHEN $3 THEN 1 ELSE 0 END,assigned_to=CASE WHEN $3 THEN $4 ELSE assigned_to END,active_run_id=CASE WHEN $3 THEN NULL ELSE active_run_id END,active_run_at=CASE WHEN $3 THEN NULL ELSE active_run_at END WHERE id=$1",[proposal.caseId,status==='executed'?'resolved':'escalated',!!message&&(status==='unknown'||(status!=='executed'&&actor!=='agent:auto')),actor]);
+      await client.query('INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,$3,$4,$5)',[randomUUID(),proposal.caseId,reconciliation?'action.reconciled':`action.${status}`,actor,json({proposalId:id,operationKey:proposal.args.operationKey,origin:proposal.authorizationOrigin,reasonCode:error,guard:result?.guard??proposal.args.guard??null})]);
+      return done;
+    });
   }
   async finishProposal(id:string,status:'executed'|'failed'|'unknown',result:Record<string,unknown>|null,error:string|null) {
     const row=first<Proposal>((await this.pool.query('UPDATE support_proposals SET status=$2,result=$3,error=$4 WHERE id=$1 RETURNING *',[id,status,json(result),error])).rows);
@@ -188,7 +280,7 @@ export class PostgresSupportStore implements SupportStore {
       this.pool.query('SELECT COALESCE(sum(amount_cents),0)::bigint AS n FROM support_refunds'),
       this.pool.query("SELECT count(*)::int AS n,count(*) FILTER(WHERE status='fallback')::int AS fallback,round(avg(latency_ms) FILTER(WHERE status<>'failed'))::int AS latency FROM support_agent_runs"),
     ]);
-    const result:Metrics={cases:0,byStatus:{open:0,awaiting_approval:0,escalated:0,resolved:0},byPriority:{P1:0,P2:0,P3:0},proposals:{pending:0,approved:0,executing:0,executed:0,rejected:0,failed:0,denied:0,unknown:0},refundsIssuedCents:Number(refunds.rows[0].n),agentRuns:runs.rows[0].n,fallbackRuns:runs.rows[0].fallback,avgAgentLatencyMs:runs.rows[0].latency};
+    const result:Metrics={cases:0,byStatus:{open:0,awaiting_approval:0,escalated:0,resolved:0},byPriority:{P1:0,P2:0,P3:0},proposals:{pending:0,approved:0,executing:0,executed:0,rejected:0,failed:0,denied:0,unknown:0,expired:0,invalidated:0},refundsIssuedCents:Number(refunds.rows[0].n),agentRuns:runs.rows[0].n,fallbackRuns:runs.rows[0].fallback,avgAgentLatencyMs:runs.rows[0].latency};
     for (const row of cases.rows) { result.cases+=row.n; result.byStatus[row.status as keyof Metrics['byStatus']]+=row.n; result.byPriority[row.priority as keyof Metrics['byPriority']]+=row.n; }
     for (const row of proposals.rows) result.proposals[row.status as keyof Metrics['proposals']]=row.n;
     return result;

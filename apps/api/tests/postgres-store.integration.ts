@@ -13,6 +13,7 @@ import { classificationConfigSchema } from '../src/modules/agent/classification.
 import { ScriptedModel } from '../src/modules/agent/model.js';
 import { bootstrapSupportConfig } from '../src/integrations/bootstrap.js';
 import { supportConfigSchema } from '../src/integrations/config.js';
+import type { BusinessIntegrations } from '../src/integrations/mcp.js';
 
 test('real PostgreSQL support persistence, claims, recovery and source revocation', {timeout:60000}, async t=>{
   const connection={host:process.env.TEST_POSTGRES_HOST??process.env.POSTGRES_HOST??'127.0.0.1',port:Number(process.env.TEST_POSTGRES_PORT??process.env.POSTGRES_PORT??5432),database:process.env.TEST_POSTGRES_DB??process.env.POSTGRES_DB??'app',user:process.env.TEST_POSTGRES_USER??process.env.POSTGRES_USER??'app',password:process.env.TEST_POSTGRES_PASSWORD??process.env.POSTGRES_PASSWORD??'development-only',connectionTimeoutMillis:3000};
@@ -56,6 +57,33 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       await Promise.all(proposals.map(proposal=>h.approve(proposal.id,'staff',proposal.argsHash)));
       await Promise.allSettled(proposals.map(proposal=>h.executeApproved(proposal.id,'staff',proposal.argsHash)));
       assert.equal(dispatches,1);assert.equal((await store.refunds()).length,1);
+    });
+    await t.test('external action: concurrent execute dispatches once; auto claim works for external_action only',async()=>{
+      await store.reset(seedData());
+      let dispatches=0;
+      const integrations:BusinessIntegrations={forContext:ctx=>({
+        tools:[{integrationId:'orders',name:'cancel_order',description:'Cancel order',inputSchema:{type:'object' as const,properties:{},additionalProperties:false as const}}],
+        callTool:async(_i:string,_n:string,input:Record<string,unknown>)=>ctx.propose!({mode:'ask',title:'Cancel order',args:{integrationId:'orders',operationKey:'POST /orders/{order_id}/cancel',title:'Cancel order',toolName:'cancel_order',policyRevision:1,businessId:ctx.businessId,customerId:ctx.customerId,caseId:ctx.caseId,ownershipVersion:ctx.ownershipVersion,effect:'write',managed:false,connectionRevision:'1',manifestHash:'a'.repeat(64),operationHash:'b'.repeat(64),tags:['Orders'],guard:{id:'orders.cancel_before_shipment',status:'pending'},policySource:'group',matchedRuleIds:['orders'],expiresAt:new Date(Date.now()+900000).toISOString(),input}}),
+        executeAction:async()=>{await ctx.assertActive();await ctx.markDispatched?.();dispatches++;await new Promise(resolve=>setTimeout(resolve,50));return {status:'executed' as const,data:{status:'cancelled'}};},
+      })};
+      const model=new ScriptedModel(async ctx=>{await ctx.callBusinessTool!('orders','cancel_order',{order_id:'ORD-1001'});return {intent:'other',summary:'s',reasoning:'r',sentiment:{label:'calm',urgency:'low'},reply:'',action:null};});
+      const h=new SupportHarness({store,model,fallback:new RulesModel(),provider,timeoutMs:1000,integrations});
+      const c=await h.openCase('demo-olena');
+      await h.runTurn('demo-olena',c.id,'cancel my order');
+      const p=(await store.proposals(c.id)).find(row=>row.tool==='external_action')!;
+      assert.equal(p.status,'pending');
+      await h.approve(p.id,'staff',p.argsHash);
+      const results=await Promise.allSettled([h.executeApproved(p.id,'staff',p.argsHash),h.executeApproved(p.id,'staff',p.argsHash),h.executeApproved(p.id,'staff',p.argsHash)]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal(dispatches,1);
+      assert.equal((await store.proposal(p.id))?.status,'executed');
+      // pending -> executing without a human is allowed for external_action (policy auto) but never for refunds.
+      const asked=await store.createProposal({caseId:c.id,tool:'external_action',args:{...p.args,input:{order_id:'ORD-1002'}},argsHash:'d'.repeat(64),risk:'high',status:'pending',policy:p.policy});
+      assert.equal(await store.claimProposal(asked.id,asked.argsHash,'executing','agent:auto'),null); // recorded as ask: operator only
+      const auto=await store.createProposal({caseId:c.id,tool:'external_action',args:{...p.args,input:{order_id:'ORD-1003'}},argsHash:'b'.repeat(64),risk:'high',status:'pending',policy:{...p.policy,requiresApproval:false}});
+      assert.equal((await store.claimProposal(auto.id,auto.argsHash,'executing','agent:auto'))?.status,'executing');
+      const refund=await store.createProposal({caseId:c.id,tool:'refund_payment',args:{payment_id:'x'},argsHash:'c'.repeat(64),risk:'high',status:'pending',policy:{...p.policy,requiresApproval:false}});
+      assert.equal(await store.claimProposal(refund.id,refund.argsHash,'executing','agent:auto'),null);
     });
     await t.test('knowledge history survives restart, preserves access metadata and resets cleanly',async()=>{
       const business=(await store.businessesList())[0]!;

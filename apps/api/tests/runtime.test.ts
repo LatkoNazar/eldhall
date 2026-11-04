@@ -109,7 +109,12 @@ test('profile has no coding bundles and child environment excludes business cred
     assert.deepEqual(manifest.dsh.profile.bundles, []);
     const patch = await readFile(join(profile.home, 'profiles', 'support', 'cordis.patch.yml'), 'utf8');
     assert.doesNotMatch(patch, /dsh-base|tool-bash|tool-pwsh|tool-fs|mcp-client|tool-subagent|plugin-manager/);
-    const env = childEnvironment({ apiKey: 'synthetic-model-key', gatewayUrl: 'http://127.0.0.1:1/tool-calls', capability: 'synthetic-capability', maxToolCalls: 8 });
+    const env = childEnvironment({ apiKey: 'synthetic-model-key', gatewayUrl: 'http://127.0.0.1:1/tool-calls', capability: 'synthetic-capability', maxToolCalls: 8, home: profile.home });
+    // The child never inherits the service user's home: it gets the profile's own, writable directory.
+    assert.equal(env.HOME, profile.home);
+    assert.equal(env.DSH_AGENTS_HOME, join(profile.home, 'agents'));
+    // Containers mount /tmp noexec: on Linux the native addon must load in place, not from a /tmp copy.
+    assert.equal(env.NARB_DISABLE_NATIVE_CACHE, process.platform === 'win32' ? undefined : '1');
     assert.equal(env.POSTGRES_PASSWORD, undefined);
     assert.equal(env.OPERATOR_TOKEN, undefined);
     assert.equal(env.AWS_SECRET_ACCESS_KEY, undefined);

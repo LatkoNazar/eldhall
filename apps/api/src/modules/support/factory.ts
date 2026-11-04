@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { loadEnvironment, type Settings } from '../../core/config.js';
 import { loadSupportConfig } from '../../integrations/config.js';
 import { bootstrapSupportConfig } from '../../integrations/bootstrap.js';
-import { createBusinessIntegrations } from '../../integrations/mcp.js';
+import { createSupportIntegrations } from '../../integrations/catalog.js';
 import { DshSupportModel } from '../../runtime/dsh-model.js';
 import { SupportHarness } from '../agent/harness.js';
 import { RulesModel } from '../agent/model.js';
@@ -31,6 +31,8 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
     await pool.query('SELECT id FROM support_turn_jobs LIMIT 0');
     await pool.query('SELECT classification FROM support_settings LIMIT 0');
     await pool.query('SELECT external_source_refs FROM support_messages LIMIT 0');
+    await pool.query('SELECT state FROM support_integrations LIMIT 0');
+    await pool.query('SELECT action_id FROM support_external_executions LIMIT 0');
     store = new PostgresSupportStore(pool);
     if (settings.demoResetEnabled) await store.seedIfEmpty(seedData());
   } else {
@@ -39,7 +41,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   }
   await store.recoverInterruptedExecutions();
   const config = await loadSupportConfig(settings.supportConfigFile || undefined);
-  const integrations = createBusinessIntegrations(config, loadEnvironment());
+  const integrations = createSupportIntegrations(config, loadEnvironment(), store.integrationStore);
   await bootstrapSupportConfig(store, config);
   const fallback = new RulesModel();
   const model = settings.agentRuntime === 'rules' ? fallback : new DshSupportModel({
@@ -56,7 +58,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
   configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
   const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
-  return { harness, store, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+  return { harness, store, integrations, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,

@@ -1,4 +1,4 @@
-# CLAUDE.md — Support Copilot (hackathon, deadline 17:00 Kyiv)
+# CLAUDE.md — Support Copilot
 
 Talk to the team in Ukrainian; code identifiers and technical terms in English.
 
@@ -21,12 +21,12 @@ cd apps/api && npx tsx scripts/llm-spike.ts                               # real
 Local Node 25 prints EBADENGINE warnings; they are harmless. CI uses Node 24.
 
 ## Hard rules
-- `contracts.ts`, `store.ts` (interface), `docs/API_CONTRACTS.md`, `compose*.yaml`, `.github/**` belong to WS1. Need a change? Ask the integration owner; do not redesign them on your branch.
-- The LLM never writes to the database. It proposes; `policy.ts` validates; a human approves high-risk actions; `harness.ts` executes.
+- Shared contracts, migrations, Compose and CI changes have one coordinating owner and a separate reviewer. The historical hackathon WS1/WS2 ownership and integration branch workflow are retired; follow the current task's assigned file ownership.
+- The LLM never writes to the database or calls business APIs directly. The backend validates current permissions and business guards. Built-in refunds require separate human approval and execution; reviewed external actions may use `ask` or explicitly configured `auto` through the durable execution ledger.
 - Identity = `X-Customer-Session` header → server-side customer. Never trust ids from message text.
 - Sentiment may change priority, tone, escalation. It must never authorise money movement.
 - Never claim success unless the backend recorded the state change. Refunds are simulated — say so.
-- No shell/filesystem tools for the agent. No new infra (Redis/queues/vector DB) for the MVP.
-- Secrets only in root `.env` (git-ignored). Never `PUBLIC_*`/`VITE_*` for secrets.
+- No shell/filesystem tools for the agent. The support topology is API + worker, PostgreSQL + Redis, optional reviewed OpenAPI MCP sidecar and UI; preserve the scoped gateway.
+- Secrets only in private deployment environment files or secret mounts; the local root `.env` is git-ignored. Never `PUBLIC_*`/`VITE_*` for secrets. Imported specifications and private fixtures stay outside public examples.
 - Lint is `--max-warnings 0`; frontend TS is strict (`erasableSyntaxOnly`: no enums/parameter properties; `import type`).
-- Work on your `feat/ws*` branch; WS1 merges into `integration/support-copilot` only when checks are green.
+- Use an isolated `codex/` branch for new work. Preserve existing user changes. Merge only after the required tests and independent review; document any unverified runtime/platform claims.

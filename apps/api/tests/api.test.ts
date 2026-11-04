@@ -74,7 +74,7 @@ test('liveness, readiness redaction, host filtering and CORS', async () => {
 });
 
 test('healthy readiness and production docs disabled', async () => {
-  const app = await createApp(settingsFrom({ ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32) }), {
+  const app = await createApp(settingsFrom({ ENVIRONMENT: 'production', POSTGRES_PASSWORD: 'p'.repeat(32), REDIS_PASSWORD: 'r'.repeat(32), API_TOKEN: 't'.repeat(32), SUPPORT_STORE: 'postgres' }), {
     store: new MemoryStore(), dispatch: async () => undefined, checks: { postgres: async () => 1, redis: async () => 'PONG' },
   });
   try {

@@ -13,7 +13,7 @@ export interface InputSchema extends Record<string, unknown> {
   maximum?: number;
 }
 
-export const safeKey = (key: string) => /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(key) && !['__proto__', 'constructor', 'prototype'].includes(key);
+export const safeKey = (key: string) => /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(key) && !['__proto__', 'constructor', 'prototype', 'eldhall'].includes(key);
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 export function validateInputSchema(value: unknown, depth = 0): asserts value is InputSchema {
@@ -27,11 +27,11 @@ export function validateInputSchema(value: unknown, depth = 0): asserts value is
       if (!safeKey(key)) throw new Error('Invalid schema property');
       validateInputSchema(schema, depth + 1);
     }
-    if (value.required !== undefined && (!Array.isArray(value.required) || value.required.some(key => typeof key !== 'string' || !Object.hasOwn(value.properties!, key)))) throw new Error('Invalid required properties');
+    if (value.required !== undefined && (!Array.isArray(value.required) || new Set(value.required).size !== value.required.length || value.required.some(key => typeof key !== 'string' || !Object.hasOwn(value.properties!, key)))) throw new Error('Invalid required properties');
   } else if (value.properties !== undefined || value.required !== undefined || value.additionalProperties !== undefined) throw new Error('Object schema keywords require object type');
   if (value.type === 'array') validateInputSchema(value.items, depth + 1);
   else if (value.items !== undefined) throw new Error('items requires array type');
-  if (value.enum !== undefined && (!Array.isArray(value.enum) || !value.enum.length || value.enum.length > 50 || value.enum.some(x => x !== null && !['string', 'number', 'boolean'].includes(typeof x)))) throw new Error('Invalid schema enum');
+  if (value.enum !== undefined && (!Array.isArray(value.enum) || !value.enum.length || value.enum.length > 50 || value.enum.some(x => x !== null && (!['string', 'number', 'boolean'].includes(typeof x) || (typeof x === 'number' && !Number.isFinite(x)))))) throw new Error('Invalid schema enum');
   for (const [key, max] of [['maxLength', 4000], ['maxItems', 50]] as const) {
     const limit = value[key];
     if (limit !== undefined && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 0 || limit > max)) throw new Error('Invalid schema limit');

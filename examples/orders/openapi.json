@@ -1,0 +1,73 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Orders API (synthetic fixture)", "version": "1.0.0" },
+  "servers": [{ "url": "http://127.0.0.1:8090" }],
+  "tags": [{ "name": "Orders" }, { "name": "Customers" }],
+  "components": {
+    "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } },
+    "parameters": {
+      "CustomerScope": { "name": "X-Customer-Id", "in": "header", "required": true, "description": "Trusted customer scope, set by the integration boundary", "schema": { "type": "string", "maxLength": 64 } },
+      "OrderId": { "name": "order_id", "in": "path", "required": true, "schema": { "type": "string", "maxLength": 50 } }
+    },
+    "schemas": {
+      "Order": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["paid", "shipped", "delivered", "cancelled"] },
+          "total_cents": { "type": "integer" },
+          "currency": { "type": "string" },
+          "tracking_url": { "type": ["string", "null"] },
+          "internal_note": { "type": "string", "description": "Private; must never reach the model" }
+        },
+        "required": ["order_id", "status", "total_cents", "currency"]
+      },
+      "Error": { "type": "object", "properties": { "error": { "type": "string" } }, "required": ["error"] }
+    }
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/orders/{order_id}": {
+      "get": {
+        "operationId": "getOrderStatus",
+        "summary": "Get order status",
+        "description": "Status of one order owned by the scoped customer.",
+        "tags": ["Orders"],
+        "parameters": [{ "$ref": "#/components/parameters/OrderId" }, { "$ref": "#/components/parameters/CustomerScope" }],
+        "responses": {
+          "200": { "description": "Order", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+          "404": { "description": "Unknown order or not owned by this customer", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/orders/{order_id}/cancel": {
+      "post": {
+        "operationId": "cancelOrder",
+        "summary": "Cancel order",
+        "description": "Cancel an order before shipment. Replays with the same Idempotency-Key return the original result.",
+        "tags": ["Orders"],
+        "parameters": [
+          { "$ref": "#/components/parameters/OrderId" },
+          { "$ref": "#/components/parameters/CustomerScope" },
+          { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "maxLength": 100 } }
+        ],
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "reason": { "type": "string", "maxLength": 500 } }, "additionalProperties": false } } } },
+        "responses": {
+          "200": { "description": "Cancelled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+          "404": { "description": "Unknown order or not owned by this customer" },
+          "409": { "description": "Order already shipped, delivered or cancelled" }
+        }
+      }
+    },
+    "/customers/{customer_id}": {
+      "delete": {
+        "operationId": "deleteCustomer",
+        "summary": "Delete customer",
+        "description": "Destructive admin operation. Present to prove that imported operations stay disabled until reviewed.",
+        "tags": ["Customers"],
+        "parameters": [{ "name": "customer_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    }
+  }
+}

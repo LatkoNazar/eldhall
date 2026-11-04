@@ -1,6 +1,7 @@
 import type { SupportStore } from '../modules/support/store.js';
 import type { SupportConfig } from './config.js';
 import { sameClassificationConfig } from '../modules/agent/classification.js';
+import { fingerprint } from './permissions.js';
 
 /** Mount reviewed prose and initial business guards; never execute skill contents. */
 export async function bootstrapSupportConfig(store: SupportStore, config: SupportConfig): Promise<void> {
@@ -20,7 +21,7 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
     classifierStates.set(business.id, await store.classificationState(business.id));
   }
   // Validate every reference/revision before writing any bootstrap rows.
-  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications, ...config.externalKnowledge]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
+  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications, ...config.externalKnowledge, ...config.catalogs]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
   for (const source of config.knowledge) {
     const old = existingKnowledge.get(source.id);
     if (old && (old.businessId !== source.businessId || (old.version === source.version && ['title', 'category', 'content', 'status'].some(key => old[key as keyof typeof old] !== source[key as keyof typeof source])))) throw new Error('Configured document requires a new version or a distinct id');
@@ -48,4 +49,8 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
       await store.saveSettings({ ...settings, classification, version: settings.version + 1 }, settings.version);
     }
   }
+  for (const catalog of config.catalogs) await store.integrationStore.bootstrap({ businessId: catalog.businessId, manifest: catalog.manifest, policy: catalog.policy,
+    connectionRevision: catalog.connectionRevision,
+    connectionHash: fingerprint({ url: catalog.url, credentialEnv: catalog.credentialEnv, upstreamTargetFingerprint:catalog.upstreamTargetFingerprint,upstreamBusinessId: catalog.upstreamBusinessId ?? null, customerIdMap: catalog.customerIdMap ?? null }),
+  });
 }

@@ -56,6 +56,14 @@ Changed/revoked sources hide stale derived findings. Creating a KB draft is idem
 
 ## Data and configuration
 
+### Reviewed external operations
+
+The OpenAPI integration boundary is a versioned manifest shared by the TypeScript backend and the Python `apps/mcp-openapi` sidecar over authenticated MCP Streamable HTTP. Import is deterministic and deployment-owned; it does not use an LLM. Business API credentials stay in the sidecar. The model receives a fixed `call_business_tool` facade, reviewed input schemas and bounded projected results.
+
+PostgreSQL holds immutable catalog revisions and authoritative integration activation, reviewed operations and optimistic policy revisions. Configuration supplies deployment targets and initial artifacts; restarting an older file cannot restore operator-revoked access. The resolver applies an explicit operation rule first, then the strictest matching group rule, then the integration default. New or changed operations require review regardless of the effective `auto / ask / deny` rule.
+
+Reads in `auto` run through the scoped dispatcher. `ask` reads and writes create durable proposals; approval records consent, and execute is separate. Explicit `auto` writes use the same ledger and guards. Execution admission is serialized with integration changes and case ownership; the remote request runs after database locks are released. A dispatched write may finish after takeover, so its outcome is still recorded while stale model delivery is fenced. Stable action identity and provider idempotency bound retries; an ambiguous effect remains `unknown` for reconciliation, not an automatic repeat. See [the integration contract](integrations-manifest.md) and [operator API](API_CONTRACTS.md).
+
 [0002_support.sql](../apps/api/migrations/0002_support.sql) creates `support_*` businesses, sessions, payments, cases/ownership, messages/source references, proposals, payment execution reservations, simulated refunds, audit, runs, knowledge, skills and settings. [0003_support_turns.sql](../apps/api/migrations/0003_support_turns.sql) adds durable jobs, leases/fences and input/proposal deduplication. [The migration runner](../apps/api/src/migrate.ts) retains starter jobs compatibility checks. Startup rejects missing support queue schema.
 
 [0004_classification.sql](../apps/api/migrations/0004_classification.sql) persists taxonomy configuration and its private revision watermark; [0005_insights.sql](../apps/api/migrations/0005_insights.sql) adds analysis runs, evidence and draft linkage. Staff endpoints fail closed for a missing operator key, and production rejects known example credentials.
@@ -64,8 +72,8 @@ Changed/revoked sources hide stale derived findings. Creating a KB draft is idem
 
 ## Clients, deployment and limits
 
-React/Vite supplies the optional six-screen light dashboard and `/chat`; headless APIs remain primary. Vite/Caddy use same-origin proxies. Independent clients may use explicit CORS origins with GET/POST/PATCH and `X-Customer-Session`; credential cookies are disabled. One operator bearer maps to the bootstrap staff principal; customer sessions are opaque bearers. OAuth, invitations and full RBAC are not implemented.
+React/Vite supplies the optional operator dashboard, Integrations editor and `/chat`; headless APIs remain primary. Vite/Caddy use same-origin proxies. Independent clients may use explicit CORS origins with GET/POST/PATCH and `X-Customer-Session`; credential cookies are disabled. One operator bearer maps to the bootstrap staff principal; customer sessions are opaque bearers. OAuth, invitations and full RBAC are not implemented.
 
 [Standalone Compose](../deploy/support.compose.yaml) has PostgreSQL, Redis, migration, API and worker plus the optional `ui` profile. [The config overlay](../deploy/support.config.compose.yaml) mounts JSON read-only and optional connector environment. Product/runtime data use persistent volumes; ports bind private loopback. Compose parsing is verified; Docker image build/container startup and cloud deployment remain unverified here. Landing, Umami and starter deployment tooling are preserved separately.
 
-Payments are **simulated**. Embeddings/pgvector, MCP writes, real payment adapters, SSO/RBAC and managed multitenancy are outside this implementation. No license has been selected. Current verification and release checks are in [STATUS.md](STATUS.md).
+Payments are **simulated**. Real payment adapters, SSO/RBAC and managed multitenancy remain outside this implementation. Legacy MCP connections are read-only; reviewed OpenAPI catalogs have a separate controlled external-action path. No license has been selected. Current verification and release checks are in [STATUS.md](STATUS.md).

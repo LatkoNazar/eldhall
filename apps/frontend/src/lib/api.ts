@@ -1,5 +1,5 @@
 export type CaseStatus = 'open' | 'awaiting_approval' | 'escalated' | 'resolved'
-export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown'
+export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown' | 'expired' | 'invalidated'
 export interface TicketClassification {
   classId: string; label: string; confidence: number; reason: string; revision: number; needsReview: boolean
   source: 'llm' | 'fallback'; reasonCode: 'classified' | 'low_confidence' | 'unknown_class' | 'missing_classification' | 'invalid_classification' | 'model_fallback'
@@ -17,7 +17,7 @@ export interface Analysis {
 }
 export interface SupportCase { id: string; businessId: string; customerId: string; customerName: string; status: CaseStatus; priority: string; intent: string | null; analysis: Analysis | null; ownership?: 'bot' | 'staff'; ownershipVersion?: number; assignedTo?: string | null; createdAt: string; updatedAt: string }
 export interface Message { id: string; caseId: string; role: 'customer' | 'assistant' | 'operator' | 'system'; body: string; createdAt: string }
-export interface Proposal { id: string; caseId: string; tool: string; args: Record<string, unknown>; argsHash: string; risk: string; status: ProposalStatus; policy: { allowed: boolean; requiresApproval: boolean; checks: { name: string; passed: boolean; detail: string }[] }; decidedBy: string | null; decidedAt: string | null; result: Record<string, unknown> | null; error: string | null; createdAt: string }
+export interface Proposal { id: string; caseId: string; tool: string; args: Record<string, unknown>; argsHash: string; risk: string; status: ProposalStatus; policy: { allowed: boolean; requiresApproval: boolean; checks: { name: string; passed: boolean; detail: string }[] }; authorizationOrigin?: 'policy_auto' | 'operator_approval' | null; decidedBy: string | null; decidedAt: string | null; result: Record<string, unknown> | null; error: string | null; createdAt: string }
 export interface CaseDetail {
   case: SupportCase; customer: { id: string; name: string; email: string; plan: string; businessId: string }
   messages: Message[]; proposals: Proposal[]
@@ -108,6 +108,6 @@ export function errorText(error: unknown) { return error instanceof Error ? erro
 export function money(cents: number, currency: string) { return new Intl.NumberFormat('uk-UA', { style: 'currency', currency }).format(cents / 100) }
 export function dateTime(date: string) { return new Intl.DateTimeFormat('uk-UA', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(date)) }
 export const caseLabels: Record<CaseStatus, string> = { open: 'Відкрите', awaiting_approval: 'Очікує погодження', escalated: 'Потребує оператора', resolved: 'Вирішене' }
-export const proposalLabels: Record<ProposalStatus, string> = { pending: 'Очікує погодження', approved: 'Погоджено, очікує виконання', executing: 'Виконується', executed: 'Виконано', rejected: 'Відхилено', failed: 'Не виконано', denied: 'Дію не дозволено', unknown: 'Результат уточнюється' }
+export const proposalLabels: Record<ProposalStatus, string> = { pending: 'Очікує погодження', approved: 'Погоджено, очікує виконання', executing: 'Виконується', executed: 'Виконано', rejected: 'Відхилено', failed: 'Не виконано', denied: 'Дію не дозволено', unknown: 'Результат уточнюється', expired: 'Строк погодження минув', invalidated: 'Погодження втратило чинність' }
 export const intentLabels: Record<string, string> = { duplicate_charge: 'Подвійне списання', refund_request: 'Запит на повернення', billing_question: 'Питання про оплату', cancel_subscription: 'Скасування підписки', complaint: 'Скарга', other: 'Інше звернення' }
 export const toolLabels: Record<string, string> = { refund_payment: 'Повернення платежу', escalate_to_human: 'Передавання оператору', lookup_payments: 'Перевірка платежів' }
