@@ -24,7 +24,7 @@ class CandidateOciTests(unittest.TestCase):
 
     def fixture(self, *, arch="amd64", encoding="legacy", layer_type="gzip", bad_diff=False,
                 bad_subject=False, missing=None, duplicate=False, material=None, extra_platform=False,
-                material_uri="pkg:docker/node@fixture?platform=linux%2Famd64"):
+                material_uri="pkg:docker/node@fixture?platform=linux%2Famd64", include_scanner=False, omit_base=False, scanner_uri=None, scanner_role="sbomGenerator"):
         blobs = {}
 
         def blob(value, media):
@@ -41,12 +41,24 @@ class CandidateOciTests(unittest.TestCase):
         runtime["platform"] = {"architecture": arch, "os": "linux"}
         base = "sha256:" + "b" * 64
         ref = "docker.io/library/node:fixture@" + base
-        lock = {"images": [{"repository": "docker.io/library/node", "tag": "fixture", "reference": ref, "index": {"digest": base}, "platforms": [{"platform": "linux/amd64", "manifestDigest": "sha256:" + "c" * 64}]}], "dockerfiles": {"apps/api/Dockerfile": [ref]}, "tools": {"buildkit": "pinned-builder", "sbomGenerator": "pinned-scanner"}}
+        tools = {}
+        tool_images = []
+        for role, repository, tag, number in [("sbomGenerator", "docker.io/docker/buildkit-syft-scanner", "stable-1", "7"), ("buildkit", "docker.io/moby/buildkit", "buildx-stable-1", "8")]:
+            identity = "sha256:" + number * 64
+            reference = repository + ":" + tag + "@" + identity
+            tools[role] = reference
+            tool_images.append({"repository": repository, "tag": tag, "reference": reference, "index": {"digest": identity}, "platforms": [{"platform": "linux/amd64", "manifestDigest": oci.sha((role+"manifest").encode()), "configDigest": oci.sha((role+"config").encode())}]})
+        lock = {"images": [{"repository": "docker.io/library/node", "tag": "fixture", "reference": ref, "index": {"digest": base}, "platforms": [{"platform": "linux/amd64", "manifestDigest": "sha256:" + "c" * 64, "configDigest": "sha256:" + "a" * 64}]}, *tool_images], "dockerfiles": {"apps/api/Dockerfile": [ref]}, "tools": tools}
         statements = []
         for kind in [oci.SPDX, oci.SLSA] + ([oci.SPDX] if duplicate else []):
             if kind == missing:
                 continue
-            predicate = {"spdxVersion": "SPDX-2.3", "packages": [{"name": "synthetic"}]} if kind == oci.SPDX else {"buildType": "https://mobyproject.org/buildkit@v1", "materials": [{"uri": material_uri, "digest": {"sha256": (material or base)[7:]}}]}
+            materials = [] if omit_base else [{"uri": material_uri, "digest": {"sha256": (material or base)[7:]}}]
+            if include_scanner:
+                tool = next(image for image in tool_images if image['reference'] == tools[scanner_role])
+                tool_uri = scanner_uri or "pkg:docker/" + tool['repository'].removeprefix('docker.io/') + "@" + tool['tag'] + "?digest=" + tool['index']['digest'] + "&platform=linux%2Famd64"
+                materials.insert(0, {"uri": tool_uri, "digest": {"sha256": tool['index']['digest'][7:]}})
+            predicate = {"spdxVersion": "SPDX-2.3", "packages": [{"name": "synthetic"}]} if kind == oci.SPDX else {"buildType": "https://mobyproject.org/buildkit@v1", "materials": materials}
             statement = blob({"_type": "https://in-toto.io/Statement/v0.1", "subject": [{"name": "synthetic", "digest": {"sha256": (oci.sha(b"another image") if bad_subject else runtime["digest"])[7:]}}], "predicateType": kind, "predicate": predicate}, oci.INTOTO)
             statement["annotations"] = {"in-toto.io/predicate-type": kind}
             statements.append(statement)
@@ -126,6 +138,103 @@ class CandidateOciTests(unittest.TestCase):
                 self.verify(self.fixture(material_uri=uri))
         for uri in ["pkg:docker/library/node@fixture?platform=linux%2Famd64", "pkg:docker/docker.io/library/node@fixture?platform=linux%2Famd64", "pkg:docker/node@sha256%3A" + "b" * 64 + "?platform=linux%2Famd64"]:
             self.verify(self.fixture(material_uri=uri))
+
+    def test_pinned_buildkit_digest_only_purl_has_no_version_but_keeps_reviewed_identity(self):
+        # Exact RefToPURL shape in the pinned builder's util/purl/image_test.go:
+        # canonical `name@digest` -> `pkg:docker/name?digest=...&platform=...`.
+        approved = "sha256:" + "b" * 64
+        valid = "pkg:docker/node?digest=" + approved + "&platform=linux%2Famd64"
+        self.verify(self.fixture(material_uri=valid))
+        for uri in [
+            "pkg:docker/node?platform=linux%2Famd64",
+            "pkg:docker/node@?digest=" + approved + "&platform=linux%2Famd64",
+            valid.replace("node?", "attacker?"),
+            valid.replace(approved, "sha256:" + "f" * 64),
+            valid.replace("amd64", "arm64"),
+            valid + "&digest=" + approved,
+            valid + "&platform=linux%2Famd64",
+            valid + "&unknown=value",
+            valid + "&tag=fixture",
+        ]:
+            with self.subTest(uri=uri), self.assertRaises(ValueError):
+                self.verify(self.fixture(material_uri=uri))
+
+    def test_exporter_scanner_material_is_separate_and_cannot_replace_a_product_base(self):
+        result = self.verify(self.fixture(include_scanner=True))
+        provenance = next(item for item in result["attestations"] if item["predicateType"] == oci.SLSA)
+        self.assertEqual(len(provenance["baseMaterials"]), 1)
+        self.assertEqual(len(provenance["toolMaterials"]), 1)
+        self.assertEqual(provenance["baseMaterials"][0]["digest"], "sha256:" + "b" * 64)
+        self.assertEqual(provenance["toolMaterials"][0]["role"], "sbom-generator")
+        self.assertEqual(provenance["toolMaterials"][0]["digest"], "sha256:" + "7" * 64)
+        with self.assertRaisesRegex(ValueError, "cover all"):
+            self.verify(self.fixture(include_scanner=True, omit_base=True))
+        coincident = self.fixture(include_scanner=True, omit_base=True)
+        base = coincident[3]["images"][0]
+        base["index"]["digest"] = "sha256:" + "7" * 64
+        base["reference"] = "docker.io/library/node:fixture@" + base["index"]["digest"]
+        coincident[3]["dockerfiles"]["apps/api/Dockerfile"] = [base["reference"]]
+        with self.assertRaisesRegex(ValueError, "cover all"):
+            self.verify(coincident)
+        with self.assertRaisesRegex(ValueError, "unreviewed"):
+            self.verify(self.fixture(include_scanner=True, scanner_role="buildkit"))
+        valid = "pkg:docker/docker/buildkit-syft-scanner@stable-1?digest=sha256:" + "7" * 64 + "&platform=linux%2Famd64"
+        for uri in [valid.replace("stable-1", "other-tag"), valid.replace("buildkit-syft-scanner", "other-image"), valid.replace("amd64", "arm64"), valid.replace("7" * 64, "f" * 64), valid + "&unknown=value", valid + "&digest=sha256:" + "7" * 64]:
+            with self.subTest(uri=uri), self.assertRaisesRegex(ValueError, "unreviewed"):
+                self.verify(self.fixture(include_scanner=True, scanner_uri=uri))
+
+    def test_digest_version_cannot_conflict_with_material_or_explicit_digest_qualifier(self):
+        # Both hashes are reviewed for this same base, but they are distinct
+        # graph levels. That does not authorize contradictory URI identities.
+        index, native = "sha256:" + "b" * 64, "sha256:" + "c" * 64
+        uri = "pkg:docker/node@" + index + "?digest=" + native + "&platform=linux%2Famd64"
+        with self.assertRaisesRegex(ValueError, "unreviewed"):
+            self.verify(self.fixture(material_uri=uri, material=native))
+        uri = "pkg:docker/node@" + index + "?platform=linux%2Famd64"
+        with self.assertRaisesRegex(ValueError, "unreviewed"):
+            self.verify(self.fixture(material_uri=uri, material=native))
+
+    def test_material_failure_profile_exposes_only_correlated_policy_booleans_and_fixed_enums(self):
+        fixture = self.fixture()
+        approved = fixture[3]["images"][:1]
+        uri = "pkg:docker/node@fixture?digest=sha256:" + "b" * 64 + "&platform=linux%2Famd64"
+        value = oci.material_diagnostic(uri, "sha256:" + "c" * 64, approved, fixture[3], "amd64", 0, 1)
+        safe = oci.safe_material_profile(value)
+        self.assertEqual(safe["versionForm"], "tag")
+        self.assertEqual(safe["qualifierForm"], "digest-platform")
+        base = safe["approvedBases"][0]
+        self.assertTrue(base["repositoryMatches"])
+        self.assertTrue(base["materialDigestIsNativeManifest"])
+        self.assertTrue(base["qualifierDigestIsIndex"])
+        self.assertFalse(base["qualifierDigestMatchesMaterial"])
+        text = json.dumps(safe)
+        for private in (uri, "sha256:", "fixture", "node"):
+            self.assertNotIn(private, text)
+        safe = oci.safe_material_profile({**value, "PRIVATE_FIELD": "PRIVATE_VALUE"})
+        self.assertNotIn("PRIVATE", json.dumps(safe))
+        for changes in ({"versionForm": "PRIVATE_VALUE"}, {"versionForm": []}, {"position": 100}, {"approvedBases": [{"repositoryMatches": "PRIVATE_VALUE"}]}):
+            self.assertIsNone(oci.safe_material_profile({**value, **changes}))
+
+    def test_cli_material_profile_is_safe_and_never_changes_failure_into_success(self):
+        fixture = self.fixture(material_uri="pkg:docker/PRIVATE_REPOSITORY@PRIVATE_VERSION?platform=linux%2Famd64")
+        arguments = [str(SCRIPT), "verify", "--archive", str(fixture[0]), "--arch", "amd64", "--role", "server"]
+        for name, value in [("metadata", fixture[1]), ("source-receipt", fixture[2]), ("lock", fixture[3])]:
+            path = self.root / (name + ".json")
+            path.write_text(json.dumps(value))
+            arguments.extend(["--" + name, str(path)])
+        destination = self.root / "not-created" / "server-oci.json"
+        arguments.extend(["--output", str(destination)])
+        stderr = io.StringIO()
+        with patch.object(oci.sys, "argv", arguments), patch.object(oci, "command") as command, redirect_stderr(stderr):
+            self.assertEqual(oci.main(), 1)
+        command.assert_not_called()
+        self.assertIn("code=OCI040 phase=attestations", stderr.getvalue())
+        line = next(line for line in stderr.getvalue().splitlines() if line.startswith("Private OCI material profile: "))
+        profile = json.loads(line.split(": ", 1)[1])
+        self.assertFalse(profile["approvedBases"][0]["repositoryMatches"])
+        self.assertNotIn("PRIVATE", stderr.getvalue())
+        self.assertNotIn("sha256:", stderr.getvalue())
+        self.assertFalse(destination.parent.exists())
 
     def test_semantic_mismatches_fail_closed(self):
         for options in [{"arch": "arm64"}, {"encoding": "artifact"}, {"bad_diff": True}, {"bad_subject": True}, {"missing": oci.SPDX}, {"duplicate": True}, {"material": "sha256:" + "e" * 64}, {"extra_platform": True}]:
@@ -271,6 +380,17 @@ class CandidateOciTests(unittest.TestCase):
         self.assertFalse(destination.parent.exists())
         self.assertNotIn(str(self.root), stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertIn("code=OCI034 phase=attestations", stderr.getvalue())
+        for error in (ValueError("PRIVATE exception /secret/path"), OSError("PRIVATE exception /secret/path"), oci.VerificationFailure("PRIVATE exception /secret/path")):
+            stderr = io.StringIO()
+            with patch.object(oci.sys, "argv", arguments), patch.object(oci, "verify_archive", side_effect=error), patch.object(oci, "command") as command, redirect_stderr(stderr):
+                self.assertEqual(oci.main(), 1)
+            command.assert_not_called()
+            self.assertIn("code=OCI000 phase=inputs", stderr.getvalue())
+            self.assertNotIn("PRIVATE", stderr.getvalue())
+            self.assertNotIn("secret", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertFalse(destination.parent.exists())
 
 
 if __name__ == "__main__":
