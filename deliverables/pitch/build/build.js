@@ -1,4 +1,5 @@
-// Builds deliverables/pitch/Eldhall-Pitch.pptx. Run: node build.js
+// Rebuilds the historical 2026-10-31 storyboard, not a current product deck.
+// Run: node build.js --archive-rebuild (never overwrites the preserved originals).
 const path = require('path')
 const pptxgen = require('pptxgenjs')
 const React = require('react')
@@ -7,7 +8,9 @@ const sharp = require('sharp')
 const lu = require('react-icons/lu')
 const { applyTheme } = require(path.join(process.env.PPTX_SKILL, 'scripts', 'apply_theme.js'))
 
-const OUT = path.resolve(__dirname, '..', 'Eldhall-Pitch.pptx')
+if (process.argv.length !== 3 || process.argv[2] !== '--archive-rebuild') throw new Error('Historical storyboard only: pass --archive-rebuild')
+const OUT = path.resolve(__dirname, '..', 'Eldhall-Pitch-ARCHIVE-2026-10-31-REBUILT.pptx')
+if (require('fs').existsSync(OUT)) throw new Error('Refusing to overwrite an archival rebuild')
 
 // Eldhall tokens (apps/landing/src/styles.css). Arial stands in for Inter for portability.
 const HEX = { ink: '16161B', ink2: '4A4A55', muted: '696975', accent: 'D7263D', ok: '16A34A', info: '2563EB', warn: '8F5600', line: 'ECECF0', alt: 'F6F6F8', dark2: '24242B', darkLine: '3A3A44', darkMuted: 'A9A9B4' }
@@ -31,7 +34,7 @@ async function iconPng(name, color) {
 async function main() {
   const pres = new pptxgen()
   pres.layout = 'LAYOUT_WIDE' // 13.333 x 7.5
-  pres.title = 'Eldhall — AI Support Copilot'
+  pres.title = 'Eldhall — ARCHIVE 2026-10-31 (historical claims)'
   pres.author = 'Eldhall team'
   pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace }
   const C = pres.SchemeColor
@@ -45,7 +48,7 @@ async function main() {
   const footer = (dark) => [
     { image: { x: 0.6, y: 6.98, w: 0.16, h: 0.2, data: flameRed } },
     { text: { text: 'eldhall', options: { x: 0.82, y: 6.93, w: 1.2, h: 0.3, fontSize: 11, bold: true, color: dark ? 'FFFFFF' : HEX.ink, margin: 0 } } },
-    { text: { text: 'PolyTech Code Fest × SKELAR', options: { x: 1.75, y: 6.93, w: 4, h: 0.3, fontSize: 10, color: dark ? HEX.darkMuted : HEX.muted, margin: 0 } } },
+    { text: { text: 'ARCHIVE 2026-10-31 · historical claims', options: { x: 1.75, y: 6.93, w: 4, h: 0.3, fontSize: 10, color: dark ? HEX.darkMuted : HEX.muted, margin: 0 } } },
   ]
   const titlePh = (dark) => ({ placeholder: { options: { name: 'title', type: 'title', x: 0.6, y: 0.78, w: 12.1, h: 0.85, fontSize: 32, bold: true, color: dark ? 'FFFFFF' : HEX.ink, charSpacing: -0.5, align: 'left', valign: 'top', margin: 0 }, text: '' } })
   const eyebrowPh = { placeholder: { options: { name: 'eyebrow', type: 'body', x: 0.6, y: 0.42, w: 9, h: 0.32, fontSize: 12, bold: true, color: HEX.accent, charSpacing: 1.5, margin: 0 }, text: '' } }
@@ -91,7 +94,7 @@ async function main() {
       { text: 'вирішує', options: { color: HEX.accent } },
     ], { x: 0.8, y: 2.6, w: 7.2, h: 2.2, fontSize: 46, bold: true, charSpacing: -1, lineSpacingMultiple: 0.95 })
     T(s, 'AI розуміє звернення, перевіряє правила бізнесу й виконує дію — після підтвердження людини.', { x: 0.8, y: 4.95, w: 6.8, h: 0.8, fontSize: 16, color: HEX.darkMuted })
-    T(s, 'PolyTech Code Fest × SKELAR · 31.10.2026', { x: 0.8, y: 6.7, w: 8, h: 0.3, fontSize: 11, color: HEX.darkMuted })
+    T(s, 'ARCHIVE · PolyTech Code Fest × SKELAR · 31.10.2026', { x: 0.8, y: 6.7, w: 8, h: 0.3, fontSize: 11, color: HEX.darkMuted })
     // Flow pills
     const steps = [['LuMessageSquare', 'Звернення'], ['LuBrain', 'AI-аналіз'], ['LuShieldCheck', 'Перевірка правил'], ['LuUserCheck', 'Погодження людини'], ['LuCircleCheck', 'Окреме виконання']]
     for (const [i, [ic, label]] of steps.entries()) {
@@ -287,10 +290,10 @@ async function main() {
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: 0.42, rectRadius: 0.12, fill: { color: HEX.alt }, line: { color: HEX.line, width: 1 }, objectName: 'video-bar' })
     s.addShape(pres.shapes.RECTANGLE, { x: x + 0.02, y: y + 0.25, w: w - 0.04, h: 0.17, fill: { color: HEX.alt }, line: { color: HEX.alt, width: 0 } })
     for (const [i, col] of ['FF5F57', 'FEBC2E', '28C840'].entries()) s.addShape(pres.shapes.OVAL, { x: x + 0.22 + i * 0.22, y: y + 0.15, w: 0.12, h: 0.12, fill: { color: col }, line: { color: col, width: 0 } })
-    T(s, 'eldhall-pitch-uk.mp4 · 0:45', { x: x + 2, y: y + 0.06, w: w - 4, h: 0.3, fontSize: 11, color: HEX.muted, align: 'center', valign: 'middle' })
+    T(s, 'ARCHIVE 2026-10-31 · rules demo · 0:45', { x: x + 2, y: y + 0.06, w: w - 4, h: 0.3, fontSize: 11, color: HEX.muted, align: 'center', valign: 'middle' })
     const poster = 'image/jpeg;base64,' + require('fs').readFileSync(path.join(__dirname, 'video-poster.jpg')).toString('base64')
-    s.addMedia({ type: 'video', path: path.resolve(__dirname, '../../../demos/mvp/pitch/exports/eldhall-pitch-uk.mp4'), cover: poster, x: x + 0.05, y: y + 0.42, w: w - 0.1, h: vh, objectName: 'demo-video' })
-    s.addNotes('Демо (3:15–4:05). Клацнути по відео (45 с) і коротко коментувати: клієнтка пише → копілот знаходить дубль і ставить P1 → оператор бачить перевірки → «Погодити повернення»: гроші ще не рухаються → окремо «Виконати погоджену дію»: SIM-RF → клієнтка отримує підтвердження → Іван: ліміт, відмова, ескалація. Запис зроблено в офлайн-режимі правил (без LLM), провайдер симульований — так і кажемо. ЯКЩО ВІДЕО НЕ ЗАПУСТИЛОСЯ: резервний сценарій у SPEAKER_SCRIPT.md. ▶ «Архітектура».')
+    s.addMedia({ type: 'video', path: path.resolve(__dirname, '../../../demos/mvp/pitch/exports/eldhall-pitch-uk-ARCHIVE-2026-10-31.mp4'), cover: poster, x: x + 0.05, y: y + 0.42, w: w - 0.1, h: vh, objectName: 'demo-video' })
+    s.addNotes('Демо (3:15–4:05). Клацнути по відео (45 с) і коротко коментувати: клієнтка пише → копілот знаходить дубль і ставить P1 → оператор бачить перевірки → «Погодити повернення»: гроші ще не рухаються → окремо «Виконати погоджену дію»: SIM-RF → клієнтка отримує підтвердження → Іван: ліміт, відмова, ескалація. Запис зроблено в офлайн-режимі правил (без LLM), провайдер симульований — так і кажемо. ЯКЩО ВІДЕО НЕ ЗАПУСТИЛОСЯ: резервний сценарій у SPEAKER_SCRIPT-ARCHIVE-2026-10-31.md. ▶ «Архітектура».')
   }
 
   // 8 — Architecture
@@ -371,6 +374,6 @@ async function main() {
 
   await pres.writeFile({ fileName: OUT })
   await applyTheme(OUT, THEME)
-  console.log('wrote', OUT)
+  console.log('Wrote historical archival rebuild; test counts and roadmap are dated 2026-10-31:', OUT)
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

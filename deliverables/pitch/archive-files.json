@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "snapshotDate": "2026-10-31",
+  "files": [
+    {
+      "path": "Eldhall-Pitch-ARCHIVE-2026-10-31.pdf",
+      "size": 398644,
+      "sha256": "af18ee46bc42cfaec8f54828ccd0a7f49c1af545d8a73c1ee463b1368ed5ae02"
+    },
+    {
+      "path": "Eldhall-Pitch-ARCHIVE-2026-10-31.pptx",
+      "size": 21502987,
+      "sha256": "b39b60343c7890f4c5f7ffc0f6980391bddf13ff6fad181f2008cbc2235fc3f5"
+    },
+    {
+      "path": "Eldhall-Pitch-v2-ARCHIVE-2026-10-31.pptx",
+      "size": 21497978,
+      "sha256": "7849f5f11760ee6955dc52651fa03aa2d1a4e679bade6d65aee6918ade4b7108"
+    },
+    {
+      "path": "PITCH_TEXT-ARCHIVE-2026-10-31.md",
+      "size": 9151,
+      "sha256": "8fc46d55f87688bfec2d4a2ac6a5db5661b99e9efeab7b172ce633f123e42589"
+    },
+    {
+      "path": "SPEAKER_SCRIPT-ARCHIVE-2026-10-31.md",
+      "size": 10988,
+      "sha256": "2c8156cd5ac3db36facc685e37dcaab9b029cf6e3818c24e81a89c27d3126028"
+    }
+  ]
+}
