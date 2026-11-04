@@ -178,11 +178,12 @@ def write_json(output: pathlib.Path, name: str, value: object) -> None:
     (output / name).write_text(text, encoding="utf-8")
 
 
-def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, output: pathlib.Path) -> None:
+def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, output: pathlib.Path, source_root: pathlib.Path | None = None) -> None:
     native = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
     if native.get(platform.machine()) != arch or native.get(command(["docker", "info", "--format", "{{.Architecture}}"]).strip()) != arch:
         raise ValueError("Host and Docker daemon do not match the native matrix architecture")
     output.mkdir(parents=True, exist_ok=True)
+    source_root = source_root or pathlib.Path.cwd()
     records = {}
     for name, image in IMAGES.items():
         inspection = json.loads(command(["docker", "image", "inspect", image, "--format", '{{json .}}']))
@@ -194,7 +195,7 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
         if not expected_user or expected_user in ("root", "0", "0:0"):
             raise ValueError("Image does not declare a non-root user")
         legal_names = ["LICENSE", "NOTICE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "manifest.json"]
-        source_legal = pathlib.Path("apps/frontend/public/licenses" if name == "web" else f"apps/{'api' if name == 'server' else 'mcp-openapi'}/licenses")
+        source_legal = source_root / ("apps/frontend/public/licenses" if name == "web" else f"apps/{'api' if name == 'server' else 'mcp-openapi'}/licenses")
         if name == "web":
             legal_names.append("BROWSER_NOTICES.txt")
         legal = container(image, "/bin/sh", ["-ec", 'test "$(id -u)" -ne 0; sha256sum ' + " ".join(f"{legal_dir}/{file}" for file in legal_names)])
@@ -229,7 +230,15 @@ def collect(arch: str, version: str, revision: str, metadata_dir: pathlib.Path, 
     if injected != cli:
         raise ValueError("Runtime environment replaced baked image identity")
     inputs = ("LICENSE", "NOTICE", "apps/api/package-lock.json", "apps/mcp-openapi/uv.lock", "apps/frontend/package-lock.json", "apps/api/Dockerfile", "apps/frontend/Dockerfile", "apps/mcp-openapi/Dockerfile")
-    write_json(output, "identity.json", {"schemaVersion": 1, "mode": "native-local-build-not-published", "sourceRevision": revision, "candidateVersion": version, "cli": cli, "images": records, "sourceReceiptInputs": [{"path": file, "sha256": hashlib.sha256(pathlib.Path(file).read_bytes()).hexdigest()} for file in inputs], "limitations": ["No registry push/pull or release publication", "No signed attestation/SBOM or legal/source-access approval", "Base materials and installed inventories are review inputs only", "Web/sidecar source identity comes from build inputs; they do not self-report release metadata"]})
+    source_manifest = source_root / "SOURCE-MANIFEST.json"
+    if source_manifest.is_file():
+        source_identity = json.loads(source_manifest.read_text(encoding="utf-8"))
+        if source_identity.get("commit") != revision or source_identity.get("format") != "eldhall-source-v1":
+            raise ValueError("Image source manifest differs from the requested revision")
+        build_source = {"kind": "verified-vetted-commit-archive", "commit": revision, "tree": source_identity["tree"], "fileManifestSha256": hashlib.sha256(source_manifest.read_bytes()).hexdigest()}
+    else:
+        raise ValueError("Native images require the verified archive source manifest")
+    write_json(output, "identity.json", {"schemaVersion": 1, "mode": "native-archive-source-build-not-published", "buildSource": build_source, "sourceRevision": revision, "candidateVersion": version, "cli": cli, "images": records, "sourceReceiptInputs": [{"path": file, "sha256": hashlib.sha256((source_root / file).read_bytes()).hexdigest()} for file in inputs], "limitations": ["No registry push/pull or release publication", "No signed attestation/SBOM or legal/source-access approval", "Base materials and installed inventories are review inputs only", "Web/sidecar source identity comes from archive build inputs; they do not self-report release metadata"]})
 
 
 def main() -> int:
@@ -238,12 +247,13 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--metadata-dir", type=pathlib.Path, required=True)
+    parser.add_argument("--source-root", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
     if args.version != "0.1.0-rc.1" or not re.fullmatch(r"[a-f0-9]{40}", args.revision):
         parser.error("Expected fixed preview version and full source revision")
     try:
-        collect(args.arch, args.version, args.revision, args.metadata_dir, args.output)
+        collect(args.arch, args.version, args.revision, args.metadata_dir, args.output, args.source_root)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
         print("Candidate image evidence is incomplete; no raw command/error output retained.", file=sys.stderr)
         return 1
