@@ -1,0 +1,42 @@
+{
+  "receiptFormat": 1,
+  "observerProfile": "eldhall-pg17-public-v1",
+  "status": "reviewed-reference-derivation",
+  "reviewBasis": "independent-source-and-private-ci-candidate-review",
+  "registrySha256": "542ac4170e9880e8f6b52a767944710f46cbbdad834ab3f595b189a1fd29cf7a",
+  "candidate": {
+    "sha256": "3dd3c8b8c2e8d7648e2c3e809255837650cd7fb10fdf5fdc5e23061872a73a02",
+    "artifactId": "13355251303",
+    "artifactZipSha256": "a4113eb43fa78d85e47bb6591bea8c0785ded07cce6f6d8c3aef03e6c6460261",
+    "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
+    "testedTree": "3ed05e5a0a4675f4a8e9d2fa49132f33decc1046",
+    "runId": "41892940403",
+    "runAttempt": 1,
+    "integrationJobId": "126794828801",
+    "schemaTests": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "observerSources": [
+    {
+      "path": "apps/api/src/release/schema-state.ts",
+      "sha256": "a0964e008bca39d4ca4b02a595bfde7f753b43c183220745e6c534e9780af429"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-contracts.ts",
+      "sha256": "0683690f57d3431fe35b50b930e13ba009ae0bb837af501c5b3d1d66509fa206"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-sql.ts",
+      "sha256": "41e4833d4b32f7b37f3e05e4c004ce8bf17e7d5ee2b14bc414129e9570211375"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-registry.ts",
+      "sha256": "33637107e6a7de9e4f2a135f6a64b565d869b143bb7ecfef705a73818af4b4b1"
+    }
+  ],
+  "fixtureIdentity": "declared-ci-service-input-not-server-attestation",
+  "scope": "selected-record-diagnostic-only-no-epoch-or-mutation-authority"
+}

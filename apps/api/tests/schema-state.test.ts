@@ -1,16 +1,45 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import pg from 'pg';
+import { z } from 'zod';
+import { parseInstallationJson } from '../src/installation/json.js';
 import { schemaSourcePaths, schemaStateHash, schemaStateProfile, type SchemaObservation, type SchemaSources } from '../src/release/schema-state-contracts.js';
 import { matchSchemaReferences, parseSchemaReferenceRegistry, planSchemaAdmission, schemaReferenceRegistrySchema, type SchemaReferenceRegistry } from '../src/release/schema-state-registry.js';
 import { observeSchemaState, schemaStateConnectionConfig } from '../src/release/schema-state.js';
-import { schemaFixtureIdentity, schemaFixtureInputs } from './helpers/schema-state-reference.js';
+import { fixtureRoot, schemaFixtureIdentity, schemaFixtureInputs } from './helpers/schema-state-reference.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const observerPaths = ['schema-state.ts', 'schema-state-contracts.ts', 'schema-state-sql.ts', 'schema-state-registry.ts'].map(name => 'apps/api/src/release/' + name);
+const sha = z.string().regex(/^[a-f0-9]{64}$/), commit = z.string().regex(/^[a-f0-9]{40}$/), identifier = z.string().regex(/^[0-9]{1,30}$/);
+const receiptSchema = z.strictObject({
+  receiptFormat: z.literal(1), observerProfile: z.literal(schemaStateProfile), status: z.literal('reviewed-reference-derivation'),
+  reviewBasis: z.literal('independent-source-and-private-ci-candidate-review'), registrySha256: sha,
+  candidate: z.strictObject({ sha256: sha, artifactId: identifier, artifactZipSha256: sha, sourceCommit: commit, testedTree: commit, runId: identifier, runAttempt: z.number().int().positive(), integrationJobId: identifier, schemaTests: z.strictObject({ passed: z.literal(6), failed: z.literal(0), skipped: z.literal(0) }) }),
+  observerSources: z.array(z.strictObject({ path: z.string(), sha256: sha })).length(4),
+  fixtureIdentity: z.literal('declared-ci-service-input-not-server-attestation'), scope: z.literal('selected-record-diagnostic-only-no-epoch-or-mutation-authority'),
+});
+
+function verifyPinnedSchemaArtifacts(registryText: string, receiptText: string, sources: Map<string, Buffer>) {
+  const registry = parseSchemaReferenceRegistry(registryText), receipt = receiptSchema.parse(parseInstallationJson(receiptText));
+  assert.equal(hash(registryText), receipt.registrySha256, 'Registry bytes must match reviewed receipt');
+  assert.deepEqual(receipt.observerSources.map(source => source.path), observerPaths);
+  const original = JSON.stringify({ candidateFormat: 1, status: 'unreviewed', observerProfile: registry.observerProfile, sourceCommit: receipt.candidate.sourceCommit, runId: receipt.candidate.runId, observerSources: receipt.observerSources, references: registry.entries }, null, 2) + '\n';
+  assert.equal(hash(original), receipt.candidate.sha256, 'Derived entries must reproduce the original unreviewed candidate bytes');
+  for (const source of [...receipt.observerSources, ...registry.entries.flatMap(entry => entry.sources)]) {
+    const bytes = sources.get(source.path);
+    assert.ok(bytes, 'Reference source must be in the reviewed input set');
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), source.sha256, 'Current source drift requires new empirical review');
+  }
+  for (const entry of registry.entries) {
+    assert.equal(entry.evidence.sourceCommit, receipt.candidate.sourceCommit); assert.equal(entry.evidence.runId, receipt.candidate.runId);
+  }
+  return registry;
+}
 // Synthetic unit-only values: never persisted, promoted or used as PG references.
 function fixture() {
   const sources: SchemaSources = { starter: schemaSourcePaths.starter.map(path => ({ path, sha256: hash(path) })), support: schemaSourcePaths.support.map(path => ({ path, sha256: hash(path) })) };
@@ -124,4 +153,27 @@ test('disposable fixture admission requires matching GitHub identity and exact d
     assert.throws(() => schemaFixtureInputs(prefix === 'TEST_POSTGRES_' ? 'vector' : 'plain', changed), error => error instanceof Error && !error.message.includes('synthetic-other-target'));
   }
   assert.throws(() => schemaFixtureInputs('vector', { DATABASE_URL: 'postgres://ignored-private-target' }));
+});
+
+test('checked-in reviewed references preserve empirical candidate identity and reject real source/receipt drift', async () => {
+  const registryText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.json'), 'utf8');
+  const receiptText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.receipt.json'), 'utf8');
+  const paths = [...observerPaths, ...schemaSourcePaths.starter, ...schemaSourcePaths.support];
+  const sources = new Map(await Promise.all(paths.map(async path => [path, await readFile(resolve(fixtureRoot, path))] as const)));
+  const registry = verifyPinnedSchemaArtifacts(registryText, receiptText, sources);
+  assert.equal(registry.entries.length, 5);
+  assert.deepEqual(registry.entries.filter(entry => entry.component === 'support').map(entry => entry.profile).sort(), ['vector-available-uninstalled', 'vector-installed', 'vector-unavailable']);
+  assert.equal(registry.entries.filter(entry => entry.component === 'starter').length, 2);
+  for (const path of [schemaSourcePaths.starter[1], schemaSourcePaths.support[7], observerPaths[0]!]) {
+    const drifted = new Map(sources); drifted.set(path, Buffer.concat([sources.get(path)!, Buffer.from('\n// drift\n')]));
+    assert.throws(() => verifyPinnedSchemaArtifacts(registryText, receiptText, drifted), /Current source drift/);
+  }
+  const altered = JSON.parse(registryText) as SchemaReferenceRegistry; altered.entries[0]!.fingerprint = hash('forged-reference');
+  const changedRegistry = JSON.stringify(altered, null, 2) + '\n';
+  const receipt: unknown = parseInstallationJson(receiptText), changedReceipt = receiptSchema.parse(receipt);
+  changedReceipt.registrySha256 = hash(changedRegistry);
+  assert.throws(() => verifyPinnedSchemaArtifacts(changedRegistry, JSON.stringify(changedReceipt), sources), /original unreviewed candidate bytes/);
+  changedReceipt.registrySha256 = hash(registryText);
+  changedReceipt.candidate.runId = '999999';
+  assert.throws(() => verifyPinnedSchemaArtifacts(registryText, JSON.stringify(changedReceipt), sources), /original unreviewed candidate bytes/);
 });
