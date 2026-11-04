@@ -147,6 +147,48 @@ class CandidateOciTests(unittest.TestCase):
             with self.subTest(uri=uri), self.assertRaises(ValueError):
                 self.verify(self.fixture(material_uri=uri))
 
+    def test_material_failure_profile_exposes_only_correlated_policy_booleans_and_fixed_enums(self):
+        fixture = self.fixture()
+        approved = fixture[3]["images"]
+        uri = "pkg:docker/node@fixture?digest=sha256:" + "b" * 64 + "&platform=linux%2Famd64"
+        value = oci.material_diagnostic(uri, "sha256:" + "c" * 64, approved, fixture[3], "amd64", 0, 1)
+        safe = oci.safe_material_profile(value)
+        self.assertEqual(safe["versionForm"], "tag")
+        self.assertEqual(safe["qualifierForm"], "digest-platform")
+        base = safe["approvedBases"][0]
+        self.assertTrue(base["repositoryMatches"])
+        self.assertTrue(base["materialDigestIsNativeManifest"])
+        self.assertTrue(base["qualifierDigestIsIndex"])
+        self.assertFalse(base["qualifierDigestMatchesMaterial"])
+        text = json.dumps(safe)
+        for private in (uri, "sha256:", "fixture", "node"):
+            self.assertNotIn(private, text)
+        safe = oci.safe_material_profile({**value, "PRIVATE_FIELD": "PRIVATE_VALUE"})
+        self.assertNotIn("PRIVATE", json.dumps(safe))
+        for changes in ({"versionForm": "PRIVATE_VALUE"}, {"versionForm": []}, {"position": 100}, {"approvedBases": [{"repositoryMatches": "PRIVATE_VALUE"}]}):
+            self.assertIsNone(oci.safe_material_profile({**value, **changes}))
+
+    def test_cli_material_profile_is_safe_and_never_changes_failure_into_success(self):
+        fixture = self.fixture(material_uri="pkg:docker/PRIVATE_REPOSITORY@PRIVATE_VERSION?platform=linux%2Famd64")
+        arguments = [str(SCRIPT), "verify", "--archive", str(fixture[0]), "--arch", "amd64", "--role", "server"]
+        for name, value in [("metadata", fixture[1]), ("source-receipt", fixture[2]), ("lock", fixture[3])]:
+            path = self.root / (name + ".json")
+            path.write_text(json.dumps(value))
+            arguments.extend(["--" + name, str(path)])
+        destination = self.root / "not-created" / "server-oci.json"
+        arguments.extend(["--output", str(destination)])
+        stderr = io.StringIO()
+        with patch.object(oci.sys, "argv", arguments), patch.object(oci, "command") as command, redirect_stderr(stderr):
+            self.assertEqual(oci.main(), 1)
+        command.assert_not_called()
+        self.assertIn("code=OCI040 phase=attestations", stderr.getvalue())
+        line = next(line for line in stderr.getvalue().splitlines() if line.startswith("Private OCI material profile: "))
+        profile = json.loads(line.split(": ", 1)[1])
+        self.assertFalse(profile["approvedBases"][0]["repositoryMatches"])
+        self.assertNotIn("PRIVATE", stderr.getvalue())
+        self.assertNotIn("sha256:", stderr.getvalue())
+        self.assertFalse(destination.parent.exists())
+
     def test_semantic_mismatches_fail_closed(self):
         for options in [{"arch": "arm64"}, {"encoding": "artifact"}, {"bad_diff": True}, {"bad_subject": True}, {"missing": oci.SPDX}, {"duplicate": True}, {"material": "sha256:" + "e" * 64}, {"extra_platform": True}]:
             with self.subTest(options=options), self.assertRaises(ValueError):

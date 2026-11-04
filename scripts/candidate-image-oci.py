@@ -108,6 +108,7 @@ def phase(value):
 class VerificationFailure(ValueError):
     def __init__(self, message):
         self.code = FAILURE_CODES.get(message, "OCI000")
+        self.material_profile = None
         super().__init__(message)
 
 
@@ -285,6 +286,70 @@ def material_matches(uri, identity, base, arch):
             and ("digest" not in fields or fields["digest"] == [identity]))
 
 
+def material_diagnostic(uri, identity, approved, lock, arch, position, count):
+    """Only finite classifications against reviewed policy; never return input strings."""
+    profile = {"position": position, "materialCount": count, "versionForm": "malformed", "qualifierForm": "malformed", "qualifiersUnique": False, "approvedBaseOverflow": len(approved) > 4, "approvedBases": [], "knownOtherLockedRelation": "none", "knownToolRelation": "none"}
+    repository, version, fields = "", None, {}
+    if isinstance(uri, str) and len(uri) <= 1000 and uri.startswith("pkg:docker/"):
+        try:
+            package, separator, query = uri[11:].partition("?")
+            repository, has_version, version = package.rpartition("@")
+            if not has_version:
+                repository, version = package, None
+            repository = unquote(repository)
+            version = unquote(version) if version is not None else None
+            if "/" not in repository:
+                repository = "docker.io/library/" + repository
+            elif "." not in repository.split("/")[0] and ":" not in repository.split("/")[0]:
+                repository = "docker.io/" + repository
+            fields = parse_qs(query, strict_parsing=True, keep_blank_values=True)
+            if separator:
+                profile["versionForm"] = "absent" if version is None else "empty" if version == "" else "digest" if HASH.fullmatch(version) else "tag"
+                profile["qualifierForm"] = "platform-only" if set(fields) == {"platform"} else "digest-platform" if set(fields) == {"digest", "platform"} else "digest-platform-tag" if set(fields) == {"digest", "platform", "tag"} else "other"
+                profile["qualifiersUnique"] = all(len(values) == 1 for values in fields.values())
+        except (ValueError, UnicodeError):
+            fields = {}
+    def relation(base):
+        if identity == base["index"]["digest"]:
+            return "index"
+        for platform in base["platforms"]:
+            if identity == platform["manifestDigest"]:
+                return "native-manifest" if platform["platform"] == "linux/" + arch else "other-manifest"
+            if identity == platform["configDigest"]:
+                return "config"
+        return "none"
+    approved_refs = {base["reference"] for base in approved}
+    tool_refs = set(lock.get("tools", {}).values())
+    for base in lock.get("images", []):
+        if base["reference"] in approved_refs:
+            continue
+        known = relation(base)
+        key = "knownToolRelation" if base["reference"] in tool_refs else "knownOtherLockedRelation"
+        if known != "none":
+            profile[key] = known
+    for base in approved[:4]:
+        platforms = [p for p in base["platforms"] if p["platform"] == "linux/" + arch]
+        children = {p["manifestDigest"] for p in platforms}
+        allowed = {base["index"]["digest"], *children}
+        names = {"linux/" + arch, *(p["platform"] + "/" + p["variant"] for p in platforms if p.get("variant"))}
+        profile["approvedBases"].append({"repositoryMatches": repository == base["repository"], "versionMatches": version in {base["tag"], *allowed} if version is not None else fields.get("digest") == [identity], "materialDigestIsIndex": identity == base["index"]["digest"], "materialDigestIsNativeManifest": identity in children, "platformMatches": len(fields.get("platform", [])) == 1 and fields["platform"][0] in names, "qualifierDigestMatchesMaterial": fields.get("digest") == [identity], "qualifierDigestIsIndex": fields.get("digest") == [base["index"]["digest"]], "qualifierDigestIsNativeManifest": len(fields.get("digest", [])) == 1 and fields["digest"][0] in children})
+    return profile
+
+
+def safe_material_profile(value):
+    """Rebuild an allowlist, including if an unexpected exception spoofs details."""
+    if not isinstance(value, dict):
+        return None
+    enums = {"versionForm": {"malformed", "absent", "empty", "tag", "digest"}, "qualifierForm": {"malformed", "platform-only", "digest-platform", "digest-platform-tag", "other"}, "knownOtherLockedRelation": {"none", "index", "native-manifest", "other-manifest", "config"}, "knownToolRelation": {"none", "index", "native-manifest", "other-manifest", "config"}}
+    keys = {"repositoryMatches", "versionMatches", "materialDigestIsIndex", "materialDigestIsNativeManifest", "platformMatches", "qualifierDigestMatchesMaterial", "qualifierDigestIsIndex", "qualifierDigestIsNativeManifest"}
+    if any(not isinstance(value.get(key), str) or value[key] not in choices for key, choices in enums.items()) or any(type(value.get(key)) is not bool for key in ("qualifiersUnique", "approvedBaseOverflow")) or type(value.get("position")) is not int or not 0 <= value["position"] < 100 or type(value.get("materialCount")) is not int or not 1 <= value["materialCount"] <= 100:
+        return None
+    bases = value.get("approvedBases")
+    if not isinstance(bases, list) or len(bases) > 4 or any(not isinstance(base, dict) or any(type(base.get(key)) is not bool for key in keys) for base in bases):
+        return None
+    return {**{key: value[key] for key in enums}, **{key: value[key] for key in ("position", "materialCount", "qualifiersUnique", "approvedBaseOverflow")}, "approvedBases": [{key: base[key] for key in sorted(keys)} for base in bases]}
+
+
 def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, lock: dict, dockerfile: str, statements: dict | None = None) -> dict:
     if arch not in ("amd64", "arm64") or not re.fullmatch(r"[a-f0-9]{40}", source.get("commit", "")) or source.get("verifiedRegularMembers") is not True:
         fail("Expected verified exact source archive and native architecture")
@@ -385,11 +450,13 @@ def verify_archive(path: pathlib.Path, arch: str, metadata: dict, source: dict, 
                         fail("Dockerfile has no reviewed base policy")
                     approved = [image for image in lock.get("images", []) if image["reference"] in expected_refs]
                     seen = set()
-                    for material in materials:
+                    for position, material in enumerate(materials):
                         uri = material.get("uri", "")
                         identity = "sha256:" + material.get("digest", {}).get("sha256", "")
                         if not any(material_matches(uri, identity, base, arch) for base in approved):
-                            fail("Provenance contains an unreviewed base material")
+                            error = VerificationFailure("Provenance contains an unreviewed base material")
+                            error.material_profile = material_diagnostic(uri, identity, approved, lock, arch, position, len(materials))
+                            raise error
                         seen.add(identity)
                     if any(not ({base["index"]["digest"], *(p["manifestDigest"] for p in base["platforms"] if p["platform"] == "linux/" + arch)} & seen) for base in approved) or len(approved) != len(expected_refs):
                         fail("Provenance does not cover all reviewed Dockerfile bases")
@@ -514,6 +581,9 @@ def main():
         args.output.write_text(json.dumps(bound, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     except VerificationFailure as error:
         print(f"Private OCI verification failed: code={error.code} phase={_phase}; no raw input/config retained.", file=sys.stderr)
+        profile = safe_material_profile(error.material_profile) if error.code == "OCI040" else None
+        if profile is not None:
+            print("Private OCI material profile: " + json.dumps(profile, sort_keys=True, separators=(",", ":")), file=sys.stderr)
         return 1
     except (OSError, ValueError, TypeError, KeyError, AttributeError, tarfile.TarError, subprocess.SubprocessError, EOFError, RecursionError, zlib.error):
         print(f"Private OCI verification failed: code=OCI000 phase={_phase}; no raw input/config retained.", file=sys.stderr)
