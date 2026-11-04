@@ -17,3 +17,13 @@ demos/**/*.woff2 filter=lfs diff=lfs merge=lfs -text
 demos/reference/youtube/assets/audio/*.srt -whitespace
 demos/reference/youtube/assets/vendor/gsap.min.js -whitespace
 demos/reference/youtube/qa/original-export/audio-loudness.txt -text -whitespace
+
+# Reference-media rights are separate from the project's software licence.
+# Keep local assets/history; omit them from future Git export archives.
+docs/design-system/references/*.png export-ignore
+demos/reference/youtube export-ignore
+.agents/skills/eldhall-mvp-demo/assets/cursor export-ignore
+
+# Preserve complete upstream notice formatting in the shipped browser artifacts.
+apps/frontend/public/licenses/BROWSER_NOTICES.txt -whitespace
+apps/landing/public/licenses/BROWSER_NOTICES.txt -whitespace
