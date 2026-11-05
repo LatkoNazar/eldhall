@@ -27,6 +27,7 @@ function mockOperator(extra?: (path: string, init?: RequestInit) => Response | P
     const path = String(input)
     const override = extra?.(path, init)
     if (override) return override
+    if (path === '/api/v1/operator/session') return response({ authenticated: true })
     if (path === '/api/v1/cases') return response([current.case])
     if (path === '/api/v1/metrics') return response(metrics)
     if (path === '/api/v1/cases/case-1') return response(current)

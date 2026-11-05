@@ -8,11 +8,11 @@
     "NOTICE": "b9563c3f3ad6e24f43bacd959defafef87237360b8c15ffaddeb51cb8b866715",
     "LICENSING.md": "147d145bd5741eaa222c686bb9d68cf510baeb766b69338bf1892e72e24727d4",
     "THIRD_PARTY_NOTICES.md": "adea4fb6cab0bf8497042ee1af0d377edd2f3c20279d458401abf89b14fd41b3",
-    "BROWSER_NOTICES.txt": "a3f87903ac78e5084861e455cebc286bea1ce269ac2302b64da6eb3b822af607"
+    "BROWSER_NOTICES.txt": "ef2a3541bda3429048df52dae79488dec632c697377c600841d1b8f905289379"
   },
   "localInputs": {
-    "package.json": "8e1d381b1842b025c15821c26469357aa4c2142e265e23fb49a9b3f0818bb1b3",
-    "package-lock.json": "dd05661c00ff6b0fd5eda2f6fc2718693b750b4abd2b2e85529a90a68f13194e"
+    "package.json": "a5421f972d693a10f6348314794da3fcde29943f6ce380b8914214c7865b8be0",
+    "package-lock.json": "f96d0bdd2a6a6ac92294a97538767d3aa673f68050059591203b96e84f12693d"
   },
   "browserComponents": [
     {
@@ -38,6 +38,18 @@
       "version": "8.3.5",
       "license": "MIT",
       "noticeSha256": "a22152baa1aef74402443008e767e7c689a524c0909d19b0431d97f5ab066a13"
+    },
+    {
+      "name": "@hugeicons/react",
+      "version": "1.1.10",
+      "license": "MIT",
+      "noticeSha256": "1658d8213209df7b9b86dfc05d724ede48d00dbc27abc15976ec7adec9601cde"
+    },
+    {
+      "name": "@hugeicons/core-free-icons",
+      "version": "4.4.0",
+      "license": "MIT",
+      "noticeSha256": "1658d8213209df7b9b86dfc05d724ede48d00dbc27abc15976ec7adec9601cde"
     }
   ]
 }

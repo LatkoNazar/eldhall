@@ -20,6 +20,7 @@ function completed(): InsightRun {
 function serve(handler: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
+    if (path === '/api/v1/operator/session') return response({ authenticated: true })
     const value = handler(path, init)
     if (value) return value
     if (path === '/api/v1/businesses') return response({ businesses: [{ id: businessId, name: 'Synthetic Store', currency: 'UAH' }, { id: foreignId, name: 'Other Store', currency: 'UAH' }] })
@@ -169,7 +170,7 @@ it('exposes the insights view through keyboard-accessible Analytics tabs', async
   serve(path => path.startsWith('/api/v1/insights/runs?') ? response({ runs: [] }) : undefined)
   const user = userEvent.setup()
   render(<App />)
-  const metrics = screen.getByRole('tab', { name: 'Показники' })
+  const metrics = await screen.findByRole('tab', { name: 'Показники' })
   metrics.focus()
   await user.keyboard('{ArrowRight}')
   const insights = screen.getByRole('tab', { name: 'Проблеми та KB' })

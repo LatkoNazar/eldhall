@@ -27,7 +27,7 @@ class LicenseArtifactTests(unittest.TestCase):
             paths.extend(f"apps/{app}/{name}" for name in ("package.json", "package-lock.json"))
         for app, packages in legal.BROWSER_PACKAGES.items():
             for name in packages:
-                paths.extend(f"apps/{app}/node_modules/{name}/{filename}" for filename in ("package.json", "LICENSE.md" if name == "vite" else "LICENSE"))
+                paths.extend(f"apps/{app}/node_modules/{name}/{filename}" for filename in ("package.json", legal.BROWSER_LICENSE_FILES.get(name, "LICENSE")))
         for relative in paths:
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +64,7 @@ class LicenseArtifactTests(unittest.TestCase):
         for app, packages in legal.BROWSER_PACKAGES.items():
             output = legal.read(root, f"apps/{app}/public/licenses/BROWSER_NOTICES.txt")
             for name in packages:
-                filename = "LICENSE.md" if name == "vite" else "LICENSE"
+                filename = legal.BROWSER_LICENSE_FILES.get(name, "LICENSE")
                 upstream = legal.read(root, f"apps/{app}/node_modules/{name}/{filename}").rstrip()
                 self.assertIn(upstream, output)
         metadata = root / "apps/frontend/node_modules/react/package.json"

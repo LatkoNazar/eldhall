@@ -35,3 +35,27 @@ docker build --target production \
 ```
 
 These metadata arguments apply to the server image only in this implementation; web/sidecar build receipts must not claim to self-report the same metadata. Public source access, publication credentials, complete image licence/SBOM/source receipts and release verification remain separate gates.
+
+## Local browser demo
+
+With locked development dependencies installed, open two terminals at the repository root. Docker and external services are not required. In the first terminal, start the API:
+
+```sh
+cd apps/api
+npm run demo:local
+```
+
+This explicit launcher binds only `127.0.0.1:8000`, accepts no arguments and uses the public demo key `1111`. It ignores ambient application settings and `.env`: support and starter jobs run in memory, replies use deterministic rules, payments are simulated and the seeded customers/businesses are synthetic. It creates no PostgreSQL, Redis, provider or business-integration connections. URL imports are disabled. Restarting loses all demo changes. Readiness reports the actual memory component, not fictitious database/Redis health.
+
+In the second terminal, start the frontend:
+
+```sh
+cd apps/frontend
+npm run demo:local
+```
+
+Open [the local operator form](http://127.0.0.1:5173/operator) and enter `1111`, or use [the local demo key link](http://127.0.0.1:5173/operator#key=1111). Both paths validate the key with the API before opening the dashboard.
+
+The dedicated frontend launcher binds `127.0.0.1:5173`, fixes its proxy to this local API, disables `.env` loading and external analytics, and rejects extra arguments. Do not expose this weak-key fixture through a LAN-facing development proxy or tunnel. Production still requires the existing strong `OPERATOR_TOKEN`; `1111` is not a production credential.
+
+`GET /api/v1/operator/session` checks only the supplied `Authorization: Bearer …` operator key. It returns `200 {"authenticated":true}` or a generic `401`, with `Cache-Control: no-store`. It does not query storage, providers or dependency readiness, and creates no cookie or server session.

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { publishOperatorLink, sanitizedOperatorDestination } from './operator-link'
 
 const indexKey = 'supportNavigationIndex'
 const listeners = new Set<() => void>()
@@ -90,12 +91,13 @@ export function navigate(href: string, replace = false) {
   const target = new URL(href, window.location.href)
   if (!isAppDestination(target) || restoring) return false
   rememberLocation()
-  const destination = target.pathname + target.search + target.hash
-  if (destination === currentLocation) return true
+  const { destination, link } = sanitizedOperatorDestination(target)
+  if (destination === currentLocation) { publishOperatorLink(link); return true }
   if (!allowed()) return false
   if (!replace) currentIndex++
   window.history[replace ? 'replaceState' : 'pushState'](stateWithIndex(currentIndex), '', destination)
   currentLocation = destination
+  publishOperatorLink(link)
   notify()
   return true
 }

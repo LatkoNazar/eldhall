@@ -54,7 +54,7 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
       <nav id="main-nav" className={menuOpen ? 'nav-open' : ''} aria-label="Головна навігація">
         {navigation.map(item => <AppLink href={item.href} key={item.id} onClick={() => setMenuOpen(false)} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{item.label}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{metrics.data.cases - metrics.data.byStatus.resolved}</span>}</AppLink>)}
       </nav>
-      <div className="sidebar-bottom"><a href="/chat" target="_blank" rel="noreferrer"><Icon name="help" /><span>Клієнтський чат ↗</span></a><div className="sidebar-caption">Підтримка з людським рішенням</div></div>
+      <div className="sidebar-bottom"><a href="/chat" target="_blank" rel="noreferrer"><Icon name="help" /><span>Тестувати агента ↗</span></a><div className="sidebar-caption">Підтримка з людським рішенням</div></div>
     </aside>
     <div className="app-body">
       <header className="topbar">
