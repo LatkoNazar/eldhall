@@ -13,26 +13,26 @@ const ruleId = z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const operationKey = z.string().regex(/^(GET|POST|PUT|PATCH|DELETE) \/\S{0,500}$/);
 
-export const integrationPolicySchema = z.object({
+export const integrationPolicySchema = z.strictObject({
   integrationId: ruleId,
-  businessId: z.string().uuid(),
+  businessId: z.uuid(),
   enabled: z.boolean(),
   manifestHash: hash,
   policyRevision: z.number().int().positive(),
   defaultMode: mode,
-  groups: z.array(z.object({
+  groups: z.array(z.strictObject({
     id: ruleId,
     // MVP groups are an exact OpenAPI tag or an explicit operation list; no wildcards.
-    selector: z.union([z.object({ tag: z.string().min(1).max(100) }).strict(), z.object({ operationKeys: z.array(operationKey).min(1).max(200) }).strict()]),
+    selector: z.union([z.strictObject({ tag: z.string().min(1).max(100) }), z.strictObject({ operationKeys: z.array(operationKey).min(1).max(200) })]),
     mode: ruleMode,
-  }).strict()).max(100),
-  operations: z.array(z.object({
+  })).max(100),
+  operations: z.array(z.strictObject({
     operationKey,
     enabled: z.boolean(),
     reviewedOperationHash: hash.nullable(),
     mode: ruleMode,
-  }).strict()).max(1000),
-}).strict().superRefine((policy, ctx) => {
+  })).max(1000),
+}).superRefine((policy, ctx) => {
   if (new Set(policy.groups.map(group => group.id)).size !== policy.groups.length) ctx.addIssue({ code: 'custom', message: 'Duplicate group id' });
   if (new Set(policy.operations.map(op => op.operationKey)).size !== policy.operations.length) ctx.addIssue({ code: 'custom', message: 'Duplicate operationKey' });
 });

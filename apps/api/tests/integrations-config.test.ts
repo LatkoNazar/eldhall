@@ -99,3 +99,27 @@ test('bounded schema validates nested types, required fields, enums and numeric 
   validateToolInput(schema, { items: [2], flag: true, mode: 'known' });
   for (const input of [{}, { items: [0] }, { items: [4] }, { items: [1, 2] }, { items: [1.5] }, { items: [2], flag: 'true' }, { items: [2], mode: 'unknown' }, { items: [2], extra: true }]) assert.throws(() => validateToolInput(schema, input));
 });
+
+test('support format validators preserve UUID, UTC timestamp, URL bounds and default output', () => {
+  const known = { id: 'a0000000-0000-4000-8000-000000000001', businessId: '20000000-0000-4000-8000-000000000001', title: 'Reviewed policy', content: 'Synthetic content', version: 1, status: 'published' as const };
+  const parsed = supportConfigSchema.parse({ knowledge: [known] });
+  assert.deepEqual(parsed.knowledge, [{ ...known, category: 'general', updatedAt: '2026-01-01T00:00:00.000Z' }]);
+  for (const updatedAt of ['2026-11-05T12:34:56Z', '2026-11-05T12:34:56.123Z']) {
+    assert.equal(supportConfigSchema.parse({ knowledge: [{ ...known, updatedAt }] }).knowledge[0]?.updatedAt, updatedAt);
+  }
+  for (const updatedAt of ['2026-11-05', '2026-02-30T12:00:00Z', '2026-11-05T12:34:56+02:00', '2026-11-05T12:34:56', 'not-a-date']) {
+    assert.equal(supportConfigSchema.safeParse({ knowledge: [{ ...known, updatedAt }] }).success, false);
+  }
+  for (const id of ['not-a-uuid', 'a0000000-0000-4000-0000-000000000001', 1, null]) {
+    assert.equal(supportConfigSchema.safeParse({ knowledge: [{ ...known, id }] }).success, false);
+  }
+  const upper = known.id.toUpperCase();
+  assert.equal(supportConfigSchema.parse({ knowledge: [{ ...known, id: upper }] }).knowledge[0]?.id, upper);
+  for (const sourceUrl of [null, 'https://docs.example.test/policy']) {
+    assert.equal(supportConfigSchema.parse({ knowledge: [{ ...known, sourceUrl }] }).knowledge[0]?.sourceUrl, sourceUrl);
+  }
+  for (const sourceUrl of ['not-a-url', 'https://docs.example.test/' + 'x'.repeat(2000)]) {
+    assert.equal(supportConfigSchema.safeParse({ knowledge: [{ ...known, sourceUrl }] }).success, false);
+  }
+  assert.equal(supportConfigSchema.safeParse({ knowledge: [{ ...known, unexpected: true }] }).success, false);
+});

@@ -40,16 +40,17 @@ test('strict staff auth rejects blank configuration while legacy optional jobs a
   assert.equal(staffTokenMatches('bearer ' + staffToken, staffToken), true, 'Bearer scheme names are case-insensitive; credentials are not');
 });
 
-test('support and insights staff routes fail closed with empty/whitespace configuration without protecting optional legacy jobs', async () => {
+test('all staff HTTP groups fail closed with empty/whitespace configuration without protecting optional legacy jobs', async () => {
   for (const configured of ['', ' ']) {
     const { app, insightReads } = await appFixture(configured);
     try {
       const businessId = seedData().businesses[0]!.id;
       for (const authorization of [undefined, 'Bearer arbitrary']) {
         const headers = authorization ? { authorization } : {};
-        for (const url of ['/api/v1/businesses', '/api/v1/insights/runs?businessId=' + businessId]) {
+        for (const url of ['/api/v1/operator/session', '/api/v1/businesses', '/api/v1/insights/runs?businessId=' + businessId, '/api/v1/integrations?businessId=' + businessId]) {
           const response = await app.inject({ url, headers });
           assert.equal(response.statusCode, 401);
+          assert.deepEqual(response.json(), { detail: 'Invalid operator token' });
           assert.equal(response.headers['www-authenticate'], 'Bearer');
         }
         const mutation = await app.inject({ url: '/api/v1/insights/runs', method: 'POST', headers, payload: { businessId } });
@@ -62,12 +63,18 @@ test('support and insights staff routes fail closed with empty/whitespace config
   }
 });
 
-test('configured support and insights staff routes reject malformed credentials and allow exact valid bearers', async () => {
+test('configured staff HTTP groups reject malformed credentials and allow exact valid bearers', async () => {
   const { app, insightReads } = await appFixture(staffToken);
   try {
-    const urls = ['/api/v1/businesses', '/api/v1/insights/runs?businessId=' + seedData().businesses[0]!.id];
+    const businessId = seedData().businesses[0]!.id;
+    const urls = ['/api/v1/operator/session', '/api/v1/businesses', '/api/v1/insights/runs?businessId=' + businessId, '/api/v1/integrations?businessId=' + businessId];
     for (const authorization of [undefined, 'Basic ' + staffToken, 'Bearer wrong', 'Bearer', 'Bearer  ' + staffToken, 'Bearer ' + staffToken + ' ', 'Bearer\t' + staffToken, 'Bearer ' + staffToken.toUpperCase()]) {
-      for (const url of urls) assert.equal((await app.inject({ url, headers: authorization ? { authorization } : {} })).statusCode, 401);
+      for (const url of urls) {
+        const response = await app.inject({ url, headers: authorization ? { authorization } : {} });
+        assert.equal(response.statusCode, 401);
+        assert.deepEqual(response.json(), { detail: 'Invalid operator token' });
+        assert.equal(response.headers['www-authenticate'], 'Bearer');
+      }
     }
     assert.equal(insightReads(), 0);
     for (const url of urls) assert.equal((await app.inject({ url, headers: { authorization: 'Bearer ' + staffToken } })).statusCode, 200);

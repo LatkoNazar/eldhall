@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { staffTokenMatches } from '../core/auth.js';
+import { requireStaffToken } from '../core/staff-auth.js';
 import { HarnessError } from '../modules/agent/harness.js';
 import { VersionConflict } from '../modules/support/store.js';
 import type { SupportDependencies } from '../modules/support/routes.js';
@@ -19,7 +19,7 @@ const response=(state:IntegrationState)=>({integration:integrationSummary(state)
 
 export async function integrationRoutes(app:FastifyInstance,{support,operatorToken}:{support:SupportDependencies;operatorToken:string}) {
   const registry=support.store.integrationStore;
-  app.addHook('onRequest',async(request,reply)=>{ if(!staffTokenMatches(request.headers.authorization,operatorToken)) return reply.code(401).header('WWW-Authenticate','Bearer').send({detail:'Invalid operator token'}); });
+  app.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, operatorToken));
   const guarded=async(reply:FastifyReply,run:()=>Promise<unknown>)=>{
     try{return await run();}catch(error){
       if(error instanceof z.ZodError) return reply.code(422).send({detail:error.issues.map(issue=>issue.message).join('; ')});
@@ -30,11 +30,11 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     }
   };
   const business=async(query:unknown)=>{
-    const {businessId}=z.object({businessId:z.string().uuid()}).strict().parse(query);
+    const {businessId}=z.strictObject({businessId:z.uuid()}).parse(query);
     if(!await support.store.business(businessId)) throw new HarnessError(404,'Business not found');return businessId;
   };
   const selected=async(query:unknown,params:unknown)=>{
-    const businessId=await business(query);const {id}=z.object({id:z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/)}).strict().parse(params);
+    const businessId=await business(query);const {id}=z.strictObject({id:z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/)}).parse(params);
     const state=await registry.get(businessId,id);if(!state) throw new HarnessError(404,'Integration not found');return state;
   };
   const loaded=async(state:IntegrationState,manifestHash=state.loadedManifestHash)=>{
@@ -54,7 +54,7 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
   }));
   app.patch('/api/v1/integrations/:id/policy',(request,reply)=>guarded(reply,async()=>{
     const state=await selected(request.query,request.params);const manifest=await loaded(state);
-    const body=z.object({version,defaultMode:z.enum(['auto','ask','deny']).optional(),groups:integrationPolicySchema.shape.groups.optional(),operations:z.array(z.object({operationKey,mode:ruleMode}).strict()).max(1000).optional()}).strict().parse(request.body);
+    const body=z.strictObject({version,defaultMode:z.enum(['auto','ask','deny']).optional(),groups:integrationPolicySchema.shape.groups.optional(),operations:z.array(z.strictObject({operationKey,mode:ruleMode})).max(1000).optional()}).parse(request.body);
     if(new Set(body.operations?.map(row=>row.operationKey)).size!==(body.operations?.length??0)) throw new HarnessError(422,'Duplicate operation rule');
     const keys=new Set(manifest.operations.map(op=>op.operationKey));
     if(body.operations?.some(op=>!keys.has(op.operationKey)) || body.groups?.some(group=>'operationKeys' in group.selector && group.selector.operationKeys.some(key=>!keys.has(key)))) throw new HarnessError(422,'Unknown operation');
@@ -66,7 +66,7 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
   }));
   app.post('/api/v1/integrations/:id/review',(request,reply)=>guarded(reply,async()=>{
     const state=await selected(request.query,request.params);
-    const body=z.object({version,manifestHash:hash,operations:z.array(z.object({operationKey,operationHash:hash,enabled:z.boolean()}).strict()).min(1).max(1000)}).strict().parse(request.body);
+    const body=z.strictObject({version,manifestHash:hash,operations:z.array(z.strictObject({operationKey,operationHash:hash,enabled:z.boolean()})).min(1).max(1000)}).parse(request.body);
     if(body.manifestHash!==state.loadedManifestHash) throw new IntegrationConflict('Loaded manifest changed');
     const manifest=await loaded(state,body.manifestHash);
     if(new Set(body.operations.map(op=>op.operationKey)).size!==body.operations.length) throw new HarnessError(422,'Duplicate operation review');
@@ -78,7 +78,7 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     });return response(next);
   }));
   app.post('/api/v1/integrations/:id/activate',(request,reply)=>guarded(reply,async()=>{
-    const state=await selected(request.query,request.params);const body=z.object({version,manifestHash:hash,connectionRevision:z.string().regex(/^[1-9]\d{0,14}$/)}).strict().parse(request.body);
+    const state=await selected(request.query,request.params);const body=z.strictObject({version,manifestHash:hash,connectionRevision:z.string().regex(/^[1-9]\d{0,14}$/)}).parse(request.body);
     if(body.manifestHash!==state.loadedManifestHash||body.connectionRevision!==state.connectionRevision) throw new IntegrationConflict('Loaded connection or manifest changed');
     if(!support.integrations?.verifyCatalog) throw new IntegrationConflict('Catalog runtime is not loaded');
     await support.integrations.verifyCatalog(state.businessId,state.integrationId,body.manifestHash,body.connectionRevision);
@@ -88,12 +88,12 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     });return response(next);
   }));
   app.post('/api/v1/integrations/:id/disable',(request,reply)=>guarded(reply,async()=>{
-    const state=await selected(request.query,request.params);const body=z.object({version,draining:z.boolean().default(true)}).strict().parse(request.body);
+    const state=await selected(request.query,request.params);const body=z.strictObject({version,draining:z.boolean().default(true)}).parse(request.body);
     return response(await registry.change(state.businessId,state.integrationId,body.version,'operator:staff','integration.disabled',current=>({...current,enabled:false,draining:body.draining,policy:{...current.policy,enabled:false,policyRevision:current.policy.policyRevision+1}})));
   }));
   app.post<{Params:{id:string}}>('/api/v1/proposals/:id/reconcile',(request,reply)=>guarded(reply,async()=>{
-    const {id}=z.object({id:z.string().uuid()}).strict().parse(request.params);
-    const body=z.object({status:z.enum(['executed','failed']),reason:z.string().trim().min(3).max(500),providerRef:z.string().min(1).max(200).optional(),result:z.record(z.string(),z.unknown()).optional()}).strict().parse(request.body);
+    const {id}=z.strictObject({id:z.uuid()}).parse(request.params);
+    const body=z.strictObject({status:z.enum(['executed','failed']),reason:z.string().trim().min(3).max(500),providerRef:z.string().min(1).max(200).optional(),result:z.record(z.string(),z.unknown()).optional()}).parse(request.body);
     const proposal=await support.store.proposal(id);if(!proposal||proposal.tool!=='external_action') throw new HarnessError(404,'External action not found');
     if(proposal.status!=='unknown') throw new IntegrationConflict('Only an unknown execution can be reconciled');
     const supportCase=(await support.store.getCase(proposal.caseId))!;

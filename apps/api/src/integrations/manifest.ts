@@ -17,9 +17,9 @@ const header = z.string().regex(/^[A-Za-z][A-Za-z0-9-]{0,63}$/);
 const location = z.enum(['path', 'query', 'body']);
 const protectedHeaders = new Set(['authorization','proxy-authorization','host','content-length','transfer-encoding','connection','cookie','set-cookie','content-type','accept']);
 // Header placement is allowed for trusted scope only; model input never sets headers.
-const scopeBinding = z.union([z.object({ in: location, name: field }).strict(), z.object({ in: z.literal('header'), name: header }).strict()]);
+const scopeBinding = z.union([z.strictObject({ in: location, name: field }), z.strictObject({ in: z.literal('header'), name: header })]);
 
-const operationSchema = z.object({
+const operationSchema = z.strictObject({
   operationKey: z.string(),
   operationId: z.string().min(1).max(128).nullable(),
   toolName: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
@@ -34,13 +34,13 @@ const operationSchema = z.object({
     try { validateInputSchema(value); return value.type === 'object'; } catch { return false; }
   }, 'Expected a bounded object JSON Schema'),
   parameters: z.record(field, location),
-  scope: z.object({ businessId: scopeBinding.optional(), customerId: scopeBinding }).strict(),
+  scope: z.strictObject({ businessId: scopeBinding.optional(), customerId: scopeBinding }),
   outputFields: z.array(field).min(1).max(30),
   guard: z.string().regex(/^[a-z0-9_.-]{1,100}$/).nullable(),
-  idempotency: z.object({ header }).strict().nullable(),
-  reconciliation: z.object({ operationKey: z.string() }).strict().nullable(),
+  idempotency: z.strictObject({ header }).nullable(),
+  reconciliation: z.strictObject({ operationKey: z.string() }).nullable(),
   operationHash: hash,
-}).strict().superRefine((op, ctx) => {
+}).superRefine((op, ctx) => {
   const issue = (message: string) => ctx.addIssue({ code: 'custom', message: `${op.operationKey}: ${message}` });
   if(op.path.startsWith('//') || op.path.split('/').some(segment=>segment==='.'||segment==='..')) issue('literal dot segments and authority paths are forbidden');
   const names=[...op.path.matchAll(/\{([^{}]+)\}/g)].map(match=>match[1]!);
@@ -68,7 +68,7 @@ const operationSchema = z.object({
   if (fingerprint(op, 'operationHash') !== op.operationHash) issue('operationHash does not match canonical content');
 });
 
-export const manifestSchema = z.object({
+export const manifestSchema = z.strictObject({
   schemaVersion: z.literal(MANIFEST_SCHEMA_VERSION),
   generatorVersion: z.string().min(1).max(100),
   adapterContractVersion: z.literal(ADAPTER_CONTRACT_VERSION),
@@ -76,7 +76,7 @@ export const manifestSchema = z.object({
   specHash: hash,
   operations: z.array(operationSchema).max(1000),
   manifestHash: hash,
-}).strict().superRefine((manifest, ctx) => {
+}).superRefine((manifest, ctx) => {
   const keys = manifest.operations.map(op => op.operationKey);
   if (new Set(keys).size !== keys.length) ctx.addIssue({ code: 'custom', message: 'Duplicate operationKey' });
   if (new Set(manifest.operations.map(op => op.toolName)).size !== keys.length) ctx.addIssue({ code: 'custom', message: 'Duplicate toolName' });

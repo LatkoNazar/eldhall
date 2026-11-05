@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { staffTokenMatches } from '../../core/auth.js';
+import { requireStaffToken } from '../../core/staff-auth.js';
 import { fixedWindowLimiter } from './rate-limit.js';
 import { HarnessError, type SupportHarness } from '../agent/harness.js';
 import type { CaseStatus } from './contracts.js';
@@ -79,11 +79,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
 
   // Operator console: bearer OPERATOR_TOKEN.
   await app.register(async operator => {
-    operator.addHook('onRequest', async (request, reply) => {
-      if (!staffTokenMatches(request.headers.authorization, operatorToken)) {
-        return reply.code(401).header('WWW-Authenticate', 'Bearer').send({ detail: 'Invalid operator token' });
-      }
-    });
+    operator.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, operatorToken));
     operator.get<{ Querystring: { status?: CaseStatus } }>('/cases', {
       schema: { querystring: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
     }, request => store.listCases(request.query.status));
@@ -103,7 +99,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     operator.post<{ Params: { id: string }; Body: { operator?: string; reason: string } }>('/proposals/:id/reject', {
       schema: { params: uuidParams, body: { type: 'object', additionalProperties: false, required: ['reason'], properties: { operator: { type: 'string', maxLength: 80 }, reason: { type: 'string', minLength: 1, maxLength: 500 } } } },
     }, (request, reply) => guard(reply, () => harness.reject(request.params.id, 'staff', z.string().trim().min(1).max(500).parse(request.body.reason))));
-    const ownershipBody = z.object({ ownershipVersion: z.number().int().nonnegative().optional() }).strict();
+    const ownershipBody = z.strictObject({ ownershipVersion: z.number().int().nonnegative().optional() });
     for (const command of ['takeover', 'resume-bot', 'resolve'] as const) {
       operator.post<{ Params: { id: string } }>('/cases/:id/' + command, { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
         const body = ownershipBody.parse(request.body ?? {});
@@ -115,7 +111,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       }));
     }
     operator.post<{ Params: { id: string } }>('/cases/:id/messages', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
-      const body = z.object({ body: z.string().trim().min(1).max(2000), ownershipVersion: z.number().int().nonnegative().optional() }).strict().parse(request.body);
+      const body = z.strictObject({ body: z.string().trim().min(1).max(2000), ownershipVersion: z.number().int().nonnegative().optional() }).parse(request.body);
       if (!await store.getCase(request.params.id)) throw new HarnessError(404, 'Case not found');
       const message = await store.staffMessage(request.params.id, body.body, body.ownershipVersion);
       await store.audit(request.params.id, 'staff.replied', 'operator:staff');
@@ -123,18 +119,18 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     operator.get('/businesses', async () => ({ businesses: (await store.businessesList()).map(({ id, slug, name, currency }) => ({ id, slug, name, currency })) }));
     operator.post('/businesses', (request, reply) => guard(reply, async () => {
-      const body = z.object({ name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/), currency: z.string().regex(/^[A-Z]{3}$/), policy: z.object({ refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3) }).strict().default({ refundLimitCents: 50000, duplicateWindowMinutes: 10, enabledTools: ['lookup_payments', 'refund_payment', 'escalate_to_human'] }) }).strict().parse(request.body);
+      const body = z.strictObject({ name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/), currency: z.string().regex(/^[A-Z]{3}$/), policy: z.strictObject({ refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3) }).default({ refundLimitCents: 50000, duplicateWindowMinutes: 10, enabledTools: ['lookup_payments', 'refund_payment', 'escalate_to_human'] }) }).parse(request.body);
       return reply.code(201).send(await store.createBusiness({ ...body, id: randomUUID() }));
     }));
     operator.post('/customers', (request, reply) => guard(reply, async () => {
-      const body = z.object({ businessId: z.string().uuid(), name: z.string().trim().min(1).max(200), email: z.string().email().max(254), plan: z.string().trim().min(1).max(80) }).strict().parse(request.body);
+      const body = z.strictObject({ businessId: z.uuid(), name: z.string().trim().min(1).max(200), email: z.email().max(254), plan: z.string().trim().min(1).max(80) }).parse(request.body);
       if (!await store.business(body.businessId)) throw new HarnessError(404, 'Business not found');
       const customer = await store.createCustomer({ ...body, id: randomUUID(), sessionToken: randomBytes(32).toString('base64url') });
       const { sessionToken, ...identity } = customer;
       return reply.code(201).send({ customer: identity, sessionToken });
     }));
     const scope = async (query: unknown) => {
-      const { businessId } = z.object({ businessId: z.string().uuid().optional() }).strict().parse(query);
+      const { businessId } = z.strictObject({ businessId: z.uuid().optional() }).parse(query);
       const business = businessId ? await store.business(businessId) : (await store.businessesList())[0];
       if (!business) throw new HarnessError(404, 'Business not found');
       return business.id;
@@ -143,7 +139,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     // Same retrieval the agent uses for this business: published sources, hybrid BM25 + vector ranking,
     // audience/plan filters as for a customer (audience=any also shows internal sources to staff).
     operator.get('/knowledge/search', (request, reply) => guard(reply, async () => {
-      const { q, k, audience, plan, ...rest } = z.object({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), audience: z.enum(['customer', 'any']).default('customer'), plan: z.string().trim().min(1).max(80).optional(), businessId: z.string().uuid().optional() }).strict().parse(request.query);
+      const { q, k, audience, plan, ...rest } = z.strictObject({ q: z.string().trim().min(1).max(500), k: z.coerce.number().int().min(1).max(10).default(5), audience: z.enum(['customer', 'any']).default('customer'), plan: z.string().trim().min(1).max(80).optional(), businessId: z.uuid().optional() }).parse(request.query);
       const businessId = await scope(rest);
       const external = knowledgeRuntime.external;
       if (external?.hasBusiness(businessId)) {
@@ -176,7 +172,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       return { versions };
     }));
     const access = { audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().trim().min(1).max(80)).max(20).optional() };
-    const importBody = z.object({ category: z.string().trim().min(1).max(80), title: z.string().trim().min(1).max(200).optional(), ...access });
+    const importBody = z.strictObject({ category: z.string().trim().min(1).max(80), title: z.string().trim().min(1).max(200).optional(), ...access });
     const imported = async (businessId: string, run: () => Promise<{ title: string; content: string; sourceUrl: string | null }>, fields: { category: string; audience?: 'customer' | 'internal'; plans?: string[] }) => {
       let document;
       try { document = await run(); } catch (error) {
@@ -187,14 +183,14 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     };
     // Imports always create drafts: nothing reaches the AI before an operator publishes it.
     operator.post('/knowledge/import-url', (request, reply) => guard(reply, async () => {
-      const body = importBody.extend({ url: z.string().trim().min(1).max(2000) }).strict().parse(request.body);
+      const body = importBody.extend({ url: z.string().trim().min(1).max(2000) }).parse(request.body);
       return reply.code(201).send(await imported(await scope(request.query), () => importFromUrl(body.url, body.title), body));
     }));
     operator.post('/knowledge/upload', (request, reply) => guard(reply, async () => {
-      const body = importBody.extend({ filename: z.string().trim().min(1).max(200), contentBase64: z.string().min(1).max(800_000) }).strict().parse(request.body);
+      const body = importBody.extend({ filename: z.string().trim().min(1).max(200), contentBase64: z.string().min(1).max(800_000) }).parse(request.body);
       return reply.code(201).send(await imported(await scope(request.query), async () => importFromFile(body.filename, body.contentBase64, body.title), body));
     }));
-    const documentBody = z.object({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000), ...access }).strict();
+    const documentBody = z.strictObject({ title: z.string().trim().min(1).max(200), category: z.string().trim().min(1).max(80), content: z.string().trim().min(1).max(100000), ...access });
     operator.post('/knowledge', (request, reply) => guard(reply, async () => {
       const body = documentBody.parse(request.body);
       return reply.code(201).send(await store.saveKnowledge({ ...body, id: randomUUID(), businessId: await scope(request.query), version: 1, status: 'draft', updatedAt: new Date().toISOString() }));
@@ -208,7 +204,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     for (const command of ['publish', 'revoke'] as const) {
       operator.post<{ Params: { id: string } }>('/knowledge/:id/' + command, { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
-        const { version } = z.object({ version: z.number().int().positive() }).strict().parse(request.body);
+        const { version } = z.strictObject({ version: z.number().int().positive() }).parse(request.body);
         const source = (await store.knowledge(await scope(request.query))).find(d => d.id === request.params.id);
         if (!source) throw new HarnessError(404, 'Document not found');
         return store.saveKnowledge({ ...source, version: version + 1, status: command === 'publish' ? 'published' : 'revoked', updatedAt: new Date().toISOString() }, version);
@@ -216,12 +212,12 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }
     operator.get('/skills', (request, reply) => guard(reply, async () => ({ skills: await store.skills(await scope(request.query)), preset: 'support-v1' })));
     operator.post('/skills', (request, reply) => guard(reply, async () => {
-      const body = z.object({ name: z.string().regex(/^custom\/[a-z0-9][a-z0-9-]{0,63}$/), content: z.string().trim().min(1).max(30000), enabled: z.boolean().default(true) }).strict().parse(request.body);
+      const body = z.strictObject({ name: z.string().regex(/^custom\/[a-z0-9][a-z0-9-]{0,63}$/), content: z.string().trim().min(1).max(30000), enabled: z.boolean().default(true) }).parse(request.body);
       return reply.code(201).send(await store.saveSkill({ ...body, id: randomUUID(), businessId: await scope(request.query), revision: 1, updatedAt: new Date().toISOString() }));
     }));
     operator.get('/settings', (request, reply) => guard(reply, async () => store.settings(await scope(request.query))));
     operator.patch('/settings', (request, reply) => guard(reply, async () => {
-      const body = z.object({ version: z.number().int().positive(), language: z.enum(['uk', 'en']), tone: z.enum(['neutral', 'empathetic', 'de-escalating']), requireApproval: z.literal(true), refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3), classification: classificationConfigSchema.nullable().optional() }).strict().parse(request.body);
+      const body = z.strictObject({ version: z.number().int().positive(), language: z.enum(['uk', 'en']), tone: z.enum(['neutral', 'empathetic', 'de-escalating']), requireApproval: z.literal(true), refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3), classification: classificationConfigSchema.nullable().optional() }).parse(request.body);
       return store.saveSettings({ ...body, businessId: await scope(request.query), version: body.version + 1 }, body.version);
     }));
     operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));

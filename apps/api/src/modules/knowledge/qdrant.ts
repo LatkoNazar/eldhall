@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const field = z.string().min(1).max(160).regex(/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/).refine(value => !value.split('.').some(part => ['__proto__', 'prototype', 'constructor'].includes(part)), 'Unsafe payload path');
 const credential = z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/);
-const match = z.object({ field, value: z.union([z.string().min(1).max(200), z.number().finite(), z.boolean()]) }).strict();
+const match = z.strictObject({ field, value: z.union([z.string().min(1).max(200), z.number(), z.boolean()]) });
 function validEndpoint(value: string, loopback: boolean): boolean {
   try {
     const url = new URL(value);
@@ -12,15 +12,15 @@ function validEndpoint(value: string, loopback: boolean): boolean {
 }
 
 /** Operator-controlled configuration only. These URLs and filters never come from customer/model input. */
-export const qdrantKnowledgeSchema = z.object({
-  id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/), businessId: z.string().uuid(), type: z.literal('qdrant'),
-  url: z.string().url().max(1000), collection: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.-]+$/), credentialEnv: credential.optional(),
+export const qdrantKnowledgeSchema = z.strictObject({
+  id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/), businessId: z.uuid(), type: z.literal('qdrant'),
+  url: z.url().max(1000), collection: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.-]+$/), credentialEnv: credential.optional(),
   vectorName: z.string().min(1).max(100).optional(), allowInsecureLoopback: z.boolean().default(false),
-  embedding: z.object({ provider: z.enum(['openai', 'google', 'local']), model: z.string().min(1).max(200), dimensions: z.number().int().min(1).max(4096), credentialEnv: credential.optional(), baseUrl: z.string().url().max(1000).optional() }).strict(),
-  fields: z.object({ text: field, title: field.optional(), section: field.optional(), version: field.optional() }).strict(),
-  access: z.object({ tenant: match.optional(), singleTenant: z.boolean().default(false), published: match.optional(), customerVisible: match.optional(), trustedPublicCollection: z.boolean().default(false), planField: field.optional(), publicPlanValue: z.string().min(1).max(100).optional() }).strict(),
-  limit: z.number().int().min(1).max(5).default(5), scoreThreshold: z.number().finite().optional(), timeoutMs: z.number().int().min(100).max(30_000).default(5000),
-}).strict().superRefine((value, ctx) => {
+  embedding: z.strictObject({ provider: z.enum(['openai', 'google', 'local']), model: z.string().min(1).max(200), dimensions: z.number().int().min(1).max(4096), credentialEnv: credential.optional(), baseUrl: z.url().max(1000).optional() }),
+  fields: z.strictObject({ text: field, title: field.optional(), section: field.optional(), version: field.optional() }),
+  access: z.strictObject({ tenant: match.optional(), singleTenant: z.boolean().default(false), published: match.optional(), customerVisible: match.optional(), trustedPublicCollection: z.boolean().default(false), planField: field.optional(), publicPlanValue: z.string().min(1).max(100).optional() }),
+  limit: z.number().int().min(1).max(5).default(5), scoreThreshold: z.number().optional(), timeoutMs: z.number().int().min(100).max(30_000).default(5000),
+}).superRefine((value, ctx) => {
   if (!validEndpoint(value.url, value.allowInsecureLoopback)) ctx.addIssue({ code: 'custom', message: 'Qdrant requires HTTPS without URL credentials/query/fragment, or explicitly allowed loopback HTTP' });
   if (!value.access.tenant && !value.access.singleTenant) ctx.addIssue({ code: 'custom', message: 'Set a tenant payload filter or explicitly declare a single-tenant collection' });
   if ((!value.access.published || !value.access.customerVisible) && !value.access.trustedPublicCollection) ctx.addIssue({ code: 'custom', message: 'Set publication and customer-visibility filters or explicitly trust the whole collection as published customer content' });

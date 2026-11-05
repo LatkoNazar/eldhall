@@ -1,17 +1,17 @@
 import { z } from 'zod';
 
-const uuid = z.string().uuid();
-export const insightOutputSchema = z.object({
-  findings: z.array(z.object({
+const uuid = z.uuid();
+export const insightOutputSchema = z.strictObject({
+  findings: z.array(z.strictObject({
     kind: z.enum(['recurring_issue', 'knowledge_gap', 'possible_contradiction']),
     title: z.string().trim().min(1).max(160),
     summary: z.string().trim().min(1).max(1200),
     recommendation: z.string().trim().min(1).max(800),
-    evidence: z.array(z.object({ caseId: uuid, messageIds: z.array(uuid).min(1).max(8) }).strict()).min(1).max(25),
-    knowledgeRefs: z.array(z.object({ id: uuid, version: z.number().int().positive() }).strict()).max(20),
-    proposedArticle: z.object({ title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(6000) }).strict().nullable(),
-  }).strict()).max(8),
-}).strict();
+    evidence: z.array(z.strictObject({ caseId: uuid, messageIds: z.array(uuid).min(1).max(8) })).min(1).max(25),
+    knowledgeRefs: z.array(z.strictObject({ id: uuid, version: z.number().int().positive() })).max(20),
+    proposedArticle: z.strictObject({ title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(6000) }).nullable(),
+  })).max(8),
+});
 export type InsightOutput = z.infer<typeof insightOutputSchema>;
 export type InsightFinding = InsightOutput['findings'][number] & { id: string; caseCount: number; draftId: string | null };
 export interface InsightSample {

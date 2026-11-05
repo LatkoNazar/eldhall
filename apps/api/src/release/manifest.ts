@@ -5,7 +5,7 @@ const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const commit = z.string().regex(/^[a-f0-9]{40}$/);
 const semver = z.string().max(128).regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/);
 const releaseVersion = semver.refine(value => !value.includes('+'), 'Release versions omit build metadata to remain Docker tags');
-const httpsUrl = z.string().url().refine(value => {
+const httpsUrl = z.url().refine(value => {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password && !url.hash;
