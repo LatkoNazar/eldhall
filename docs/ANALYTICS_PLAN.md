@@ -1,7 +1,7 @@
 # Product analytics plan (PostHog) — decision record
 
-**Status:** accepted as the plan; **not implemented**. Build it only after the MVP E2E and the desktop/mobile UI are stable (priority 4 of 4).
-**Owner:** WS1 (`packages/analytics`, server telemetry wiring). No workstream adds tracking calls before then.
+**Status:** the Umami facade and browser events below are implemented; the PostHog and server-event design remains a future plan.
+**Owner:** WS1 (`packages/analytics`, server telemetry wiring). Browser integrations use the typed Umami facade.
 
 ## Decision
 - **One tracking API.** Clients keep calling the existing typed facade in `packages/analytics` (`initAnalytics(env, surface)` → `Analytics`). Add a PostHog provider behind it, next to the current Umami one. Call sites never import `posthog-js` directly, and every event goes through a typed method, never through free-form `track(name, props)`.
@@ -16,7 +16,14 @@
 
 PostHog client options to verify against the current docs at implementation time: `autocapture: false`, `capture_pageview: false`, `disable_session_recording: true`, `persistence: 'memory'`, `person_profiles: 'identified_only'` (and never identify).
 
-## Event schema
+
+## Implemented (31.10, branch feat/support-analytics)
+- **Facade:** `packages/analytics` exposes one typed `track(event, props)` plus `currentAnalytics()`. Allowed events and enum-only properties live in `productEvents`; `validateProductEvent` drops any event with unknown keys or values, so free text, names, emails, ids and amounts cannot be sent. Without `PUBLIC_UMAMI_*` the client is a no-op (no script, no request); collector errors are swallowed.
+- **Events wired (Umami provider):** `landing_viewed`, `landing_cta_clicked`, `app_opened` (existing); `demo_started` / `demo_completed` `{scenario: refund|limit}` from the landing walkthrough (once per scenario per page view); `support_case_created` after the server created a case; `approval_granted`, `action_executed`, `action_failed {outcome: failed|unknown}` only from the server-confirmed proposal status (clicks and 409 retries are not counted).
+- **Support KPIs (Analytics page, «Якість підтримки»):** resolution rate, escalation rate, successful/failed/unconfirmed actions derived from `GET /api/v1/metrics` (per case / per proposal state). `unknown` is shown separately from confirmed `failed` actions; it may already have taken effect and requires verification. Average resolution time shows **N/A** — the API does not expose resolution timestamps yet. Values reflect the current store; in memory demo mode they reset on restart.
+- **Not done yet:** PostHog adapter, server-side event emission (`case_resolved`, `case_escalated`, resolution time), escalation-reason breakdown, landing→demo funnel report (events exist; needs a configured Umami instance). No live Umami endpoint was verified.
+
+## Future PostHog event schema (not the current Umami contract)
 | Event | Source | Properties (all non-personal) |
 |---|---|---|
 | `landing_viewed` | landing (exists today) | `surface`, `utm_*` |
