@@ -63,7 +63,7 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id:
   useEffect(() => {
     dirtyRef.current = isDirty
     const remove = registerNavigationGuard(() => !isDirty || window.confirm('Відкинути незбережені правила інтеграції?'))
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (isDirty) { event.preventDefault(); event.returnValue = '' } }
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (isDirty) { event.preventDefault() } }
     window.addEventListener('beforeunload', beforeUnload)
     return () => { remove(); dirtyRef.current = false; window.removeEventListener('beforeunload', beforeUnload) }
   }, [dirtyRef, isDirty])

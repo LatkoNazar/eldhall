@@ -47,3 +47,47 @@ it('shows the server error instead of results', async () => {
   await user.click(screen.getByRole('button', { name: 'Перевірити' }))
   expect(await screen.findByRole('alert')).toBeInTheDocument()
 })
+
+it.each([
+  ['missing passages', { ...result, hits: [{ ...result.hits[0], passages: undefined }] }],
+  ['non-numeric score', { ...result, hits: [{ ...result.hits[0], passages: [{ ...result.hits[0]!.passages[0], score: '0.03' }] }] }],
+  ['missing similarity', { ...result, hits: [{ ...result.hits[0], passages: [{ ...result.hits[0]!.passages[0], similarity: undefined }] }] }],
+  ['non-text passage', { ...result, hits: [{ ...result.hits[0], passages: [{ ...result.hits[0]!.passages[0], text: { value: 'invalid' } }] }] }],
+])('rejects a malformed successful search with %s without crashing the workspace', async (_label, payload) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? {} : payload), { headers: { 'Content-Type': 'application/json' } })))
+  const user = userEvent.setup()
+  render(<KnowledgeSearchTest token="op-token" businessId={businessId} />)
+  await user.type(screen.getByLabelText('Питання клієнта'), 'hours')
+  await user.click(screen.getByRole('button', { name: 'Перевірити' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Неочікувана відповідь сервера')
+  expect(screen.getByRole('button', { name: 'Перевірити' })).toBeEnabled()
+  expect(screen.queryByText('Знайдено джерел: 1', { exact: false })).not.toBeInTheDocument()
+})
+
+it.each([
+  { embedder: null },
+  { embedder: { id: {} }, vectorStore: 'memory', chunks: 0, staleChunks: 0, published: 0, urlImport: false },
+  { embedder: { id: 'external' }, vectorStore: 'qdrant', chunks: null, staleChunks: null, published: null, urlImport: false, readOnly: true, collection: {} },
+])('keeps search usable when the index response contains invalid rendered fields (%j)', async index => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? index : result), { headers: { 'Content-Type': 'application/json' } })))
+  const user = userEvent.setup()
+  render(<KnowledgeSearchTest token="op-token" businessId={businessId} />)
+  await user.type(screen.getByLabelText('Питання клієнта'), 'hours')
+  await user.click(screen.getByRole('button', { name: 'Перевірити' }))
+  expect(await screen.findByText('Знайдено джерел: 1', { exact: false })).toBeInTheDocument()
+  expect(screen.queryByText(/^Індекс:/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+it.each(['lexical', 'external'])('preserves the real %s search response variant', async mode => {
+  const payload = { ...result, mode, hits: [{ ...result.hits[0], score: 0, passages: [{ ...result.hits[0]!.passages[0], score: 0, lexicalRank: null, vectorRank: null, similarity: null }] }] }
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? {} : payload), { headers: { 'Content-Type': 'application/json' } })))
+  const user = userEvent.setup()
+  render(<KnowledgeSearchTest token="op-token" businessId={businessId} />)
+  await user.type(screen.getByLabelText('Питання клієнта'), 'hours')
+  await user.click(screen.getByRole('button', { name: 'Перевірити' }))
+  expect(await screen.findByText('Повертаємо пізніше списання.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  if (mode === 'external') expect(screen.queryByText(/RRF/)).not.toBeInTheDocument()
+  else expect(screen.getByText('RRF 0.0000')).toBeInTheDocument()
+})

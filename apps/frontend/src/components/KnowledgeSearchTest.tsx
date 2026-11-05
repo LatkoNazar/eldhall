@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Badge, Icon, Notice } from './ui'
 import { errorText, request } from '../lib/api'
-
-// Mirrors KnowledgeSearchResult in apps/api/src/modules/knowledge/retriever.ts.
-export interface KnowledgePassage { section: string; text: string; score: number; lexicalRank: number | null; vectorRank: number | null; similarity: number | null }
-export interface KnowledgeHit { id: string; title: string; version: number; category?: string; audience?: 'customer' | 'internal'; sourceUrl?: string | null; content: string; section: string; score: number; passages: KnowledgePassage[] }
-export interface KnowledgeIndex { embedder: { id: string }; vectorStore: string; chunks: number | null; staleChunks: number | null; published: number | null; urlImport: boolean; readOnly?: boolean; collection?: string }
-export interface KnowledgeSearchResult { query: string; mode: string; embedder: string; tookMs: number; hits: KnowledgeHit[] }
-
-function isResult(value: unknown): value is KnowledgeSearchResult {
-  return typeof value === 'object' && value !== null && Array.isArray((value as { hits?: unknown }).hits)
-}
+import { isKnowledgeIndex, isKnowledgeSearchResult } from '../lib/knowledge-search'
+import type { KnowledgeIndex, KnowledgeSearchResult } from '../lib/knowledge-search'
+export type { KnowledgePassage, KnowledgeHit, KnowledgeIndex, KnowledgeSearchResult } from '../lib/knowledge-search'
 
 /** Lets an operator ask a customer question and see exactly which published passages the AI would receive. */
 export function KnowledgeSearchTest({ token, businessId }: { token: string; businessId: string }) {
@@ -26,8 +19,8 @@ export function KnowledgeSearchTest({ token, businessId }: { token: string; busi
 
   useEffect(() => {
     const controller = new AbortController()
-    request<KnowledgeIndex>(`/knowledge/index?businessId=${encodeURIComponent(businessId)}`, token, { signal: controller.signal })
-      .then(value => setIndex(value && typeof value === 'object' && 'embedder' in value ? value : null))
+    request<unknown>(`/knowledge/index?businessId=${encodeURIComponent(businessId)}`, token, { signal: controller.signal })
+      .then(value => setIndex(isKnowledgeIndex(value) ? value : null))
       .catch(() => setIndex(null))
     return () => controller.abort()
   }, [token, businessId, revision])
@@ -49,7 +42,7 @@ export function KnowledgeSearchTest({ token, businessId }: { token: string; busi
     setError('')
     try {
       const value = await request<unknown>(`/knowledge/search?businessId=${encodeURIComponent(businessId)}&q=${encodeURIComponent(q)}&k=5&audience=${audience}${plan.trim() ? `&plan=${encodeURIComponent(plan.trim())}` : ''}`, token)
-      if (!isResult(value)) throw new Error('Неочікувана відповідь сервера')
+      if (!isKnowledgeSearchResult(value)) throw new Error('Неочікувана відповідь сервера')
       setResult(value)
     } catch (cause) {
       setError(errorText(cause))
