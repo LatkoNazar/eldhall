@@ -1,0 +1,2093 @@
+{
+  "fixtureFormat": 1,
+  "kind": "inspector-presentation",
+  "clock": "2026-11-05T10:00:00.000Z",
+  "notice": "Усі бізнеси, люди, записи та результати вигадані. Лише представлення даних; без виконання операцій.",
+  "scenarios": [
+    {
+      "id": "payments",
+      "template": "payments",
+      "business": {
+        "id": "8138fbee-a819-5e3e-839e-b3c6a4adbdfd",
+        "name": "Ліхтар Освіта · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a",
+          "businessId": "8138fbee-a819-5e3e-839e-b3c6a4adbdfd",
+          "customerId": "7f1548f4-5643-5739-98f8-b7b9d550637a",
+          "customerName": "Марта Савчук",
+          "status": "awaiting_approval",
+          "priority": "P2",
+          "intent": "duplicate_charge",
+          "analysis": {
+            "intent": "duplicate_charge",
+            "summary": "Перевірку повторного списання завершено. Повернення лише запропоновано, гроші не переміщувалися.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "frustrated",
+              "frustration": 0.4,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "7f1548f4-5643-5739-98f8-b7b9d550637a",
+          "name": "Марта Савчук",
+          "email": "marta@example.invalid",
+          "plan": "Клієнт Ліхтар Освіта",
+          "businessId": "8138fbee-a819-5e3e-839e-b3c6a4adbdfd"
+        },
+        "messages": [
+          {
+            "id": "5f17f027-7723-56f4-820b-faaf05c80ed6",
+            "caseId": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a",
+            "role": "customer",
+            "body": "Прошу перевірити два списання за курс «Міські сади» та повернути повторне.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "bb70ea1b-3e3e-576c-b7cb-0a8190bd48f4",
+            "caseId": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a",
+            "role": "assistant",
+            "body": "Перевірку повторного списання завершено. Повернення лише запропоновано, гроші не переміщувалися.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "c903ee2f-b399-5757-ad8b-0b612cdddd06",
+            "caseId": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-payments",
+              "toolName": "demo_payments_change",
+              "operationKey": "POST /demo/payments/change",
+              "title": "Повторне списання за курс",
+              "operationHash": "1499913bdb1d7dd91bc0631c76bfdf9431cb156e94f0899f3c6216d6101d6b5d",
+              "manifestHash": "1520a026807cbff4328e9794b5ea52e4a30d11b832f21f906afe937cfb677f1f",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "7f1548f4-5643-5739-98f8-b7b9d550637a",
+              "input": {
+                "payment_id": "2e667994-4645-5a40-b5dc-429a31ccb52d",
+                "amount_cents": 189900,
+                "currency": "UAH",
+                "status": "refund_requested"
+              },
+              "businessId": "8138fbee-a819-5e3e-839e-b3c6a4adbdfd",
+              "caseId": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.payments"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/payments/change"
+              ]
+            },
+            "argsHash": "bcd955bf34f56f12693435f48969e2bd9d493f8054541533fc458f1a1131e1fd",
+            "risk": "high",
+            "status": "pending",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/payments/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": null,
+            "decidedBy": null,
+            "decidedAt": null,
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [
+          {
+            "id": "9eab7689-1ade-5209-af1a-41ece40a9f9d",
+            "amountCents": 189900,
+            "currency": "UAH",
+            "description": "Курс «Міські сади» · первинне списання",
+            "merchantRef": "COURSE-GARDEN-2026",
+            "status": "captured",
+            "createdAt": "2026-11-05T09:59:20.000Z",
+            "customerId": "7f1548f4-5643-5739-98f8-b7b9d550637a"
+          },
+          {
+            "id": "2e667994-4645-5a40-b5dc-429a31ccb52d",
+            "amountCents": 189900,
+            "currency": "UAH",
+            "description": "Курс «Міські сади» · повторне списання",
+            "merchantRef": "COURSE-GARDEN-2026",
+            "status": "captured",
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "customerId": "7f1548f4-5643-5739-98f8-b7b9d550637a"
+          }
+        ],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "8a22ab39-4633-5aa0-bc70-2424536c8d9d",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "c903ee2f-b399-5757-ad8b-0b612cdddd06",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "23f116ff-c7c3-529d-bb2c-0d9c04feb76a"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "delivery",
+      "template": "delivery",
+      "business": {
+        "id": "b9ea9719-94cf-53e9-8359-0925f6b7a1b9",
+        "name": "Тихий Ліс Книги · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40",
+          "businessId": "b9ea9719-94cf-53e9-8359-0925f6b7a1b9",
+          "customerId": "92490758-d9ca-5fbe-800a-ef85c30e3213",
+          "customerName": "Остап Романюк",
+          "status": "awaiting_approval",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Погоджено лише запит на перенесення. Нову дату ще не підтверджено перевізником.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "92490758-d9ca-5fbe-800a-ef85c30e3213",
+          "name": "Остап Романюк",
+          "email": "ostap@example.invalid",
+          "plan": "Клієнт Тихий Ліс Книги",
+          "businessId": "b9ea9719-94cf-53e9-8359-0925f6b7a1b9"
+        },
+        "messages": [
+          {
+            "id": "3e2bb3db-6009-5f4e-8325-ac8a4d861f4f",
+            "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40",
+            "role": "customer",
+            "body": "Мене не буде вдома у п’ятницю. Чи можна доставити книжки у понеділок?",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "0a5cf594-b1f1-53c4-8d89-5324736a39dd",
+            "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40",
+            "role": "assistant",
+            "body": "Погоджено лише запит на перенесення. Нову дату ще не підтверджено перевізником.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "0e054692-edc9-5310-a34d-dafa3c0e9c7b",
+            "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-delivery",
+              "toolName": "demo_delivery_change",
+              "operationKey": "POST /demo/delivery/change",
+              "title": "Перенести доставку книжок",
+              "operationHash": "fb17ff8bcbb7a399deff9106da22ef52484e9436f2a40623eaa21ffd94aaaf14",
+              "manifestHash": "6844588c37a978f93801573d119f816d99059a63e6de995e60671090031c1888",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "92490758-d9ca-5fbe-800a-ef85c30e3213",
+              "input": {
+                "shipment_id": "SH-BK-2048",
+                "tracking_number": "DEMO-BK-4471",
+                "carrier": "Листок Доставка",
+                "delivery_date": "2026-11-09",
+                "status": "reschedule_requested"
+              },
+              "businessId": "b9ea9719-94cf-53e9-8359-0925f6b7a1b9",
+              "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.delivery"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/delivery/change"
+              ]
+            },
+            "argsHash": "d412138ddaa191581e4c43501ee8b4ad9560d32f340dfb3aa0e3ec226b3aace5",
+            "risk": "high",
+            "status": "approved",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/delivery/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "5ad84399-adad-52bc-aae7-c1751592b54d",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "0e054692-edc9-5310-a34d-dafa3c0e9c7b",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40"
+          },
+          {
+            "id": "2319ca80-feb3-50a1-ae8d-04146c7e38af",
+            "type": "action.approved",
+            "actor": "operator",
+            "data": {
+              "proposalId": "0e054692-edc9-5310-a34d-dafa3c0e9c7b",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "9c6ec5cb-2ce6-51b6-87e8-40b3adf37a40"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "orders",
+      "template": "orders",
+      "business": {
+        "id": "52de5a8f-b759-57a4-a168-93bca3cb107d",
+        "name": "Кераміка Берег · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "c7837ac2-e198-59a9-a52b-4931f95064ca",
+          "businessId": "52de5a8f-b759-57a4-a168-93bca3cb107d",
+          "customerId": "ab50a48e-4109-568e-a760-f05a126c16a3",
+          "customerName": "Леся Мороз",
+          "status": "resolved",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "У синтетичному журналі постачальника записано зміну кількості: дві чашки. Це збережений приклад результату, не живий виклик.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "ab50a48e-4109-568e-a760-f05a126c16a3",
+          "name": "Леся Мороз",
+          "email": "lesia@example.invalid",
+          "plan": "Клієнт Кераміка Берег",
+          "businessId": "52de5a8f-b759-57a4-a168-93bca3cb107d"
+        },
+        "messages": [
+          {
+            "id": "e91df17c-0f76-50a5-b74a-d7365b516f47",
+            "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca",
+            "role": "customer",
+            "body": "Залиште, будь ласка, дві сині чашки замість чотирьох до відправлення.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "07d29c27-c59e-5d96-846d-f7813c44422b",
+            "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca",
+            "role": "assistant",
+            "body": "У синтетичному журналі постачальника записано зміну кількості: дві чашки. Це збережений приклад результату, не живий виклик.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "cacfd413-3a82-599d-945a-740b5f00b6d7",
+            "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-orders",
+              "toolName": "demo_orders_change",
+              "operationKey": "POST /demo/orders/change",
+              "title": "Змінити склад замовлення",
+              "operationHash": "68ef7945900b25495075281e55ff2185331ad0255bba727883b7a054196abfe4",
+              "manifestHash": "756199df92b4ddb22b9ba30b40a2d6a4547a348180f77c1b6907e78c8c8116a3",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "ab50a48e-4109-568e-a760-f05a126c16a3",
+              "input": {
+                "order_id": "OR-5820",
+                "order_number": "BR-5820",
+                "item_count": 2,
+                "status": "amendment_requested"
+              },
+              "businessId": "52de5a8f-b759-57a4-a168-93bca3cb107d",
+              "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.orders"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/orders/change"
+              ]
+            },
+            "argsHash": "da3a4f80172febfd8585fbb499c84ec0c6a902aa04fcaf1ec9e6563528274962",
+            "risk": "high",
+            "status": "executed",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/orders/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "executed",
+              "data": {
+                "order_id": "OR-5820",
+                "order_number": "BR-5820",
+                "item_count": 2,
+                "status": "amended"
+              },
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "d6e5b2a7-1ff7-5a56-a8b2-052962ca2d39",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "cacfd413-3a82-599d-945a-740b5f00b6d7",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca"
+          },
+          {
+            "id": "581ff72a-d25a-53e0-8b99-46607e6acb29",
+            "type": "action.executed",
+            "actor": "system",
+            "data": {
+              "proposalId": "cacfd413-3a82-599d-945a-740b5f00b6d7",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "c7837ac2-e198-59a9-a52b-4931f95064ca"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "returns",
+      "template": "returns",
+      "business": {
+        "id": "a750ae58-26ba-5df4-a6f7-4cec089c0146",
+        "name": "Вершина Спорядження · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "d6efcfb7-74b5-5035-b630-db7cc4d03e57",
+          "businessId": "a750ae58-26ba-5df4-a6f7-4cec089c0146",
+          "customerId": "04341793-14cb-5921-a275-98857e8cf908",
+          "customerName": "Андрій Коваль",
+          "status": "awaiting_approval",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Є запит на створення повернення. Етикетку та прийняття товару ще не підтверджено.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "04341793-14cb-5921-a275-98857e8cf908",
+          "name": "Андрій Коваль",
+          "email": "andrii@example.invalid",
+          "plan": "Клієнт Вершина Спорядження",
+          "businessId": "a750ae58-26ba-5df4-a6f7-4cec089c0146"
+        },
+        "messages": [
+          {
+            "id": "07f119c4-1b86-59e7-9353-a17d7838c27a",
+            "caseId": "d6efcfb7-74b5-5035-b630-db7cc4d03e57",
+            "role": "customer",
+            "body": "Отримав куртку M, хоча замовляв L. Потрібні інструкції повернення.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "838bce76-2a6e-548f-8d0f-8fa62039bf92",
+            "caseId": "d6efcfb7-74b5-5035-b630-db7cc4d03e57",
+            "role": "assistant",
+            "body": "Є запит на створення повернення. Етикетку та прийняття товару ще не підтверджено.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "1ff3ee48-1857-5657-8f3c-2477fe710d69",
+            "caseId": "d6efcfb7-74b5-5035-b630-db7cc4d03e57",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-returns",
+              "toolName": "demo_returns_change",
+              "operationKey": "POST /demo/returns/change",
+              "title": "Повернення куртки не того розміру",
+              "operationHash": "99f638a741bcff827e6e3644f1e97e16673f56ec570f99bdb264537a88cb4cb1",
+              "manifestHash": "9d2d13dfa498157f1f80dfbff97cb4fb3d0006825a40e453d00275fcfbfd99e1",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "04341793-14cb-5921-a275-98857e8cf908",
+              "input": {
+                "return_id": "RT-8821",
+                "order_id": "OR-8821",
+                "reason": "Розмір не відповідає замовленню",
+                "status": "label_requested"
+              },
+              "businessId": "a750ae58-26ba-5df4-a6f7-4cec089c0146",
+              "caseId": "d6efcfb7-74b5-5035-b630-db7cc4d03e57",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.returns"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/returns/change"
+              ]
+            },
+            "argsHash": "2d02ddbc88a8a8ced9e9d41c50eb947e91415349237f93992d445b12f5658aa6",
+            "risk": "high",
+            "status": "pending",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/returns/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": null,
+            "decidedBy": null,
+            "decidedAt": null,
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "3cb17152-0fbc-53b9-8616-30efd290e8a0",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "1ff3ee48-1857-5657-8f3c-2477fe710d69",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "d6efcfb7-74b5-5035-b630-db7cc4d03e57"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "booking",
+      "template": "booking",
+      "business": {
+        "id": "2f1f05ca-3c49-53c3-a44c-577ced3a3ae6",
+        "name": "Садиба Над Рікою · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "f93de023-7c6d-58ca-923a-de9404cadff5",
+          "businessId": "2f1f05ca-3c49-53c3-a44c-577ced3a3ae6",
+          "customerId": "dab2c327-0776-5763-babf-5bad29958138",
+          "customerName": "Софія Кравець",
+          "status": "escalated",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Після спроби запису підтвердження не надійшло. Дати не вважаються зміненими; повторний виклик заборонено до звірки.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "dab2c327-0776-5763-babf-5bad29958138",
+          "name": "Софія Кравець",
+          "email": "sofiia@example.invalid",
+          "plan": "Клієнт Садиба Над Рікою",
+          "businessId": "2f1f05ca-3c49-53c3-a44c-577ced3a3ae6"
+        },
+        "messages": [
+          {
+            "id": "18d1bea1-ed9e-53b1-944b-5f414b35bf24",
+            "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5",
+            "role": "customer",
+            "body": "Чи можна перенести бронювання на дві ночі пізніше для трьох гостей?",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "95c235f9-b572-5fe5-bcb3-fbea1c7449c5",
+            "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5",
+            "role": "assistant",
+            "body": "Після спроби запису підтвердження не надійшло. Дати не вважаються зміненими; повторний виклик заборонено до звірки.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "9c7174ce-305b-5934-aa24-221c91315950",
+            "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-booking",
+              "toolName": "demo_booking_change",
+              "operationKey": "POST /demo/booking/change",
+              "title": "Змінити дати проживання",
+              "operationHash": "b9a42ba396ad397cc78e23a2f08175461f6829755564bf38c0c73ffb3bbdfe87",
+              "manifestHash": "50a29f5c6c3b2d75a2a2ce2da3b35510d35903da4c3067be7c973c83837dc15f",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "dab2c327-0776-5763-babf-5bad29958138",
+              "input": {
+                "booking_id": "BK-1903",
+                "starts_at": "2026-11-14T13:00:00Z",
+                "ends_at": "2026-11-16T09:00:00Z",
+                "guest_count": 3,
+                "status": "change_requested"
+              },
+              "businessId": "2f1f05ca-3c49-53c3-a44c-577ced3a3ae6",
+              "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.booking"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/booking/change"
+              ]
+            },
+            "argsHash": "450dd968a94a24e12404b99457f75f476f6da3237afa74db4c1eaef82929017e",
+            "risk": "high",
+            "status": "unknown",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/booking/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "unknown",
+              "reasonCode": "demo_confirmation_missing",
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": "Немає підтвердження від провайдера; потрібна звірка.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "ab53f970-c245-56d8-9017-ae052e754d3a",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "9c7174ce-305b-5934-aa24-221c91315950",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5"
+          },
+          {
+            "id": "fb41e329-7a90-5a42-8dbc-335adbfd020b",
+            "type": "action.unknown",
+            "actor": "system",
+            "data": {
+              "proposalId": "9c7174ce-305b-5934-aa24-221c91315950",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "f93de023-7c6d-58ca-923a-de9404cadff5"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "appointments",
+      "template": "appointments",
+      "business": {
+        "id": "beec63ac-982a-5769-8910-36c9d6a8cf34",
+        "name": "Майстерня Велорух · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82",
+          "businessId": "beec63ac-982a-5769-8910-36c9d6a8cf34",
+          "customerId": "2c460133-28c3-5bdf-b1b0-2f94c03a1e54",
+          "customerName": "Денис Левченко",
+          "status": "resolved",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "У збереженому синтетичному результаті є підтверджений запис на огляд. Живого календаря тут немає.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "2c460133-28c3-5bdf-b1b0-2f94c03a1e54",
+          "name": "Денис Левченко",
+          "email": "denys@example.invalid",
+          "plan": "Клієнт Майстерня Велорух",
+          "businessId": "beec63ac-982a-5769-8910-36c9d6a8cf34"
+        },
+        "messages": [
+          {
+            "id": "5ff70691-5bcc-591b-9c6b-c70fa8dc5759",
+            "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82",
+            "role": "customer",
+            "body": "Потрібен огляд велосипеда у вівторок, бажано до обіду.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "bb7ed0a3-100d-509b-a20c-70818fca5809",
+            "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82",
+            "role": "assistant",
+            "body": "У збереженому синтетичному результаті є підтверджений запис на огляд. Живого календаря тут немає.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "1d000d35-fc45-50c4-babf-e3c098512236",
+            "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-appointments",
+              "toolName": "demo_appointments_change",
+              "operationKey": "POST /demo/appointments/change",
+              "title": "Запис на технічний огляд велосипеда",
+              "operationHash": "9a3a842919eb5a9b2c547c3b088ebc2b58ea451b4c38abd8495183e087f79357",
+              "manifestHash": "4b7fe79561db2d9ebac06d5ce38e4754a6f3ee6f4568b88c536f28553d3fbf35",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "2c460133-28c3-5bdf-b1b0-2f94c03a1e54",
+              "input": {
+                "appointment_id": "AP-6402",
+                "service_name": "Технічний огляд велосипеда",
+                "starts_at": "2026-11-10T09:00:00Z",
+                "specialist": "Ірина Бондар",
+                "status": "booking_requested"
+              },
+              "businessId": "beec63ac-982a-5769-8910-36c9d6a8cf34",
+              "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.appointments"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/appointments/change"
+              ]
+            },
+            "argsHash": "ea5179565b35f0419e77ed9eca77f524ad08df5d793f9dd92f3a8b6e0df1a158",
+            "risk": "high",
+            "status": "executed",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/appointments/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "executed",
+              "data": {
+                "appointment_id": "AP-6402",
+                "service_name": "Технічний огляд велосипеда",
+                "starts_at": "2026-11-10T09:00:00Z",
+                "specialist": "Ірина Бондар",
+                "status": "booked"
+              },
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "921f96cb-f5c9-5dec-ba6c-f2657d4b2260",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "1d000d35-fc45-50c4-babf-e3c098512236",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82"
+          },
+          {
+            "id": "1f9a391d-aabe-5aaf-8737-45d15cb3a912",
+            "type": "action.executed",
+            "actor": "system",
+            "data": {
+              "proposalId": "1d000d35-fc45-50c4-babf-e3c098512236",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "1655d08a-8fc2-571b-bf60-8e8dbec6ec82"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "subscription",
+      "template": "subscription",
+      "business": {
+        "id": "fb602853-85c9-50ef-a901-158fbf8f5afa",
+        "name": "Хмара Нотаток · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33",
+          "businessId": "fb602853-85c9-50ef-a901-158fbf8f5afa",
+          "customerId": "e5173541-c008-5918-b00f-c0d683104a48",
+          "customerName": "Назар Поліщук",
+          "status": "awaiting_approval",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Зміну плану погоджено, але не виконано. Поточна підписка ще не змінена.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "e5173541-c008-5918-b00f-c0d683104a48",
+          "name": "Назар Поліщук",
+          "email": "nazar@example.invalid",
+          "plan": "Клієнт Хмара Нотаток",
+          "businessId": "fb602853-85c9-50ef-a901-158fbf8f5afa"
+        },
+        "messages": [
+          {
+            "id": "eacd1310-1ea2-504f-a8cd-4a49904ae2c9",
+            "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33",
+            "role": "customer",
+            "body": "Переведіть робочий простір на план Команда з початку наступного місяця.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "7822fdb5-e503-59fb-8a67-e25fe2637415",
+            "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33",
+            "role": "assistant",
+            "body": "Зміну плану погоджено, але не виконано. Поточна підписка ще не змінена.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "055eb08c-52f7-5390-b1c2-f9f27fe05722",
+            "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-subscription",
+              "toolName": "demo_subscription_change",
+              "operationKey": "POST /demo/subscription/change",
+              "title": "Змінити план з наступного періоду",
+              "operationHash": "f9d4045c39375b5b0770edff34325a4fcd5095f95e0549bca48b1f8fd04966ce",
+              "manifestHash": "60ad9cc51094ca786aea69186a9022552d18b3536c8214a83d8da57388d46d5e",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "e5173541-c008-5918-b00f-c0d683104a48",
+              "input": {
+                "subscription_id": "SU-7310",
+                "plan_name": "Команда",
+                "effective_at": "2026-12-01T00:00:00Z",
+                "status": "plan_change_requested"
+              },
+              "businessId": "fb602853-85c9-50ef-a901-158fbf8f5afa",
+              "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.subscription"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/subscription/change"
+              ]
+            },
+            "argsHash": "505571c4085e2b701c5cb27e44227ce079d6f8224dafda2d224025847ba26bb9",
+            "risk": "high",
+            "status": "approved",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/subscription/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "8ae1a928-5682-5556-8ee9-dba7d0fa1857",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "055eb08c-52f7-5390-b1c2-f9f27fe05722",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33"
+          },
+          {
+            "id": "a6c92214-d197-5402-87cf-d67a445d8eb4",
+            "type": "action.approved",
+            "actor": "operator",
+            "data": {
+              "proposalId": "055eb08c-52f7-5390-b1c2-f9f27fe05722",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "e5930e9d-27c2-50d9-9d40-2b0aff8d3b33"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "account",
+      "template": "account",
+      "business": {
+        "id": "11dc608c-6d44-5e55-8466-f7d4b72aa384",
+        "name": "Зерно Маркет · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "1f54a514-1fad-54e7-89b4-48bc698013b9",
+          "businessId": "11dc608c-6d44-5e55-8466-f7d4b72aa384",
+          "customerId": "78d902e3-430a-5ff1-862a-cfc3f0605eeb",
+          "customerName": "Юлія Петренко",
+          "status": "escalated",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Оператор відхилив пропозицію до завершення перевірки особи. Контактні дані не змінено.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "78d902e3-430a-5ff1-862a-cfc3f0605eeb",
+          "name": "Юлія Петренко",
+          "email": "yuliia@example.invalid",
+          "plan": "Клієнт Зерно Маркет",
+          "businessId": "11dc608c-6d44-5e55-8466-f7d4b72aa384"
+        },
+        "messages": [
+          {
+            "id": "a4c4d8c7-a3c3-541f-b179-c14ed4cee3a5",
+            "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9",
+            "role": "customer",
+            "body": "Після перевірки профілю змініть контактну пошту на мою робочу адресу.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "8651edab-610a-57ed-9c7c-6a8422323ee0",
+            "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9",
+            "role": "assistant",
+            "body": "Оператор відхилив пропозицію до завершення перевірки особи. Контактні дані не змінено.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "b2b26c0a-ce41-5e40-b6e8-e9b009b04309",
+            "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-account",
+              "toolName": "demo_account_change",
+              "operationKey": "POST /demo/account/change",
+              "title": "Змінити контактну адресу профілю",
+              "operationHash": "6281c06f402b7ebeeb65515795237e904e7f1b6609001d0420dddffc3f17eeea",
+              "manifestHash": "1a6142238ad5070a519806e6ed61a47009ecccdf629b4022cfcb9c26ad8d0b40",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "78d902e3-430a-5ff1-862a-cfc3f0605eeb",
+              "input": {
+                "account_id": "AC-9041",
+                "contact_email": "yuliia.work@example.invalid",
+                "requested_change": "Контактна електронна адреса",
+                "status": "verification_required"
+              },
+              "businessId": "11dc608c-6d44-5e55-8466-f7d4b72aa384",
+              "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.account"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/account/change"
+              ]
+            },
+            "argsHash": "6730bcd542f0d1a475f9ac3402d0112d04614f5db0d4a26a56d682b43a82cf8e",
+            "risk": "high",
+            "status": "rejected",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/account/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": null,
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "e0310f21-b1e8-55d2-aef6-f1585eb327ed",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "b2b26c0a-ce41-5e40-b6e8-e9b009b04309",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9"
+          },
+          {
+            "id": "dc8af5f7-ae0f-56c7-a5ff-b9aa548475b8",
+            "type": "action.rejected",
+            "actor": "operator",
+            "data": {
+              "proposalId": "b2b26c0a-ce41-5e40-b6e8-e9b009b04309",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "1f54a514-1fad-54e7-89b4-48bc698013b9"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "access",
+      "template": "access",
+      "business": {
+        "id": "b3ed698a-9d3f-50f5-8fad-f5360070a946",
+        "name": "Атлас Проєкти · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "28c50349-a286-58d7-a139-d1f82653c08f",
+          "businessId": "b3ed698a-9d3f-50f5-8fad-f5360070a946",
+          "customerId": "95a4ac26-2656-5bc6-a7a9-b9c7d839cf3c",
+          "customerName": "Богдан Шевчук",
+          "status": "escalated",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Час дії запиту сплив до виконання. Доступ не надано; потрібен новий актуальний запит.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "95a4ac26-2656-5bc6-a7a9-b9c7d839cf3c",
+          "name": "Богдан Шевчук",
+          "email": "bohdan@example.invalid",
+          "plan": "Клієнт Атлас Проєкти",
+          "businessId": "b3ed698a-9d3f-50f5-8fad-f5360070a946"
+        },
+        "messages": [
+          {
+            "id": "27d19931-e424-5b10-be2c-96f4e567753e",
+            "caseId": "28c50349-a286-58d7-a139-d1f82653c08f",
+            "role": "customer",
+            "body": "Потрібен доступ читача до архіву проєкту на тиждень для перевірки документів.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "817ac325-1bd8-546c-a085-9ad1f7514ef1",
+            "caseId": "28c50349-a286-58d7-a139-d1f82653c08f",
+            "role": "assistant",
+            "body": "Час дії запиту сплив до виконання. Доступ не надано; потрібен новий актуальний запит.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "96c3715a-e3d6-5b7e-ae1f-f269c99433f0",
+            "caseId": "28c50349-a286-58d7-a139-d1f82653c08f",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-access",
+              "toolName": "demo_access_change",
+              "operationKey": "POST /demo/access/change",
+              "title": "Тимчасовий доступ до проєкту",
+              "operationHash": "0f6267aa2de0a306abfb3a304abcdf5c20b90a34b31161295e9d58f5cb8a7252",
+              "manifestHash": "2729f7ddbcfef5ed769366b8f4e2bfe4d1d2ca7be018cd4df90714bcf1585cbc",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "95a4ac26-2656-5bc6-a7a9-b9c7d839cf3c",
+              "input": {
+                "user_id": "US-5052",
+                "resource_id": "PR-ARCHIVE-19",
+                "role": "viewer",
+                "expires_at": "2026-11-12T10:00:00Z",
+                "status": "access_requested"
+              },
+              "businessId": "b3ed698a-9d3f-50f5-8fad-f5360070a946",
+              "caseId": "28c50349-a286-58d7-a139-d1f82653c08f",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T09:50:00.000Z",
+              "tags": [
+                "eldhall.ui.access"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/access/change"
+              ]
+            },
+            "argsHash": "76b3502e0c259baf6af928f39cac73920714746410284dcffdf77a580321ec0e",
+            "risk": "high",
+            "status": "expired",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/access/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": null,
+            "decidedBy": null,
+            "decidedAt": null,
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "c46f6c96-5254-5bbe-a376-06ec83e4162a",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "96c3715a-e3d6-5b7e-ae1f-f269c99433f0",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "28c50349-a286-58d7-a139-d1f82653c08f"
+          },
+          {
+            "id": "83d2d2a2-0074-5112-a0d5-4bc652d7baa6",
+            "type": "action.expired",
+            "actor": "system",
+            "data": {
+              "proposalId": "96c3715a-e3d6-5b7e-ae1f-f269c99433f0",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "28c50349-a286-58d7-a139-d1f82653c08f"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "incident",
+      "template": "incident",
+      "business": {
+        "id": "b9f3c1e4-d624-5a3d-9112-0ad3881b783f",
+        "name": "Маяк Статус · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1",
+          "businessId": "b9f3c1e4-d624-5a3d-9112-0ad3881b783f",
+          "customerId": "74298b94-831f-505d-8469-a00455b3a841",
+          "customerName": "Віра Дорошенко",
+          "status": "resolved",
+          "priority": "P1",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Збережений результат підтверджує лише реєстрацію інциденту. Відновлення сервісу не підтверджено.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P1",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "frustrated",
+              "frustration": 0.4,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "high",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "74298b94-831f-505d-8469-a00455b3a841",
+          "name": "Віра Дорошенко",
+          "email": "vira@example.invalid",
+          "plan": "Клієнт Маяк Статус",
+          "businessId": "b9f3c1e4-d624-5a3d-9112-0ad3881b783f"
+        },
+        "messages": [
+          {
+            "id": "0d2c0d8d-67db-5cc1-9c33-21ee7eff97fd",
+            "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1",
+            "role": "customer",
+            "body": "Команда не може відкрити кабінет. Потрібен номер інциденту для подальшого відстеження.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "b93c5aa1-de90-5b37-94aa-941aae52800d",
+            "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1",
+            "role": "assistant",
+            "body": "Збережений результат підтверджує лише реєстрацію інциденту. Відновлення сервісу не підтверджено.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "bc1a3fd7-5a46-5406-bace-e7ce1f6a71b4",
+            "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-incident",
+              "toolName": "demo_incident_change",
+              "operationKey": "POST /demo/incident/change",
+              "title": "Повідомлення про недоступність кабінету",
+              "operationHash": "17beea68708d45bedc6d4b40c7b018dbad9a7c7a041e28a4db3f2e9540a23ff3",
+              "manifestHash": "8fc2d76ad48da2683326b0fc843c2f1da72b81d3506a6eeda6ccb49debdde551",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "74298b94-831f-505d-8469-a00455b3a841",
+              "input": {
+                "incident_id": "IN-2207",
+                "service_name": "Кабінет команди",
+                "severity": "major",
+                "impact": "Вхід недоступний для частини команди",
+                "status": "registration_requested"
+              },
+              "businessId": "b9f3c1e4-d624-5a3d-9112-0ad3881b783f",
+              "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.incident"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/incident/change"
+              ]
+            },
+            "argsHash": "ccb341c8a5f80fafc9f9f30645c87ff7b69f757fc6ab79dbd3dc8853823a4d47",
+            "risk": "high",
+            "status": "executed",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/incident/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "executed",
+              "data": {
+                "incident_id": "IN-2207",
+                "service_name": "Кабінет команди",
+                "severity": "major",
+                "impact": "Вхід недоступний для частини команди",
+                "status": "registered"
+              },
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "9fe71969-b999-57f5-9e11-8919a6844b58",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "bc1a3fd7-5a46-5406-bace-e7ce1f6a71b4",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1"
+          },
+          {
+            "id": "e9593867-016d-5181-873d-85d8e7813d57",
+            "type": "action.executed",
+            "actor": "system",
+            "data": {
+              "proposalId": "bc1a3fd7-5a46-5406-bace-e7ce1f6a71b4",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "9fde6fc1-2fe3-54a6-ad0d-ce1e0207d9f1"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "warranty",
+      "template": "warranty",
+      "business": {
+        "id": "bd5281a3-5e0a-5a12-82cd-39297506a775",
+        "name": "Обрій Техніка · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "d8fb0273-5e5c-5455-abb4-717aa36d3508",
+          "businessId": "bd5281a3-5e0a-5a12-82cd-39297506a775",
+          "customerId": "6c15a180-1398-5387-9c81-1f001f7b59f6",
+          "customerName": "Роман Ткачук",
+          "status": "escalated",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Створення заявки завершилося помилкою до підтвердження результату. Прийом у ремонт не обіцяно.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "6c15a180-1398-5387-9c81-1f001f7b59f6",
+          "name": "Роман Ткачук",
+          "email": "roman@example.invalid",
+          "plan": "Клієнт Обрій Техніка",
+          "businessId": "bd5281a3-5e0a-5a12-82cd-39297506a775"
+        },
+        "messages": [
+          {
+            "id": "b42749a7-e744-5f1f-b6e5-fa0458d2a5ac",
+            "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508",
+            "role": "customer",
+            "body": "Кавомолка перестала вмикатися. Хочу зареєструвати гарантійну перевірку.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "cc142999-fbcf-5f40-9cab-d013f4ee64d0",
+            "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508",
+            "role": "assistant",
+            "body": "Створення заявки завершилося помилкою до підтвердження результату. Прийом у ремонт не обіцяно.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "b621b0b1-80ce-5f18-943e-6967cb92a498",
+            "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-warranty",
+              "toolName": "demo_warranty_change",
+              "operationKey": "POST /demo/warranty/change",
+              "title": "Гарантійна заявка на кавомолку",
+              "operationHash": "de852cbf4446183a16fe41e0ed5ddc499962a1077da815acee526b3770668ba5",
+              "manifestHash": "45fc4c51bacf84f978428d08481e25ebe6549592245f9b8c02980b8a294ee48d",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "6c15a180-1398-5387-9c81-1f001f7b59f6",
+              "input": {
+                "claim_id": "WC-3190",
+                "product_id": "GRINDER-07",
+                "serial_number": "DEMO-GR-3190",
+                "issue": "Пристрій не вмикається",
+                "status": "claim_requested"
+              },
+              "businessId": "bd5281a3-5e0a-5a12-82cd-39297506a775",
+              "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.warranty"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/warranty/change"
+              ]
+            },
+            "argsHash": "ef47e3e169b52fa321ae8ef99ad0986b93e24bca364895323dbed912e430dae3",
+            "risk": "high",
+            "status": "failed",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/warranty/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "failed",
+              "reasonCode": "demo_dispatch_rejected",
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": "Демонстраційна помилка до підтвердження запису.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "7ce87c78-bda4-5bdc-874f-37c6f220351c",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "b621b0b1-80ce-5f18-943e-6967cb92a498",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508"
+          },
+          {
+            "id": "f4c74ecf-24b2-5ae6-bb67-180317e4ac57",
+            "type": "action.failed",
+            "actor": "system",
+            "data": {
+              "proposalId": "b621b0b1-80ce-5f18-943e-6967cb92a498",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "d8fb0273-5e5c-5455-abb4-717aa36d3508"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "escalation",
+      "template": "escalation",
+      "business": {
+        "id": "70cca375-558d-5766-87f9-7f94cde0d539",
+        "name": "Мандрівка Разом · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "5b9169d6-95cf-5ef7-b514-13cff3beb1de",
+          "businessId": "70cca375-558d-5766-87f9-7f94cde0d539",
+          "customerId": "e2efbf24-effd-54ca-a58c-9b423ebed2c3",
+          "customerName": "Катерина Іваненко",
+          "status": "resolved",
+          "priority": "P1",
+          "intent": "complaint",
+          "analysis": {
+            "intent": "complaint",
+            "summary": "У збереженому результаті звернення поставлено в чергу спеціалістів. Це не гарантія часу відповіді.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P1",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "e2efbf24-effd-54ca-a58c-9b423ebed2c3",
+          "name": "Катерина Іваненко",
+          "email": "kateryna@example.invalid",
+          "plan": "Клієнт Мандрівка Разом",
+          "businessId": "70cca375-558d-5766-87f9-7f94cde0d539"
+        },
+        "messages": [
+          {
+            "id": "2340e32a-8bd3-59b8-9835-e188072e02dc",
+            "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de",
+            "role": "customer",
+            "body": "Маршрут поїздки змінили двічі. Потрібна відповідальна людина, яка звірить умови.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "dbb8806a-afe1-5ffd-aca6-073181b90a63",
+            "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de",
+            "role": "assistant",
+            "body": "У збереженому результаті звернення поставлено в чергу спеціалістів. Це не гарантія часу відповіді.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "78159ca6-8ea8-5fff-9fc4-eac4dfb4bee2",
+            "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-escalation",
+              "toolName": "demo_escalation_change",
+              "operationKey": "POST /demo/escalation/change",
+              "title": "Передати складне звернення спеціалісту",
+              "operationHash": "9c314a6235e22704a12dc9b003205fd149d235b597c7096f9445b21f00e47c3c",
+              "manifestHash": "e5db748805d359f1ef1cbad2de7568a9f8a79c8aac39a4dcc8afa8574279d9bf",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "e2efbf24-effd-54ca-a58c-9b423ebed2c3",
+              "input": {
+                "ticket_id": "TK-7704",
+                "team": "Турбота про мандрівників",
+                "reason": "Потрібна ручна перевірка зміненого маршруту",
+                "priority": "P1",
+                "status": "handoff_requested"
+              },
+              "businessId": "70cca375-558d-5766-87f9-7f94cde0d539",
+              "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.escalation"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/escalation/change"
+              ]
+            },
+            "argsHash": "3b833b78a7ae493c1e07ffdb0be2315eda221ff51f0eb2b8169face749ba1a66",
+            "risk": "high",
+            "status": "executed",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/escalation/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": "operator_approval",
+            "decidedBy": "Оператор демо",
+            "decidedAt": "2026-11-05T10:00:00.000Z",
+            "result": {
+              "status": "executed",
+              "data": {
+                "ticket_id": "TK-7704",
+                "team": "Турбота про мандрівників",
+                "reason": "Потрібна ручна перевірка зміненого маршруту",
+                "priority": "P1",
+                "status": "queued"
+              },
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              }
+            },
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "2d1677ca-773e-588e-b261-a517ab966171",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "78159ca6-8ea8-5fff-9fc4-eac4dfb4bee2",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de"
+          },
+          {
+            "id": "212f4fce-4795-5b79-a483-6714749da62b",
+            "type": "action.executed",
+            "actor": "system",
+            "data": {
+              "proposalId": "78159ca6-8ea8-5fff-9fc4-eac4dfb4bee2",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "5b9169d6-95cf-5ef7-b514-13cff3beb1de"
+          }
+        ],
+        "runs": []
+      }
+    },
+    {
+      "id": "generic",
+      "template": "generic",
+      "business": {
+        "id": "4d55657f-0485-5d82-b62b-3f5277482c3e",
+        "name": "Палітра Студія · демо",
+        "currency": "UAH"
+      },
+      "detail": {
+        "case": {
+          "id": "6a27dd7c-1b52-5033-941b-889b5f8c9915",
+          "businessId": "4d55657f-0485-5d82-b62b-3f5277482c3e",
+          "customerId": "2d92f3ad-0bdd-53d5-a0be-b8bd117b2d62",
+          "customerName": "Олена Кушнір",
+          "status": "escalated",
+          "priority": "P2",
+          "intent": "other",
+          "analysis": {
+            "intent": "other",
+            "summary": "Каталог операцій змінився після створення пропозиції. Цей знімок недійсний; нічого не виконано.",
+            "reasoning": "Синтетичний приклад для перевірки представлення даних. Модель, MCP та провайдер не викликалися.",
+            "priority": "P2",
+            "tone": "empathetic",
+            "source": "fallback",
+            "model": "fixture-only",
+            "sentiment": {
+              "label": "calm",
+              "frustration": 0.1,
+              "escalationRisk": 0.2,
+              "signals": [
+                "Збережений демонстраційний приклад"
+              ],
+              "urgency": "low",
+              "abusive": false
+            }
+          },
+          "ownership": "bot",
+          "ownershipVersion": 0,
+          "assignedTo": null,
+          "createdAt": "2026-11-05T10:00:00.000Z",
+          "updatedAt": "2026-11-05T10:00:00.000Z"
+        },
+        "customer": {
+          "id": "2d92f3ad-0bdd-53d5-a0be-b8bd117b2d62",
+          "name": "Олена Кушнір",
+          "email": "olena@example.invalid",
+          "plan": "Клієнт Палітра Студія",
+          "businessId": "4d55657f-0485-5d82-b62b-3f5277482c3e"
+        },
+        "messages": [
+          {
+            "id": "07ef08af-9e19-5361-9ea5-e7e9ab558574",
+            "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915",
+            "role": "customer",
+            "body": "Потрібна нестандартна палітра фарб. Передайте побажання майстру для оцінки.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          },
+          {
+            "id": "9779c173-837a-54b5-a255-dd0371d1b17b",
+            "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915",
+            "role": "assistant",
+            "body": "Каталог операцій змінився після створення пропозиції. Цей знімок недійсний; нічого не виконано.",
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "proposals": [
+          {
+            "id": "c3804d07-6acb-5a47-a9e6-d809d03eb9d5",
+            "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915",
+            "tool": "external_action",
+            "args": {
+              "integrationId": "demo-generic",
+              "toolName": "demo_generic_change",
+              "operationKey": "POST /demo/generic/change",
+              "title": "Уточнити умови індивідуального замовлення",
+              "operationHash": "d77e53aa446b06bf8d06c25a00a412ec26a08683ee354fb2d31dc2f202534fa9",
+              "manifestHash": "8fd9fed0aa6ed219dc26bc62b10a71d1a907e3cb0f2afe4350110e0166181756",
+              "policyRevision": 1,
+              "effect": "write",
+              "customerId": "2d92f3ad-0bdd-53d5-a0be-b8bd117b2d62",
+              "input": {
+                "request_id": "RQ-1142",
+                "requested_note": "Пастельні природні відтінки",
+                "status": "review_requested"
+              },
+              "businessId": "4d55657f-0485-5d82-b62b-3f5277482c3e",
+              "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915",
+              "ownershipVersion": 0,
+              "connectionRevision": "demo-fixture-v1",
+              "expiresAt": "2026-11-05T10:30:00.000Z",
+              "tags": [
+                "eldhall.ui.custom-request"
+              ],
+              "managed": true,
+              "guard": {
+                "id": null,
+                "status": "not_required"
+              },
+              "policySource": "operation",
+              "matchedRuleIds": [
+                "POST /demo/generic/change"
+              ]
+            },
+            "argsHash": "08d03af9a72c2523ad8a8555c4c573c15d911f1671ff61b23925e881877dae17",
+            "risk": "high",
+            "status": "invalidated",
+            "policy": {
+              "allowed": true,
+              "requiresApproval": true,
+              "checks": [
+                {
+                  "name": "integration_permission",
+                  "passed": true,
+                  "detail": "ask: POST /demo/generic/change (policy r1) · synthetic fixture"
+                }
+              ]
+            },
+            "authorizationOrigin": null,
+            "decidedBy": null,
+            "decidedAt": null,
+            "result": null,
+            "error": null,
+            "createdAt": "2026-11-05T10:00:00.000Z"
+          }
+        ],
+        "payments": [],
+        "refunds": [],
+        "audit": [
+          {
+            "id": "b8d74ebe-51fe-506c-b08c-64d7299af53f",
+            "type": "action.proposed",
+            "actor": "system",
+            "data": {
+              "proposalId": "c3804d07-6acb-5a47-a9e6-d809d03eb9d5",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915"
+          },
+          {
+            "id": "9e72e650-1dfa-5eec-8850-2bb3492a96eb",
+            "type": "action.invalidated",
+            "actor": "system",
+            "data": {
+              "proposalId": "c3804d07-6acb-5a47-a9e6-d809d03eb9d5",
+              "fixture": true
+            },
+            "createdAt": "2026-11-05T10:00:00.000Z",
+            "caseId": "6a27dd7c-1b52-5033-941b-889b5f8c9915"
+          }
+        ],
+        "runs": []
+      }
+    }
+  ]
+}

@@ -1,12 +1,13 @@
-import { useI18n, formatNumber, type AppMessageKey, type Translate, type Locale } from '../i18n'
+import { useI18n, formatNumber, type AppMessageKey } from '../i18n'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { AppLink } from '../components/AppLink'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, Badge, Empty, Icon, Metric, Notice } from '../components/ui'
-import { dateTime, errorText, money, request } from '../lib/api'
+import { dateTime, errorText, request } from '../lib/api'
 import type { CaseDetail, Metrics, Proposal, ProposalStatus, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
 import { ActionCard } from '../components/ActionCard'
+import { contextText } from '../lib/presentation'
 import { actionEventLabel, proposalTitle } from '../lib/external-actions'
 
 type Phase = 'pending' | 'running' | 'history'
@@ -55,7 +56,7 @@ function useActionRows(token: string, caseIds: string[]) {
   return { ...state, error: state.errorCause ? errorText(state.errorCause, t) : '', loading: state.caseKey !== key, refresh: () => setRevision(value => value + 1) }
 }
 
-export function Actions({ token, cases, casesError, metrics, metricsError, search, onRefresh }: { token: string; cases: SupportCase[] | null; casesError: string; metrics: Metrics | null; metricsError: string; search: string; onRefresh: () => void }) {
+export function Actions({ token, cases, casesError, metrics, metricsError, search, onRefresh, businessNames = {} }: { businessNames?: Readonly<Record<string, string>>; token: string; cases: SupportCase[] | null; casesError: string; metrics: Metrics | null; metricsError: string; search: string; onRefresh: () => void }) {
   const { t, locale } = useI18n()
   const [limit, setLimit] = useState(50)
   const [phase, setPhase] = useState<Phase>('pending')
@@ -97,20 +98,20 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
       {resource.failed > 0 && <Notice error>{t("core.actions.failedPrefix")} {formatNumber(resource.failed, locale)}  {t("core.actions.failedSuffix")} {resource.error} <button onClick={refresh}>{t("core.common.retryRead")}</button></Notice>}
       <section className="card actions-table-card" ref={tableRegion} tabIndex={-1} aria-label={t("core.actions.list")}>
         <div className="tabs actions-tabs" aria-label={t("core.actions.phases")}>{(['pending', 'running', 'history'] as const).map(value => <button key={value} className={phase === value ? 'active' : ''} aria-pressed={phase === value} onClick={() => changePhase(value)}>{t(phaseLabels[value])} <span>{loaded ? formatNumber(counts[value], locale) : '—'}</span></button>)}</div>
-        {visible.length ? <div className="table-scroll"><table className="actions-table"><caption className="sr-only">{t("core.actions.captionPrefix")} {t(phaseLabels[phase])}{t("core.actions.captionSuffix")}</caption><thead><tr><th scope="col">{t("core.common.customer")}</th><th scope="col">{t("core.actions.proposed")}</th><th scope="col">{t("core.common.amount")}</th><th scope="col">{t("core.common.status")}</th><th scope="col">{t("core.common.time")}</th></tr></thead><tbody>{visible.map(row => <tr key={row.proposal.id} className={row.proposal.id === selected?.proposal.id ? 'selected-row' : ''}>
+        {visible.length ? <div className="table-scroll"><table className="actions-table"><caption className="sr-only">{t("core.actions.captionPrefix")} {t(phaseLabels[phase])}{t("core.actions.captionSuffix")}</caption><thead><tr><th scope="col">{t("core.common.customer")}</th><th scope="col">{t("core.actions.proposed")}</th><th scope="col">{t("presentation.contextColumn")}</th><th scope="col">{t("core.common.status")}</th><th scope="col">{t("core.common.time")}</th></tr></thead><tbody>{visible.map(row => <tr key={row.proposal.id} className={row.proposal.id === selected?.proposal.id ? 'selected-row' : ''}>
           <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={t('core.actions.openLabel', { title: proposalTitle(row.proposal, t), name: row.detail.customer.name, id: row.proposal.id })} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} seed={`${row.detail.customer.businessId}:${row.detail.customer.id}`} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
           <td><strong>{proposalTitle(row.proposal, t)}</strong><small>{row.proposal.risk === 'high' ? t("core.action.highRisk") : t("core.action.lowRisk")}{row.stale ? " " + t("core.actions.staleSuffix") + "" : ''}</small></td>
-          <td className="action-table-amount">{proposalAmount(row.proposal, row.detail, t, locale)}</td><td><Badge value={row.proposal.status} /></td><td><time dateTime={row.proposal.createdAt} title={`${dateTime(row.proposal.createdAt, locale)} ${t('core.common.kyiv')}`}>{dateTime(row.proposal.createdAt, locale)}</time></td>
+          <td className="action-table-context">{contextText(row.proposal, row.detail, t, locale)}</td><td><Badge value={row.proposal.status} /></td><td><time dateTime={row.proposal.createdAt} title={`${dateTime(row.proposal.createdAt, locale)} ${t('core.common.kyiv')}`}>{dateTime(row.proposal.createdAt, locale)}</time></td>
         </tr>)}</tbody></table></div> : <Empty icon="spark" title={!loaded ? t("core.actions.loading") : resource.failed ? t("core.actions.partial") : query ? t("core.actions.noMatches") : phase === 'pending' ? t("core.actions.noPending") : phase === 'running' ? t("core.actions.noRunning") : t("core.actions.noHistory")}>{loaded && !query && !resource.failed ? t("core.actions.noProposalHint") : t("core.actions.searchHint")}</Empty>}
         <div className="actions-table-footer"><span>{loaded ? t('core.actions.tabCount', { count: visible.length }) : t("core.common.awaitingData")}{resource.checkedAt && ` · ${t('core.common.updated', { time: dateTime(resource.checkedAt, locale) })}`}</span>{incomplete && <button onClick={() => setLimit(previous => previous + 50)}>{t("core.actions.loadMore")}</button>}</div>
       </section>
       {incomplete && <Notice>{t("core.actions.loadedPrefix")} {formatNumber(Math.min(limit, cases?.length ?? 0), locale)}  {t("core.common.of")} {cases?.length ?? 0}  {t("core.actions.loadedSuffix")}</Notice>}
     </div>
-    {selected ? <ActionInspector key={selected.proposal.id} row={selected} token={token} stale={!!casesError || resource.loading} onChanged={() => { setSelectedId(selected.proposal.id); refresh() }} onClose={closeInspector} onShowPhase={next => { setPhase(next); setSelectedId(selected.proposal.id) }} phase={phase} /> : <aside className="card actions-inspector-empty"><Empty icon="spark" title={t("core.actions.select")}>{t("core.actions.selectHint")}</Empty></aside>}
+    {selected ? <ActionInspector key={selected.proposal.id} row={selected} token={token} businessName={businessNames[selected.detail.case.businessId]} stale={!!casesError || resource.loading} onChanged={() => { setSelectedId(selected.proposal.id); refresh() }} onClose={closeInspector} onShowPhase={next => { setPhase(next); setSelectedId(selected.proposal.id) }} phase={phase} /> : <aside className="card actions-inspector-empty"><Empty icon="spark" title={t("core.actions.select")}>{t("core.actions.selectHint")}</Empty></aside>}
   </div>
 }
 
-function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, phase }: { row: ActionRow; token: string; stale: boolean; onChanged: () => void; onClose: () => void; onShowPhase: (phase: Phase) => void; phase: Phase }) {
+function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, phase, businessName }: { businessName?: string; row: ActionRow; token: string; stale: boolean; onChanged: () => void; onClose: () => void; onShowPhase: (phase: Phase) => void; phase: Phase }) {
   const { t, locale } = useI18n()
   const resource = useResource<CaseDetail>(`/cases/${encodeURIComponent(row.detail.case.id)}`, token, 2500)
   const detail = resource.data ?? row.detail
@@ -120,6 +121,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
     <div className="actions-inspector-header"><div className="customer-heading"><Avatar name={detail.customer.name} seed={`${detail.customer.businessId}:${detail.customer.id}`} /><div><h2>{detail.customer.name}</h2><span className="muted small">{detail.customer.email}</span><small>{t("core.actions.actionPrefix")}{row.proposal.id.slice(0, 8)}</small></div></div><button className="icon-button" aria-label={t("core.actions.closeDetails")} onClick={onClose}><Icon name="close" /></button></div>
     <div className="actions-inspector-label">{t("core.actions.details")}</div>
     <div className="actions-inspector-body" tabIndex={0} role="region" aria-label={t("core.actions.details")}>
+      <dl className="facts action-case-context"><dt>{t("presentation.businessId")}</dt><dd>{businessName || detail.case.businessId}</dd><dt>{t("presentation.caseId")}</dt><dd>{detail.case.id}</dd></dl>
       {resource.error && <ErrorNotice error={resource.errorCause}>{t("core.common.stale")}<button onClick={resource.refresh}>{t("core.common.refresh")}</button></ErrorNotice>}
       {proposal ? <>
         {phaseOf(proposal.status) !== phase && <Notice>{t("core.actions.movedPrefix")}{t(phaseLabels[phaseOf(proposal.status)])}». <button onClick={() => onShowPhase(phaseOf(proposal.status))}>{t("core.actions.goToTab")}</button></Notice>}
@@ -130,13 +132,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
         {proposal.decidedBy && <dl className="facts"><dt>{t("core.actions.decision")}</dt><dd>{proposal.decidedBy}</dd>{proposal.decidedAt && <><dt>{t("core.actions.decisionTime")}</dt><dd>{dateTime(proposal.decidedAt, locale)}</dd></>}</dl>}
       </> : <Notice error>{t("core.actions.unavailable")}</Notice>}
       <section className="actions-timeline"><h3>{t("core.actions.audit")}</h3>{events.length ? <ol className="timeline">{events.map(event => <li key={event.id}><strong>{actionEventLabel(event.type, t)}</strong><small>{event.actor} · {dateTime(event.createdAt, locale)}</small>{typeof event.data.reason === 'string' && <p>{event.data.reason}</p>}</li>)}</ol> : <p className="muted small">{t("core.actions.noAudit")}</p>}</section>
-      <AppLink className="actions-case-link" href="/operator">{t("core.actions.openInbox")} <Icon name="arrow" size={16} /></AppLink>
+      <AppLink className="actions-case-link" href={`/operator?caseId=${encodeURIComponent(detail.case.id)}`}>{t("core.actions.openInbox")} <Icon name="arrow" size={16} /></AppLink>
     </div>
   </aside>
-}
-
-function proposalAmount(proposal: Proposal, detail: CaseDetail, t: Translate, locale: Locale) {
-  if (typeof proposal.args.amount_cents !== 'number') return '—'
-  const payment = detail.payments.find(item => item.id === proposal.args.payment_id)
-  return payment ? money(proposal.args.amount_cents, payment.currency, locale) : t('core.action.minorUnits', { amount: proposal.args.amount_cents })
 }

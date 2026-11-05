@@ -1,4 +1,7 @@
 import { useI18n, type UiMessage } from '../i18n'
+import { ProposalContext } from './ProposalContext'
+import { isReadOnlyDemo } from '../lib/demo-mode'
+import { validCurrency } from '../lib/presentation'
 import { ErrorNotice } from './ErrorNotice'
 import { currentAnalytics } from '@eldhall/analytics'
 import { useEffect, useState } from 'react'
@@ -26,9 +29,9 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
   }, [deadline])
   const expired = deadline !== null && deadline <= now && ['pending', 'approved'].includes(proposal.status)
   const payment = detail.payments.find(item => item.id === proposal.args.payment_id)
-  const amount = !external && typeof proposal.args.amount_cents === 'number' ? payment ? money(proposal.args.amount_cents, payment.currency, locale) : t('core.action.minorUnits', { amount: proposal.args.amount_cents }) : ''
+  const amount = proposal.tool === 'refund_payment' && typeof proposal.args.amount_cents === 'number' && Number.isSafeInteger(proposal.args.amount_cents) && proposal.args.amount_cents >= 0 && payment && validCurrency(payment.currency) ? money(proposal.args.amount_cents, payment.currency, locale) : ''
   const terminal = ['executed', 'failed', 'denied', 'rejected', 'unknown', 'expired', 'invalidated'].includes(proposal.status)
-  const locked = busy || stale || lockedStatus === proposal.status || expired
+  const locked = isReadOnlyDemo() || busy || stale || lockedStatus === proposal.status || expired
   async function decide(action: 'approve' | 'execute' | 'reject') {
     if (locked || (uncertain && !terminal)) return
     setBusy(true); setError(null); setNotice(null)
@@ -51,10 +54,7 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
     <div className="action-title"><Icon name="spark" size={18} /><h3>{proposalTitle(proposal, t)}</h3></div>
     {amount && <strong className="action-amount">{amount}</strong>}<Badge value={proposal.status} />
     <p className="small">{proposal.policy.requiresApproval ? t("core.action.requiresApproval") : t("core.action.noApproval")} · {proposal.risk === 'high' ? t("core.action.highRisk") : t("core.action.lowRisk")}</p>
-    <dl className="facts small"><dt>{t("core.common.customer")}</dt><dd>{detail.customer.name}</dd>{typeof proposal.args.payment_id === 'string' && <><dt>{t("core.action.payment")}</dt><dd className="break-word">{proposal.args.payment_id}</dd></>}{proposal.decidedBy && <><dt>{t("core.action.decidedBy")}</dt><dd>{proposal.decidedBy}</dd></>}</dl>
-    {external && <ExternalActionDetails proposal={proposal} />}
-    <details><summary>{t("core.action.arguments")}</summary><pre>{JSON.stringify(external ? externalInput(proposal) : proposal.args, null, 2)}</pre><p className="small break-word">{t("core.action.fingerprint")} {proposal.argsHash}</p></details>
-    {external && <details><summary>{t("core.action.context")}</summary><pre>{JSON.stringify(proposal.args, null, 2)}</pre></details>}
+    <ProposalContext proposal={proposal} detail={detail} />
     <ul className="policy-checks">{(compact ? proposal.policy.checks.filter(check => !check.passed) : proposal.policy.checks).map((check, index) => <li key={index}><span className={check.passed ? 'check-pass' : 'check-fail'} aria-hidden="true">{check.passed ? '✓' : '×'}</span><span><strong>{check.passed ? t("core.action.passed") : t("core.action.notPassed")}: {check.name}</strong><small>{check.detail}</small></span></li>)}</ul>
     {compact && proposal.policy.checks.some(check => check.passed) && <details className="action-passed-checks"><summary>{t("core.action.passedChecksPrefix")}{proposal.policy.checks.filter(check => check.passed).length})</summary><ul className="policy-checks">{proposal.policy.checks.filter(check => check.passed).map((check, index) => <li key={index}><span className="check-pass" aria-hidden="true">✓</span><span><strong>{check.name}</strong><small>{check.detail}</small></span></li>)}</ul></details>}
     {proposal.error && <ErrorNotice error={new ApiError(502, proposal.error, { proposal: { status: proposal.status } }, undefined, proposal.error)} />}{error !== null && <ErrorNotice error={error} />}{notice && <Notice>{translateMessage(notice)}</Notice>}
@@ -68,6 +68,12 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
     {proposal.status === 'unknown' && external && <ReconcileAction proposal={proposal} caseId={detail.case.id} token={token} stale={stale} onChanged={onChanged} />}
     {proposal.status === 'expired' && <Notice>{t("core.action.expiredTerminal")}</Notice>}
     {proposal.status === 'invalidated' && <Notice>{t("core.action.invalidatedNotice")}</Notice>}
+    <details className="action-technical"><summary>{t("presentation.references")}</summary>
+    <dl className="facts small"><dt>{t("core.common.customer")}</dt><dd>{detail.customer.name}</dd>{typeof proposal.args.payment_id === 'string' && <><dt>{t("core.action.payment")}</dt><dd className="break-word">{proposal.args.payment_id}</dd></>}{proposal.decidedBy && <><dt>{t("core.action.decidedBy")}</dt><dd>{proposal.decidedBy}</dd></>}</dl>
+    {external && <ExternalActionDetails proposal={proposal} />}
+    </details>
+    <details><summary>{t("core.action.arguments")}</summary><pre>{JSON.stringify(external ? externalInput(proposal) : proposal.args, null, 2)}</pre><p className="small break-word">{t("core.action.fingerprint")} {proposal.argsHash}</p></details>
+    {external && <details><summary>{t("core.action.context")}</summary><pre>{JSON.stringify(proposal.args, null, 2)}</pre></details>}
     {proposal.status === 'executed' && proposal.tool === 'refund_payment' && <p className="small muted">{t("core.action.simulatedRefund")}</p>}
     {proposal.status === 'executed' && external && proposal.result && <details><summary>{t("core.action.result")}</summary><pre>{JSON.stringify(proposal.result, null, 2)}</pre></details>}
   </section>
@@ -91,8 +97,7 @@ function trackDecision(action: 'approve' | 'execute' | 'reject', tool: string, r
 function ExternalActionDetails({ proposal }: { proposal: Proposal }) {
   const { t, locale } = useI18n()
   const deadline = proposalDeadline(proposal)
-  const parameters = Object.entries(externalInput(proposal)).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).slice(0, 6)
-  return <dl className="facts small external-action-meta"><dt>{t("core.action.integration")}</dt><dd>{String(proposal.args.integrationId ?? '—')}</dd><dt>{t("core.action.target")}</dt><dd>{String(proposal.args.operationKey ?? '—')}</dd>{parameters.length > 0 && <><dt>{t("core.action.parameters")}</dt><dd>{parameters.map(([key, value]) => <div key={key}><code>{key}</code>: {String(value)}</div>)}</dd></>}<dt>{t("core.action.effect")}</dt><dd>{proposal.args.effect === 'read' ? t("core.action.read") : t("core.action.write")}</dd><dt>{t("core.action.permissionSource")}</dt><dd>{proposal.authorizationOrigin === 'policy_auto' ? t("core.action.autoOrigin") : proposal.authorizationOrigin === 'operator_approval' ? t("core.action.operatorOrigin") : proposal.policy.requiresApproval ? t("core.action.askOrigin") : t("core.action.autoOrigin")}</dd><dt>{t("core.action.policyRevision")}</dt><dd>{String(proposal.args.policyRevision ?? '—')}</dd><dt>{t("core.action.connectionRevision")}</dt><dd>{String(proposal.args.connectionRevision ?? '—')}</dd>{deadline !== null && <><dt>{t("core.action.expiry")}</dt><dd><time dateTime={new Date(deadline).toISOString()}>{dateTime(new Date(deadline).toISOString(), locale)}  {t("core.common.kyiv")}</time></dd></>}</dl>
+  return <dl className="facts small external-action-meta"><dt>{t("core.action.integration")}</dt><dd>{String(proposal.args.integrationId ?? '—')}</dd><dt>{t("core.action.target")}</dt><dd>{String(proposal.args.operationKey ?? '—')}</dd><dt>{t("core.action.effect")}</dt><dd>{proposal.args.effect === 'read' ? t("core.action.read") : t("core.action.write")}</dd><dt>{t("core.action.permissionSource")}</dt><dd>{proposal.authorizationOrigin === 'policy_auto' ? t("core.action.autoOrigin") : proposal.authorizationOrigin === 'operator_approval' ? t("core.action.operatorOrigin") : proposal.policy.requiresApproval ? t("core.action.askOrigin") : t("core.action.autoOrigin")}</dd><dt>{t("core.action.policyRevision")}</dt><dd>{String(proposal.args.policyRevision ?? '—')}</dd><dt>{t("core.action.connectionRevision")}</dt><dd>{String(proposal.args.connectionRevision ?? '—')}</dd>{deadline !== null && <><dt>{t("core.action.expiry")}</dt><dd><time dateTime={new Date(deadline).toISOString()}>{dateTime(new Date(deadline).toISOString(), locale)}  {t("core.common.kyiv")}</time></dd></>}</dl>
 }
 
 function ReconcileAction({ proposal, caseId, token, stale, onChanged }: { proposal: Proposal; caseId: string; token: string; stale: boolean; onChanged: () => void }) {
@@ -105,7 +110,7 @@ function ReconcileAction({ proposal, caseId, token, stale, onChanged }: { propos
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<unknown>(null)
   async function reconcile() {
-    if (busy || saved || stale || !confirmed || !reason.trim()) return
+    if (isReadOnlyDemo() || busy || saved || stale || !confirmed || !reason.trim()) return
     setBusy(true); setError(null)
     try {
       const current = await request<CaseDetail>(`/cases/${encodeURIComponent(caseId)}`, token)
@@ -116,5 +121,5 @@ function ReconcileAction({ proposal, caseId, token, stale, onChanged }: { propos
     } catch (cause) { setError(cause); onChanged() }
     finally { setBusy(false) }
   }
-  return <form className="external-reconcile" onSubmit={event => { event.preventDefault(); void reconcile() }}><h4>{t("core.action.reconcileTitle")}</h4><p className="field-hint">{t("core.action.reconcileHint")}</p><label htmlFor={`reconcile-status-${proposal.id}`}>{t("core.action.confirmedStatus")}</label><select id={`reconcile-status-${proposal.id}`} disabled={stale || busy || saved} value={status} onChange={event => setStatus(event.target.value as 'executed' | 'failed')}><option value="executed">{t("core.status.executed")}</option><option value="failed">{t("core.status.failed")}</option></select><label htmlFor={`reconcile-reason-${proposal.id}`}>{t("core.action.reconcileReason")}</label><textarea id={`reconcile-reason-${proposal.id}`} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} required disabled={stale || busy || saved} /><label htmlFor={`reconcile-ref-${proposal.id}`}>{t("core.action.providerReference")}</label><input id={`reconcile-ref-${proposal.id}`} value={providerRef} onChange={event => setProviderRef(event.target.value)} maxLength={200} disabled={stale || busy || saved} /><label className="integration-review-check"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={stale || busy || saved} />{t("core.action.verified")}</label>{error !== null && <ErrorNotice error={error} />}{saved && <Notice>{t("core.action.reconciledNotice")}</Notice>}<button type="submit" disabled={stale || busy || saved || !confirmed || !reason.trim()}>{busy ? t("core.common.saving") : t("core.action.reconcile")}</button></form>
+  return <form className="external-reconcile" onSubmit={event => { event.preventDefault(); void reconcile() }}><h4>{t("core.action.reconcileTitle")}</h4><p className="field-hint">{t("core.action.reconcileHint")}</p><label htmlFor={`reconcile-status-${proposal.id}`}>{t("core.action.confirmedStatus")}</label><select id={`reconcile-status-${proposal.id}`} disabled={isReadOnlyDemo() || stale || busy || saved} value={status} onChange={event => setStatus(event.target.value as 'executed' | 'failed')}><option value="executed">{t("core.status.executed")}</option><option value="failed">{t("core.status.failed")}</option></select><label htmlFor={`reconcile-reason-${proposal.id}`}>{t("core.action.reconcileReason")}</label><textarea id={`reconcile-reason-${proposal.id}`} value={reason} onChange={event => setReason(event.target.value)} maxLength={500} required disabled={isReadOnlyDemo() || stale || busy || saved} /><label htmlFor={`reconcile-ref-${proposal.id}`}>{t("core.action.providerReference")}</label><input id={`reconcile-ref-${proposal.id}`} value={providerRef} onChange={event => setProviderRef(event.target.value)} maxLength={200} disabled={isReadOnlyDemo() || stale || busy || saved} /><label className="integration-review-check"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} disabled={isReadOnlyDemo() || stale || busy || saved} />{t("core.action.verified")}</label>{error !== null && <ErrorNotice error={error} />}{saved && <Notice>{t("core.action.reconciledNotice")}</Notice>}<button type="submit" disabled={isReadOnlyDemo() || stale || busy || saved || !confirmed || !reason.trim()}>{busy ? t("core.common.saving") : t("core.action.reconcile")}</button></form>
 }

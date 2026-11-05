@@ -1,4 +1,5 @@
 import { useI18n, type UiMessage } from '../i18n'
+import { ReadOnlyDemoBanner } from './ReadOnlyDemoBanner'
 import { LanguagePicker } from './LanguagePicker'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, readSession, request, saveSession } from '../lib/api'
@@ -68,6 +69,7 @@ export function OperatorGate({ location, initialLink, onLinkConsumed }: { locati
   if (session.phase === 'authenticated') return <Dashboard token={session.key} location={location} onLogout={() => reset()} />
   const localDemo = import.meta.env.DEV && import.meta.env.MODE === 'local-demo' && window.location.hostname === '127.0.0.1'
   return <main className="login-page" tabIndex={0}>
+    <ReadOnlyDemoBanner />
     <div className="login-brand"><Brand /><LanguagePicker /></div>
     <section className="login-card card" aria-labelledby="login-title">
       <span className="eyebrow">{t("core.auth.eyebrow")}</span>

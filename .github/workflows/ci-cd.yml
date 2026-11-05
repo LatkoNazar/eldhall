@@ -86,9 +86,9 @@ jobs:
       - name: Local API demo launcher (loopback only)
         working-directory: apps/api
         run: node --import tsx --test tests/local-demo-launcher.integration.ts
-      - name: Local frontend demo launcher (isolated loopback proxy)
+      - name: Local frontend demo launchers (isolated loopback proxies)
         working-directory: apps/frontend
-        run: node --test scripts/local-demo.integration.mjs
+        run: node --test scripts/local-demo.integration.mjs scripts/inspector-demo.integration.mjs
       - name: Installation Compose parser and service environment interoperability
         working-directory: apps/api
         run: |

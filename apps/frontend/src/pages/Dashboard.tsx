@@ -1,4 +1,5 @@
 import { useI18n, formatNumber, formatPercent } from '../i18n'
+import { ReadOnlyDemoBanner } from '../components/ReadOnlyDemoBanner'
 import { LanguagePicker } from '../components/LanguagePicker'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { Fragment, useEffect, useRef, useState } from 'react'
@@ -38,6 +39,8 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
   const [menuOpen, setMenuOpen] = useState(false)
   const cases = useResource<SupportCase[]>('/cases', token, 4000)
   const metrics = useResource<Metrics>('/metrics', token, 5000)
+  const businesses = useResource<{ businesses: { id: string; name: string }[] }>('/businesses', token)
+  const businessNames = Object.fromEntries((businesses.data?.businesses ?? []).map(item => [item.id, item.name]))
   const title = t(navigation.find(item => item.id === page)?.label ?? 'core.nav.inbox')
   const previousRoute = useRef(routeKey)
   useEffect(() => {
@@ -68,12 +71,13 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
         <div className="operator-profile"><LanguagePicker /><Avatar name={t("core.nav.operator")} /><span>{t("core.thread.operator")}<span className="profile-caption">{t("core.nav.staffAccess")}</span></span><button className="icon-button" aria-label={t("core.nav.logout")} onClick={onLogout}><Icon name="logout" /></button></div>
       </header>
       <main id="main-content" className={`page ${page === 'inbox' ? 'page-workspace' : page === 'actions' ? 'page-actions' : ''}`} tabIndex={page === 'inbox' ? -1 : 0}>
+        <ReadOnlyDemoBanner />
         {page === 'inbox' && <Fragment key={routeKey}>
           <div className="page-heading"><div><h1>{t("core.inbox.title")}</h1><p>{t("core.inbox.subtitle")}</p></div><button onClick={() => { cases.refresh(); metrics.refresh() }}><Icon name="refresh" />{t("core.common.refresh")}</button></div>
           {cases.error && <Notice error>{cases.error} {cases.checkedAt && t('core.common.lastConfirmed', { time: dateTime(cases.checkedAt, locale) })} <button className="text-button" onClick={cases.refresh}>{t("core.common.retryRead")}</button></Notice>}
-          {cases.loading ? <div className="card"><Empty title={t("core.inbox.loading")} /></div> : cases.data && <CaseWorkspace token={token} cases={cases.data} search={search} actionOnly={false} onChanged={() => { cases.refresh(); metrics.refresh() }} />}
+          {cases.loading ? <div className="card"><Empty title={t("core.inbox.loading")} /></div> : cases.data && <CaseWorkspace token={token} businessNames={businessNames} cases={cases.data} search={search} actionOnly={false} onChanged={() => { cases.refresh(); metrics.refresh() }} />}
         </Fragment>}
-        {page === 'actions' && <Actions key={routeKey} token={token} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
+        {page === 'actions' && <Actions key={routeKey} token={token} businessNames={businessNames} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
         {page === 'analytics' && <AnalyticsWorkspace key={routeKey} token={token} />}
         {page === 'knowledge' && <Knowledge key={routeKey} token={token} />}
         {page === 'integrations' && <Integrations key={routeKey} token={token} />}

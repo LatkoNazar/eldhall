@@ -54,14 +54,14 @@ it('uses a typed stale-action conflict in another language without POST or an un
 })
 
 it('preserves an expired external approval and original business arguments when changing language', async () => {
-  const current = { ...proposal(), tool: 'external_action', args: { title: 'Original business operation', integrationId: 'orders', operationKey: 'POST /orders/cancel', input: { order_id: 'original-order' }, effect: 'write', expiresAt: '2020-01-01T00:00:00.000Z' } }
+  const current = { ...proposal(), tool: 'external_action', args: { title: 'Original business operation', tags: ['eldhall.ui.orders'], integrationId: 'orders', operationKey: 'POST /orders/cancel', input: { order_id: 'original-order' }, effect: 'write', expiresAt: '2020-01-01T00:00:00.000Z' } }
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
   render(<I18nProvider initialLocale="en"><LanguagePicker /><ActionCard proposal={current} detail={detail(current)} token="synthetic-operator" stale={false} onChanged={vi.fn()} /></I18nProvider>)
   expect(screen.getByRole('button', { name: text('core.action.execute', 'en') })).toBeDisabled()
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'de' } })
   await waitFor(() => expect(screen.getByRole('button', { name: text('core.action.execute', 'de') })).toBeDisabled())
   expect(screen.getByRole('heading', { name: 'Original business operation' })).toBeInTheDocument()
-  expect(document.querySelector('.external-action-meta')).toHaveTextContent('order_id: original-order')
+  expect(document.querySelector('.domain-requested')).toHaveTextContent('original-order')
   expect(current.args.input).toEqual({ order_id: 'original-order' })
   expect(fetch).not.toHaveBeenCalled()
 })

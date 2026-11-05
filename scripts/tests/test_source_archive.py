@@ -75,6 +75,17 @@ class SourceArchiveTests(unittest.TestCase):
         if os.name == "posix":
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_inspector_demo_is_self_contained_and_refuses_a_missing_fixture(self):
+        _, archive_path = self.archive(name="inspector-demo")
+        with tarfile.open(archive_path) as archive:
+            prefix = "eldhall-source-" + self.commit + "/"
+            names = set(archive.getnames())
+            for path in ("apps/frontend/scripts/inspector-demo.mjs", "scripts/inspector-demo.mjs", "examples/inspector/scenarios.v1.json", "docs/INSPECTOR_TEMPLATES.md"):
+                self.assertIn(prefix + path, names)
+        self.git("update-index", "--force-remove", "examples/inspector/scenarios.v1.json")
+        with self.assertRaises(ValueError):
+            self.archive(self.commit_tree(), name="missing-inspector-demo")
+
     def test_private_media_links_submodules_and_lfs_never_enter_snapshot(self):
         excluded = {
             "apps/api/.env": b"password=private-test-value\n",

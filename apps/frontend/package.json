@@ -14,7 +14,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "demo:local": "node scripts/local-demo.mjs"
+    "demo:local": "node scripts/local-demo.mjs",
+    "demo:inspector": "node scripts/inspector-demo.mjs"
   },
   "dependencies": {
     "@eldhall/analytics": "file:../../packages/analytics",

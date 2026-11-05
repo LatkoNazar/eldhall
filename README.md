@@ -12,6 +12,7 @@ This is a **source-build preview**, not a published installable release. The sel
 - Applies `auto / ask / deny` policy. An `ask` read or write creates a durable proposal and ends the bounded model turn; approval and execution are separate operator actions.
 - Records action outcomes and audit with replay protection. An ambiguous external effect remains `unknown` for reconciliation rather than being blindly repeated.
 - Provides English, Spanish, Ukrainian, German and Portuguese interfaces with saved language preferences, local formatting and localized landing pages. See [localization and adding languages](docs/LOCALIZATION.md).
+- Structures case context and actions with twelve explicit business presentation templates and a generic fallback. See [template fields, reviewed tags and isolated examples](docs/INSPECTOR_TEMPLATES.md).
 
 The built-in financial provider is **simulated**; refund identifiers do not represent real money movement. Staff authentication uses a deployment-wide operator bearer. SSO, invitations, complete RBAC and scoped host-service credentials are not implemented. Model/provider availability and output quality require their own evaluation.
 
@@ -61,6 +62,21 @@ docker run --rm --network none --read-only LOCAL_SERVER_IMAGE eldhall version
 3. For actions, import a supported OpenAPI subset, inspect the exact operation definitions, configure trusted scope/target mapping, then review and activate the catalog through the operator API/UI. Follow the [walkthrough](docs/OPENAPI_QUICKSTART.md) and [manifest/permission contract](docs/integrations-manifest.md).
 
 Business-specific credentials and configuration stay outside this source distribution. Connector activation is explicit; mounting a manifest does not enable operations automatically. The [synthetic Orders specification](examples/orders/openapi.json) is a test fixture, not a production adapter.
+
+## Preview business presentation templates
+
+With the frontend dependencies installed, run:
+
+```sh
+npm --prefix apps/frontend run demo:inspector
+```
+
+This source-only preview serves thirteen fictional businesses at
+`http://127.0.0.1:5192/operator?lang=uk#key=1111`. Its fixture API is bound to
+`127.0.0.1:5293`; both listeners stop with the launcher. It loads no database or
+deployment environment file and executes no business actions. The demo key is
+only for these synthetic loopback fixtures. It does not configure a production
+operator key, activate an integration or change the normal demo's stored data.
 
 ## Verify a source checkout
 

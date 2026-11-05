@@ -11,7 +11,7 @@
     "BROWSER_NOTICES.txt": "3f0ce5a875d781baadd16d46e84a700e789d9e6b4abff5f042dfa552fb852afb"
   },
   "localInputs": {
-    "package.json": "11513b9d9edf87694acd2e38128819a2b34b58a62859ee8f56cb7111d01d6552",
+    "package.json": "8325c3451c793090f292711c19d3db0c2ea288a4baa11e3a349cc8aa2fd9fdef",
     "package-lock.json": "bdaecc91ebfcb940c7ac34eda67de8d4b0db8990a01f970c1a06cb1c493ffca4"
   },
   "browserComponents": [

@@ -20,9 +20,9 @@ import tarfile
 from urllib.parse import unquote, urlsplit
 
 POLICY = "eldhall-source-v1"
-ROOTS = ("apps/api/", "apps/frontend/", "apps/landing/", "apps/mcp-openapi/", "packages/analytics/", "packages/i18n/", "schemas/", "deploy/", "examples/orders/", "scripts/")
+ROOTS = ("apps/api/", "apps/frontend/", "apps/landing/", "apps/mcp-openapi/", "packages/analytics/", "packages/i18n/", "schemas/", "deploy/", "examples/orders/", "examples/inspector/", "scripts/")
 ROOT_FILES = {"LICENSE", "NOTICE", "README.md", ".dockerignore", ".gitattributes", ".gitignore", ".env.example"}
-DOCS = {"API_CONTRACTS.md", "ARCHITECTURE.md", "CLI.md", "distribution-contract.md", "EXTERNAL_DATA.md", "implementation.md", "INSTALLATION_INIT.md", "insights.md", "integrations-manifest.md", "integrations-runtime.md", "KNOWLEDGE_BASE.md", "LICENSING.md", "LOCALIZATION.md", "NATIVE_RECEIPTS.md", "PRIVATE_OCI.md", "OPENAPI_QUICKSTART.md", "openrouter.md", "RELEASE_STATUS.md", "SCHEMA_OBSERVATION.md", "THIRD_PARTY_NOTICES.md"}
+DOCS = {"API_CONTRACTS.md", "ARCHITECTURE.md", "CLI.md", "distribution-contract.md", "EXTERNAL_DATA.md", "implementation.md", "INSTALLATION_INIT.md", "INSPECTOR_TEMPLATES.md", "insights.md", "integrations-manifest.md", "integrations-runtime.md", "KNOWLEDGE_BASE.md", "LICENSING.md", "LOCALIZATION.md", "NATIVE_RECEIPTS.md", "PRIVATE_OCI.md", "OPENAPI_QUICKSTART.md", "openrouter.md", "RELEASE_STATUS.md", "SCHEMA_OBSERVATION.md", "THIRD_PARTY_NOTICES.md"}
 ESSENTIAL_DOCS = {"README.md", *("docs/" + name for name in DOCS)}
 EXTENSIONS = {".ts", ".tsx", ".js", ".mjs", ".json", ".py", ".toml", ".lock", ".md", ".txt", ".yaml", ".yml", ".sql", ".css", ".html", ".sh"}
 DENIED_PARTS = {".git", ".omc", ".runtime", ".agents", ".codex", ".venv", ".ssh", ".aws", ".kube", "node_modules", "dist", "coverage", "__pycache__", ".pytest_cache", ".ruff_cache", ".deploy", "backups", "private", "secret", "secrets", "credentials", "qa-evidence", "demos", "deliverables"}
@@ -31,7 +31,7 @@ SPECIAL = {"Dockerfile", "Caddyfile", "LICENSE", "NOTICE", ".dockerignore"}
 MAX_FILE = 8_000_000
 MAX_TOTAL = 64_000_000
 BUILD_CONTEXTS = (("apps/api/Dockerfile", "apps/api"), ("apps/frontend/Dockerfile", ""), ("apps/landing/Dockerfile", ""), ("apps/mcp-openapi/Dockerfile", "apps/mcp-openapi"))
-REQUIRED = {"deploy/base-images.lock.json", "LICENSE", "NOTICE", ".dockerignore", ".gitignore", "apps/api/package.json", "apps/api/package-lock.json", "apps/api/tsconfig.json", "apps/api/tsconfig.build.json", "apps/frontend/package.json", "apps/frontend/package-lock.json", "apps/frontend/index.html", "apps/mcp-openapi/pyproject.toml", "apps/mcp-openapi/uv.lock", "packages/analytics/package.json", "packages/i18n/package.json", "packages/i18n/src/core.ts", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", *(entry[0] for entry in BUILD_CONTEXTS)}
+REQUIRED = {"deploy/base-images.lock.json", "LICENSE", "NOTICE", ".dockerignore", ".gitignore", "apps/api/package.json", "apps/api/package-lock.json", "apps/api/tsconfig.json", "apps/api/tsconfig.build.json", "apps/frontend/package.json", "apps/frontend/package-lock.json", "apps/frontend/index.html", "apps/frontend/scripts/inspector-demo.mjs", "scripts/inspector-demo.mjs", "examples/inspector/scenarios.v1.json", "apps/mcp-openapi/pyproject.toml", "apps/mcp-openapi/uv.lock", "packages/analytics/package.json", "packages/i18n/package.json", "packages/i18n/src/core.ts", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", *(entry[0] for entry in BUILD_CONTEXTS)}
 
 
 def git(repo: pathlib.Path, *args: str, source: bytes | None = None) -> bytes:

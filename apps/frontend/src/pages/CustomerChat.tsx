@@ -1,4 +1,6 @@
 import { useI18n } from '../i18n'
+import { ReadOnlyDemoBanner } from '../components/ReadOnlyDemoBanner'
+import { isReadOnlyDemo } from '../lib/demo-mode'
 import { LanguagePicker } from '../components/LanguagePicker'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { currentAnalytics } from '@eldhall/analytics'
@@ -19,13 +21,13 @@ export function CustomerChat() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   async function start(token: string) {
-    if (!token.trim() || busy) return
+    if (isReadOnlyDemo() || !token.trim() || busy) return
     setBusy(true); setError(null)
     try { const result = await request<{ id: string }>('/chat/cases', token, { method: 'POST', customer: true }); saveSession('support.customer', token); setSession(token); setCaseId(result.id); try { currentAnalytics().track('support_case_created', {}) } catch { /* Tracking never changes a created case. */ } }
     catch (cause) { setError(cause) }
     finally { setBusy(false) }
   }
-  return <main className={`customer-page ${caseId ? 'customer-page-active' : ''}`} tabIndex={0}><header><Brand /><LanguagePicker /><AppLink href="/operator">{t("core.chat.operatorLink")}</AppLink></header><div className="customer-intro"><span className="eyebrow">{t("core.chat.eyebrow")}</span><h1>{t("core.chat.title")}</h1><p>{t("core.chat.intro")}</p></div><section className="customer-chat card">{caseId ? <ActiveChat key={caseId} id={caseId} session={session} onNew={() => setCaseId('')} /> : <div className="chat-start"><Icon name="inbox" size={34} /><h2>{t("core.chat.startTitle")}</h2>{personas.data && personas.data.length > 0 ? <><Badge>{t("core.chat.demoProfiles")}</Badge><p className="muted">{t("core.chat.demoNotice")}</p><div className="persona-list">{personas.data.map(persona => <button key={persona.sessionToken} disabled={busy} onClick={() => void start(persona.sessionToken)}><strong>{persona.name}</strong><span>{persona.businessName} · {persona.plan}</span><Icon name="arrow" /></button>)}</div></> : <><p className="muted">{t("core.chat.sessionHint")}</p><form onSubmit={event => { event.preventDefault(); void start(draftToken || session) }}><label htmlFor="customer-session">{t("core.chat.sessionKey")}</label><input id="customer-session" type="password" autoComplete="off" value={draftToken || session} onChange={event => { setDraftToken(event.target.value); setSession('') }} required /><button className="primary full" disabled={busy || !(draftToken || session).trim()}>{busy ? t("core.chat.opening") : t("core.chat.start")}</button></form></>}{error !== null && <ErrorNotice error={error} />}</div>}</section><p className="customer-footnote">{t("core.chat.footer")}</p></main>
+  return <main className={`customer-page ${caseId ? 'customer-page-active' : ''}`} tabIndex={0}><header><Brand /><LanguagePicker /><AppLink href="/operator">{t("core.chat.operatorLink")}</AppLink></header><ReadOnlyDemoBanner /><div className="customer-intro"><span className="eyebrow">{t("core.chat.eyebrow")}</span><h1>{t("core.chat.title")}</h1><p>{t("core.chat.intro")}</p></div><section className="customer-chat card">{caseId ? <ActiveChat key={caseId} id={caseId} session={session} onNew={() => setCaseId('')} /> : <div className="chat-start"><Icon name="inbox" size={34} /><h2>{t("core.chat.startTitle")}</h2>{personas.data && personas.data.length > 0 ? <><Badge>{t("core.chat.demoProfiles")}</Badge><p className="muted">{t("core.chat.demoNotice")}</p><div className="persona-list">{personas.data.map(persona => <button key={persona.sessionToken} disabled={isReadOnlyDemo() || busy} onClick={() => void start(persona.sessionToken)}><strong>{persona.name}</strong><span>{persona.businessName} · {persona.plan}</span><Icon name="arrow" /></button>)}</div></> : <><p className="muted">{t("core.chat.sessionHint")}</p><form onSubmit={event => { event.preventDefault(); void start(draftToken || session) }}><label htmlFor="customer-session">{t("core.chat.sessionKey")}</label><input id="customer-session" type="password" autoComplete="off" value={draftToken || session} onChange={event => { setDraftToken(event.target.value); setSession('') }} required /><button className="primary full" disabled={isReadOnlyDemo() || busy || !(draftToken || session).trim()}>{busy ? t("core.chat.opening") : t("core.chat.start")}</button></form></>}{error !== null && <ErrorNotice error={error} />}</div>}</section><p className="customer-footnote">{t("core.chat.footer")}</p></main>
 }
 
 function ActiveChat({ id, session, onNew }: { id: string; session: string; onNew: () => void }) {
@@ -45,7 +47,7 @@ function ActiveChat({ id, session, onNew }: { id: string; session: string; onNew
       : processing ? t("core.chat.accepted")
         : busy && data?.ownership !== 'staff' ? t("core.chat.sendingMessage") : ''
   async function send() {
-    if (!draft.trim() || busy || processing) return
+    if (isReadOnlyDemo() || !draft.trim() || busy || processing) return
     setBusy(true); setError(null)
     const body = draft.trim()
     setPendingBody(body)
@@ -57,7 +59,7 @@ function ActiveChat({ id, session, onNew }: { id: string; session: string; onNew
     finally { setBusy(false) }
   }
   return <>
-    <div className="customer-chat-header"><span className="chat-brand-icon"><Icon name="spark" /></span><div><h2>{data?.businessName || t("core.chat.team")}</h2><span className="small muted">{t("core.chat.subtitle")}</span></div><button onClick={onNew} disabled={busy}>{t("core.chat.new")}</button></div>
+    <div className="customer-chat-header"><span className="chat-brand-icon"><Icon name="spark" /></span><div><h2>{data?.businessName || t("core.chat.team")}</h2><span className="small muted">{t("core.chat.subtitle")}</span></div><button onClick={onNew} disabled={isReadOnlyDemo() || busy}>{t("core.chat.new")}</button></div>
     <div className="chat-status">{data && <Badge value={data.status} />}</div>
     {resource.error && <ErrorNotice error={resource.errorCause} />}
     <MessageThread customer messages={data?.messages ?? []} customerName={t("core.chat.you")} loading={resource.loading} pending={pending} />
@@ -65,8 +67,8 @@ function ActiveChat({ id, session, onNew }: { id: string; session: string; onNew
     {error !== null && <ErrorNotice error={error}>{pendingBody && <p>{t("core.chat.savedText")}</p>}</ErrorNotice>}
     <form className="composer" onSubmit={event => { event.preventDefault(); void send() }}>
       <label htmlFor="customer-message" className="sr-only">{t("core.chat.message")}</label>
-      <textarea id="customer-message" required maxLength={2000} disabled={busy || processing} value={draft} onChange={event => setDraft(event.target.value)} placeholder={processing ? t("core.chat.waitingPlaceholder") : t("core.chat.placeholder")} />
-      <div className="composer-footer"><small className="muted">{draft.length}/2000</small><button className="primary" disabled={busy || processing || !draft.trim() || !!resource.error}><Icon name="send" size={18} />{busy ? t("core.common.sending") : processing ? t("core.chat.waitingAi") : t("core.common.send")}</button></div>
+      <textarea id="customer-message" required maxLength={2000} disabled={isReadOnlyDemo() || busy || processing} value={draft} onChange={event => setDraft(event.target.value)} placeholder={processing ? t("core.chat.waitingPlaceholder") : t("core.chat.placeholder")} />
+      <div className="composer-footer"><small className="muted">{draft.length}/2000</small><button className="primary" disabled={isReadOnlyDemo() || busy || processing || !draft.trim() || !!resource.error}><Icon name="send" size={18} />{busy ? t("core.common.sending") : processing ? t("core.chat.waitingAi") : t("core.common.send")}</button></div>
     </form>
   </>
 }
