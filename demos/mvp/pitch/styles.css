@@ -1,0 +1,93 @@
+/* Eldhall tokens from apps/landing/src/styles.css. Fonts are local (Inter, OFL, @fontsource). */
+@font-face { font-family: Inter; font-weight: 400; src: url(assets/fonts/inter-latin-400-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2190-21FF; }
+@font-face { font-family: Inter; font-weight: 600; src: url(assets/fonts/inter-latin-600-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2190-21FF; }
+@font-face { font-family: Inter; font-weight: 700; src: url(assets/fonts/inter-latin-700-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2190-21FF; }
+@font-face { font-family: Inter; font-weight: 800; src: url(assets/fonts/inter-latin-800-normal.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2190-21FF; }
+@font-face { font-family: Inter; font-weight: 400; src: url(assets/fonts/inter-cyrillic-400-normal.woff2) format('woff2'); unicode-range: U+0400-04FF; }
+@font-face { font-family: Inter; font-weight: 600; src: url(assets/fonts/inter-cyrillic-600-normal.woff2) format('woff2'); unicode-range: U+0400-04FF; }
+@font-face { font-family: Inter; font-weight: 700; src: url(assets/fonts/inter-cyrillic-700-normal.woff2) format('woff2'); unicode-range: U+0400-04FF; }
+@font-face { font-family: Inter; font-weight: 800; src: url(assets/fonts/inter-cyrillic-800-normal.woff2) format('woff2'); unicode-range: U+0400-04FF; }
+
+:root {
+  --ink: #16161b; --ink-2: #4a4a55; --muted: #696975; --accent: #d7263d; --accent-soft: #fdecee;
+  --ok: #16a34a; --line: #ececf0; --alt: #f6f6f8;
+  --font: Inter, 'Segoe UI', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: var(--canvas-width, 1920px); height: var(--canvas-height, 1080px); overflow: hidden; background: #fff; }
+body { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
+#root { position: relative; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+.clip { position: absolute; inset: 0; }
+
+/* macOS-style desktop */
+.desktop {
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 60% 55% at 78% 18%, rgba(215, 38, 61, .10), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 12% 92%, rgba(37, 99, 235, .06), transparent 70%),
+    linear-gradient(180deg, #fbfbfc, #f1f1f4);
+}
+.desktop::after {
+  content: ""; position: absolute; inset: 0; opacity: .5;
+  background-image: linear-gradient(#e7e7ec 1px, transparent 1px), linear-gradient(90deg, #e7e7ec 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 45%, #000 30%, transparent 80%);
+}
+.stage { z-index: 2; transform-origin: 0 0; }
+.window {
+  position: absolute; left: var(--wx); top: var(--wy); width: var(--ww);
+  border-radius: 14px; overflow: hidden; background: #fff;
+  box-shadow: 0 0 0 1px rgba(22, 22, 27, .10), 0 30px 80px -20px rgba(22, 22, 27, .35), 0 12px 28px -14px rgba(22, 22, 27, .25);
+}
+.titlebar { position: relative; height: var(--tb); display: flex; align-items: center; gap: 14px; padding: 0 18px; background: #f3f3f6; border-bottom: 1px solid var(--line); }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 13px; height: 13px; border-radius: 50%; display: block; }
+.lights i:nth-child(1) { background: #ff5f57; } .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.urlbar { position: absolute; left: 50%; top: 9px; transform: translateX(-50%); width: 520px; height: 28px; border-radius: 8px; background: #fff; border: 1px solid var(--line); }
+.url { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--ink-2); opacity: 0; }
+.url svg { width: 12px; height: 12px; color: var(--muted); }
+.viewport { position: relative; width: var(--ww); height: var(--vh); overflow: hidden; background: #fff; }
+.capture-space { position: absolute; left: 0; top: 0; width: var(--cw); height: var(--ch); transform: scale(var(--cs)); transform-origin: 0 0; }
+.footage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+
+/* Placeholder slot: unmistakably not product footage */
+.placeholder {
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px; padding: 0 140px; opacity: 0;
+  background: repeating-linear-gradient(135deg, #fafafb 0 22px, #f2f2f5 22px 44px);
+  border: 3px dashed #d4d4dc;
+}
+.placeholder .ph-tag { font-size: 22px; font-weight: 800; letter-spacing: .08em; color: var(--accent); background: var(--accent-soft); padding: 8px 14px; border-radius: 8px; }
+.placeholder .ph-file { font-size: 30px; font-weight: 700; color: var(--ink); font-family: Consolas, 'Courier New', monospace; }
+.placeholder .ph-shows { font-size: 26px; line-height: 1.4; color: var(--ink-2); max-width: 1200px; }
+
+/* Highlight rings (capture coordinates) */
+.ring { position: absolute; border-radius: 14px; border: 4px solid var(--accent); box-shadow: 0 0 0 9999px rgba(22, 22, 27, .0); opacity: 0; }
+.ring.action { border-color: var(--accent); box-shadow: 0 0 0 10px rgba(215, 38, 61, .18); }
+.ring.deny { border-color: #b01a2e; box-shadow: 0 0 0 10px rgba(176, 26, 46, .16); }
+
+/* Captions */
+.caption-layer { z-index: 5; pointer-events: none; }
+.caption {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 16px; padding: 14px 26px 14px 16px; border-radius: 999px;
+  background: rgba(22, 22, 27, .92); color: #fff; font-size: 30px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap;
+  box-shadow: 0 16px 40px -16px rgba(22, 22, 27, .6); opacity: 0;
+}
+.caption .n { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--accent); font-size: 17px; font-weight: 800; }
+.disclaimer { position: absolute; right: 40px; top: 10px; font-size: 20px; font-weight: 600; color: var(--muted); opacity: 0; }
+
+/* Title cards */
+.card { z-index: 4; display: flex; flex-direction: column; justify-content: center; padding: 0 200px; background: #fff; }
+.card .brand { display: flex; align-items: center; gap: 16px; font-size: 46px; font-weight: 800; letter-spacing: -2px; color: var(--ink); }
+.card .brand svg { width: 38px; height: 48px; color: var(--accent); }
+.card .kicker { margin-top: 70px; font-size: 24px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.card h1 { margin: 18px 0 0; max-width: 1450px; font-size: 104px; line-height: 1.02; letter-spacing: -.045em; font-weight: 800; }
+.card h1 em { font-style: normal; color: var(--accent); }
+.card p { margin: 34px 0 0; font-size: 32px; color: var(--ink-2); }
+.card .word { display: inline-block; }
+.card.outro { align-items: center; text-align: center; }
+.card.outro h1 { font-size: 84px; }
+.card.outro .brand { margin-bottom: 48px; }
+
+.draft-badge { z-index: 9; }
+.draft-badge span { position: absolute; left: 24px; top: 18px; padding: 8px 14px; border-radius: 8px; background: #ffe9a8; color: #6b4a00; font-size: 18px; font-weight: 800; letter-spacing: .04em; }

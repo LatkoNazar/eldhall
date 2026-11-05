@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "at": "2026-10-31T13:54:34.983Z",
+  "appUrl": "http://localhost:5173",
+  "model": [
+    {
+      "provider": "rules",
+      "model": "keyword-rules-v1",
+      "status": "ok"
+    },
+    {
+      "provider": "rules",
+      "model": "keyword-rules-v1",
+      "status": "ok"
+    }
+  ],
+  "olena": {
+    "status": "resolved",
+    "proposals": [
+      [
+        "refund_payment",
+        "executed"
+      ]
+    ],
+    "refunds": [
+      "SIM-RF-EA1E7393"
+    ]
+  },
+  "ivan": {
+    "status": "escalated",
+    "priority": "P1",
+    "proposals": [
+      [
+        "refund_payment",
+        "denied"
+      ],
+      [
+        "escalate_to_human",
+        "executed"
+      ]
+    ],
+    "refunds": 0
+  }
+}

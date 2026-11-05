@@ -1,3 +1,20 @@
+# Historical pitch planning note — 2026-10-31
+
+This is an archived planning note, retained for context rather than a current runbook.
+The recorded [archival demo](../demos/mvp/pitch/exports/eldhall-pitch-uk-ARCHIVE-2026-10-31.mp4)
+and [pitch source guide](../demos/mvp/pitch/README.md) supersede the output paths and
+procedures below. For the qualified current talk, see [PITCH_TEXT](../deliverables/pitch/PITCH_TEXT.md).
+
+Current built-in refunds use separate **Approve → Execute** steps: approval alone
+does not perform a refund. Reviewed external catalogs can use `auto`, `ask` or `deny`
+policy. Source/image publication remains on hold. Old counts, schedules, statuses
+and the one-step approval storyboard below are historical, not current evidence.
+Capture/reset commands are for a disposable capture environment; they must not be
+run against the restored development database containing historical test data.
+The undated `exports/eldhall-pitch-uk.mp4` path is only the output of a future render.
+
+---
+
 # Pitch video — storyboard and generation plan
 
 **Format:** 40–45 s, 1920×1080, macOS-style (wallpaper, window chrome with traffic lights, soft shadows), Ukrainian captions, no voice-over (time-boxed; add TTS only if time remains).

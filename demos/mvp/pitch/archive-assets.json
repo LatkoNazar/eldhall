@@ -1,0 +1,102 @@
+{
+  "format": 1,
+  "snapshotDate": "2026-10-31",
+  "assets": [
+    {
+      "path": "assets/capture/approve.mp4",
+      "kind": "capture",
+      "size": 342077,
+      "sha256": "f915c1b0d513ba63bf0364785433ea1dcf48b455c46123c7e71333a8126aa860"
+    },
+    {
+      "path": "assets/capture/execute.mp4",
+      "kind": "capture",
+      "size": 362740,
+      "sha256": "35c9019a5860c328be05f30f6dc76ad85793f68ef7a222aaa8860c3d4b67399c"
+    },
+    {
+      "path": "assets/capture/policy.mp4",
+      "kind": "capture",
+      "size": 420322,
+      "sha256": "12233abd2338720b318a9e86d06797b86d2fcbeaf965d815826f72847a76641a"
+    },
+    {
+      "path": "assets/capture/request.mp4",
+      "kind": "capture",
+      "size": 278809,
+      "sha256": "e592639fa1c7939a23c161e062de2b9781090d124e9d4d42e906bf3088a11787"
+    },
+    {
+      "path": "assets/capture/result.mp4",
+      "kind": "capture",
+      "size": 135881,
+      "sha256": "1d5ceacad5e52ec54d10edaf37c8e0e11db31047f6cdd8a32ae5420a1b7974be"
+    },
+    {
+      "path": "assets/capture/safety.mp4",
+      "kind": "capture",
+      "size": 400568,
+      "sha256": "dd621517bb4966202ad8988fa044c412e00a41d6ebf53dca1a8726f664581c21"
+    },
+    {
+      "path": "assets/capture/triage.mp4",
+      "kind": "capture",
+      "size": 363157,
+      "sha256": "8512fbea2fbdabbd40ddbb08787c7cae50ed52e1bf1076d5be91681a8ae944a5"
+    },
+    {
+      "path": "assets/fonts/inter-cyrillic-400-normal.woff2",
+      "kind": "font",
+      "size": 7712,
+      "sha256": "f0bb586459ce8f09b238285040f17e3e9e9538b2c5a7aae0775194e33c36c3c3"
+    },
+    {
+      "path": "assets/fonts/inter-cyrillic-600-normal.woff2",
+      "kind": "font",
+      "size": 7972,
+      "sha256": "6c2a37f82a676bcd441b735e4e2cda4edb8873a059ab9c362a84f0711f257041"
+    },
+    {
+      "path": "assets/fonts/inter-cyrillic-700-normal.woff2",
+      "kind": "font",
+      "size": 7904,
+      "sha256": "5917871d3cc970d8ce195101cbf65c1f68ec948022eb6070030342bb7edfb3bb"
+    },
+    {
+      "path": "assets/fonts/inter-cyrillic-800-normal.woff2",
+      "kind": "font",
+      "size": 7992,
+      "sha256": "e84cb164b47aaad63db12da876c341c59f78b6b25f9069dcdea3c1f8ca8b8f9b"
+    },
+    {
+      "path": "assets/fonts/inter-latin-400-normal.woff2",
+      "kind": "font",
+      "size": 23664,
+      "sha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc"
+    },
+    {
+      "path": "assets/fonts/inter-latin-600-normal.woff2",
+      "kind": "font",
+      "size": 24452,
+      "sha256": "f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a"
+    },
+    {
+      "path": "assets/fonts/inter-latin-700-normal.woff2",
+      "kind": "font",
+      "size": 24356,
+      "sha256": "6f56409fd3d64bb85f7d070bce20749db2d66b6d63cec586cc22d1c761be2491"
+    },
+    {
+      "path": "assets/fonts/inter-latin-800-normal.woff2",
+      "kind": "font",
+      "size": 24400,
+      "sha256": "a7d0a50f15d389cad679238466bdb5fc9787aa0715719064ce25abaff042820d"
+    },
+    {
+      "path": "exports/eldhall-pitch-uk-ARCHIVE-2026-10-31.mp4",
+      "kind": "export",
+      "size": 21142462,
+      "sha256": "20d27578198ddd3a02ad58015322e51607b6281831ebe735365063ab139c342b"
+    }
+  ]
+}

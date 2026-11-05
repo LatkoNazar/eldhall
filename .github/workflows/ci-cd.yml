@@ -100,6 +100,10 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
           node --test scripts/tests/*.test.mjs
           bash scripts/tests/test-release.sh
+      - name: Validate archived pitch sources and package commands
+        run: |
+          node demos/mvp/pitch/scripts/verify.mjs --source-only
+          node --test demos/mvp/pitch/scripts/verify.test.mjs
       - name: Validate production composition
         run: |
           docker compose --env-file .env.example -f compose.yaml -f compose.prod.yaml config --quiet
