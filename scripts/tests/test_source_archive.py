@@ -28,7 +28,9 @@ class SourceArchiveTests(unittest.TestCase):
         self.write("apps/api/src/main.ts", b"export const marker = 'committed';\r\n")
         self.write("apps/mcp-openapi/src/support_mcp/server.py", b"print('fixture')\n")
         self.write("apps/api/Dockerfile", b"FROM node:fixture\nCOPY package.json package-lock.json ./\nCOPY src ./src\n")
-        self.write("apps/frontend/Dockerfile", b"FROM node:fixture\nCOPY apps/frontend/package.json ./\nCOPY packages/analytics /app/packages/analytics\n")
+        self.write("apps/frontend/Dockerfile", b"FROM node:fixture\nCOPY apps/frontend/package.json ./\nCOPY packages/analytics /app/packages/analytics\nCOPY packages/i18n /app/packages/i18n\n")
+        self.write("apps/landing/Dockerfile", b"FROM node:fixture\nCOPY apps/landing/package.json ./\nCOPY packages/i18n /app/packages/i18n\n")
+        self.write("apps/landing/package.json", b'{"private":true}\n')
         self.write("apps/mcp-openapi/Dockerfile", b"FROM python:fixture\nCOPY pyproject.toml uv.lock ./\nCOPY src ./src\n")
         self.git("add", "--force", "--all")
         self.commit = self.commit_tree()
@@ -127,6 +129,18 @@ class SourceArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Docker COPY input"):
             self.archive(commit)
         self.assertFalse((self.root / ".omc/out").exists())
+
+    def test_shared_localization_sources_are_required_and_retained_for_both_browser_builds(self):
+        _, path = self.archive()
+        prefix = "eldhall-source-" + self.commit + "/"
+        with tarfile.open(path) as archive:
+            for source in ("packages/i18n/package.json", "packages/i18n/src/core.ts", "apps/landing/Dockerfile"):
+                self.assertIn(prefix + source, archive.getnames())
+        self.git("update-index", "--force-remove", "packages/i18n/src/core.ts")
+        commit = self.commit_tree()
+        with self.assertRaisesRegex(ValueError, "required product build inputs"):
+            self.archive(commit, name="missing-locale-core")
+        self.assertFalse((self.root / ".omc/missing-locale-core").exists())
 
     def test_private_key_marker_and_ambiguous_revision_are_refused(self):
         self.write("apps/api/src/key.txt", b"-----BEGIN " + b"PRIVATE KEY-----\nsynthetic\n")

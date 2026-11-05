@@ -13,7 +13,8 @@ it('ignores a late old401 even when the newer session uses the same key', async 
   const release = registerOperatorSession('same-synthetic-key', newInvalid)
   try {
     respond(new Response(JSON.stringify({ detail: 'private-old-error' }), { status: 401 }))
-    await expect(pending).rejects.toThrow('Ключ доступу недійсний')
+    await expect(pending).rejects.toMatchObject({ name: 'ApiError', status: 401, uiMessage: { key: 'core.error.invalidOperator' }, originalDetail: undefined })
+    await expect(pending).rejects.not.toThrow('private-old-error')
     expect(oldInvalid).not.toHaveBeenCalled()
     expect(newInvalid).not.toHaveBeenCalled()
   } finally { release() }

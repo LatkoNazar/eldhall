@@ -11,6 +11,7 @@ This is a **source-build preview**, not a published installable release. The sel
 - Connects an existing business API through a reviewed [OpenAPI → MCP catalog](docs/OPENAPI_QUICKSTART.md), or configured scoped legacy read-only MCP tools.
 - Applies `auto / ask / deny` policy. An `ask` read or write creates a durable proposal and ends the bounded model turn; approval and execution are separate operator actions.
 - Records action outcomes and audit with replay protection. An ambiguous external effect remains `unknown` for reconciliation rather than being blindly repeated.
+- Provides English, Spanish, Ukrainian, German and Portuguese interfaces with saved language preferences, local formatting and localized landing pages. See [localization and adding languages](docs/LOCALIZATION.md).
 
 The built-in financial provider is **simulated**; refund identifiers do not represent real money movement. Staff authentication uses a deployment-wide operator bearer. SSO, invitations, complete RBAC and scoped host-service credentials are not implemented. Model/provider availability and output quality require their own evaluation.
 

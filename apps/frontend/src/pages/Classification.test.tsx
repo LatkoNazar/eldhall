@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '../test/render'
 import { beforeEach, expect, it, vi } from 'vitest'
 import App from '../App'
 import { request } from '../lib/api'
@@ -78,7 +78,7 @@ it('distinguishes a low-score proposed candidate from the final review class', a
 it('rejects malformed classification metadata rather than rendering unchecked model scores', async () => {
   const current = detail(classified)
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ ...current.case, analysis: { ...current.case.analysis, classification: { ...classified, confidence: 4 } } }]), { headers: { 'Content-Type': 'application/json' } })))
-  await expect(request('/cases', 'test-operator-token')).rejects.toThrow('Некоректна структура відповіді сервера')
+  await expect(request('/cases', 'test-operator-token')).rejects.toMatchObject({ name: 'ApiError', status: 200, uiMessage: { key: 'core.error.invalidResponse' } })
 })
 
 it('does not present the normalized zero of an invalid model class as a measured probability', async () => {

@@ -6,7 +6,7 @@ const eslint = new ESLint({
   cwd: fileURLToPath(new URL('../../../', import.meta.url)),
   overrideConfigFile: fileURLToPath(new URL('../eslint.analytics.config.js', import.meta.url)),
 })
-const results = await eslint.lintFiles(['packages/analytics/src/**/*.ts'])
+const results = await eslint.lintFiles(['packages/analytics/src/**/*.ts', 'packages/i18n/src/**/*.ts'])
 const formatter = await eslint.loadFormatter('stylish')
 const output = formatter.format(results)
 if (output) process.stdout.write(output)

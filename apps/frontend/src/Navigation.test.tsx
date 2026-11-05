@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from './test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import App from './App'
@@ -47,6 +47,7 @@ it('navigates inside the same dashboard shell and retains its case polling resou
   const user = userEvent.setup()
   render(<App />)
   await screen.findByRole('heading', { name: 'Вхідні звернення' })
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) => path === '/api/v1/cases/case-a')).toBe(true))
   await screen.findByText('Message case-a')
   const shell = document.querySelector('.app-shell')
   const sidebar = document.querySelector('.sidebar')

@@ -19,7 +19,7 @@ Exact Linux native/bundled-component and base-image compliance is a public-relea
 
 ## Browser artifacts and fonts
 
-The web artifact includes React, react-dom and scheduler MIT-licensed code. Complete upstream licence text, package names and locked versions are generated into `/licenses/BROWSER_NOTICES.txt`. Both browser artifacts include the Vite core MIT notice for generated runtime helpers; build-only dependencies are not thereby declared bundled in full. The local analytics code is covered by the project licence.
+The web artifact includes React, react-dom and scheduler MIT-licensed code. Both interfaces use MIT-licensed i18next; the application also includes react-i18next and its MIT-licensed runtime dependencies (@babel/runtime, html-parse-stringify and use-sync-external-store). Complete upstream licence text, package names and locked versions are generated into `/licenses/BROWSER_NOTICES.txt`. Both browser artifacts include the Vite core MIT notice for generated runtime helpers; build-only dependencies such as parse5 are not thereby declared bundled in full. The local analytics and localization code are covered by the project licence.
 
 Frontend uses system font names without bundling their bytes. Optional landing currently loads Inter from Google Fonts at browser runtime; Inter remains under [OFL-1.1](https://github.com/rsms/inter/blob/master/LICENSE.txt). If fonts are bundled later, ship their copyright/licence notices and respect their own naming/distribution conditions. Reference screenshots and YouTube demo media are excluded from the project grant; see LICENSING.md.
 

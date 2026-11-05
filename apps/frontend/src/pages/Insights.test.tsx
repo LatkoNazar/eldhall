@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import App from '../App'
@@ -58,7 +58,7 @@ it('admits analysis only on request, displays queued progress and renders actual
   expect(screen.getByText(/Проаналізовано обмежену вибірку/)).toBeInTheDocument()
   expect(screen.getByText(/Гіпотези AI/)).toBeInTheDocument()
   await user.click(within(finding).getByText('Звернення та повідомлення-джерела (1)'))
-  expect(within(finding).getByRole('link', { name: /Відкрити звернення/ })).toHaveAttribute('href', `/operator?caseId=${caseId}`)
+  expect(within(finding).getByRole('link', { name: /Відкрити звернення/ })).toHaveAttribute('href', `/operator?caseId=${caseId}&lang=uk`)
   expect(within(finding).getByText(new RegExp(messageId))).toBeInTheDocument()
 })
 
@@ -73,7 +73,7 @@ it('creates an ordinary draft only after a fresh result read and never publishes
   render(<Insights token="test-operator" />)
   await user.click(await screen.findByRole('button', { name: 'Створити чернетку KB' }))
   const link = await screen.findByRole('link', { name: 'Відкрити документ KB' })
-  expect(link).toHaveAttribute('href', `/operator/knowledge?businessId=${businessId}&documentId=${draftId}`)
+  expect(link).toHaveAttribute('href', `/operator/knowledge?businessId=${businessId}&documentId=${draftId}&lang=uk`)
   expect(link).toHaveFocus()
   const detailIndex = fetch.mock.calls.findIndex(([path]) => String(path) === `/api/v1/insights/runs/${runId}?businessId=${businessId}`)
   const draftIndex = fetch.mock.calls.findIndex(([path]) => String(path).includes('/findings/'))
@@ -138,7 +138,7 @@ it('identifies an empty completed sample without claiming a model invocation', a
 it('rejects cross-business run data and blocks writes until valid data is read', async () => {
   serve(path => path.startsWith('/api/v1/insights/runs?') ? response({ runs: [{ ...completed(), businessId: foreignId }] }) : undefined)
   render(<Insights token="test-operator" />)
-  expect(await screen.findByRole('alert')).toHaveTextContent('Некоректна структура результату аналізу')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Некоректна структура відповіді сервера.')
   expect(screen.getByRole('button', { name: 'Аналізувати тікети' })).toBeDisabled()
   expect(screen.queryByRole('article')).not.toBeInTheDocument()
 })

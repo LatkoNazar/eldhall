@@ -96,13 +96,13 @@ describe('non-blocking Umami integration', () => {
   })
 
   it('wires the real landing CTA href and never delays its native navigation', async () => {
-    history.replaceState({}, '', '/?utm_source=launch&email=private')
+    history.replaceState({}, '', '/?utm_source=launch&lang=en&email=private')
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
     vi.stubEnv('PUBLIC_APP_URL', 'https://app.eldhall.com/')
     document.body.innerHTML = '<a data-app-link="hero">Open app</a><span data-year></span>'
     await import('../../landing/src/main')
     const anchor = document.querySelector<HTMLAnchorElement>('a')!
-    expect(anchor.href).toBe('https://app.eldhall.com/?utm_source=launch')
+    await vi.waitFor(() => expect(anchor.href).toBe('https://app.eldhall.com/?utm_source=launch&lang=en'))
     let blockedByApplication = true
     anchor.addEventListener('click', event => {
       blockedByApplication = event.defaultPrevented

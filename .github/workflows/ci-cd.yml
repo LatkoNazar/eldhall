@@ -99,6 +99,7 @@ jobs:
           for script in scripts/*.sh scripts/tests/*.sh; do bash -n "$script"; done
           python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
           node --test scripts/tests/*.test.mjs
+          node --test packages/i18n/tests/core.test.mjs
           bash scripts/tests/test-release.sh
       - name: Validate archived pitch sources and package commands
         run: |

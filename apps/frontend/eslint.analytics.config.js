@@ -4,7 +4,7 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig({
-  files: ['packages/analytics/src/**/*.ts'],
+  files: ['packages/analytics/src/**/*.ts', 'packages/i18n/src/**/*.ts'],
   extends: [js.configs.recommended, tseslint.configs.recommended],
   languageOptions: { globals: globals.browser },
 })

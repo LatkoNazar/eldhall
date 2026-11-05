@@ -18,7 +18,10 @@ CONTEXTS = {
     "landing": "apps/landing/public/licenses",
     "mcp-openapi": "apps/mcp-openapi/licenses",
 }
-BROWSER_PACKAGES = {"frontend": ("react", "react-dom", "scheduler", "vite", "@hugeicons/react", "@hugeicons/core-free-icons"), "landing": ("vite",)}
+BROWSER_PACKAGES = {
+    "frontend": ("react", "react-dom", "scheduler", "vite", "@hugeicons/react", "@hugeicons/core-free-icons", "i18next", "react-i18next", "@babel/runtime", "html-parse-stringify", "use-sync-external-store"),
+    "landing": ("vite", "i18next"),
+}
 BROWSER_LICENSE_FILES = {"vite": "LICENSE.md", "@hugeicons/react": "LICENSE.md", "@hugeicons/core-free-icons": "LICENSE.md"}
 
 
@@ -129,6 +132,8 @@ def expected_artifacts(root: Path) -> dict[str, bytes]:
                  "THIRD_PARTY_NOTICES.md": read(root, "docs/THIRD_PARTY_NOTICES.md")}
     if json.loads(read(root, "packages/analytics/package.json")).get("license") != "Apache-2.0":
         raise ValueError("Analytics project licence metadata is missing")
+    if json.loads(read(root, "packages/i18n/package.json")).get("license") != "Apache-2.0":
+        raise ValueError("Localization project licence metadata is missing")
     result = {}
     for app, directory in CONTEXTS.items():
         files = dict(canonical)

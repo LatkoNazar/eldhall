@@ -1,14 +1,17 @@
 import { fireEvent, screen, within } from '@testing-library/dom'
-import { expect, it, vi } from 'vitest'
+import { beforeAll, expect, it, vi } from 'vitest'
+import { loadLocale } from '../../landing/src/i18n/index.ts'
 import { initScenario } from '../../landing/src/scenario'
 import { SCENARIOS } from '../../landing/src/scenario-data'
+
+beforeAll(() => loadLocale('uk'))
 
 function walkthrough(onEvent?: Parameters<typeof initScenario>[1]) {
   document.body.innerHTML = `<section data-scenario>
     <button id="refund-tab" data-scenario-tab="refund">Повернення</button><button id="limit-tab" data-scenario-tab="limit">Понад ліміт</button>
     <div data-scenario-panel><ol data-scenario-progress></ol><div data-scenario-chat></div><span data-scenario-business></span><p data-scenario-kicker></p><h2 data-scenario-title></h2><p data-scenario-text></p><div data-scenario-detail></div><button data-scenario-prev>Назад</button><button data-scenario-next>Далі</button></div>
   </section>`
-  initScenario(document, onEvent)
+  initScenario(document, onEvent, 'uk')
   return document.querySelector<HTMLElement>('[data-scenario]')!
 }
 

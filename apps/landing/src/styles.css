@@ -292,7 +292,7 @@ a[aria-disabled="true"] { opacity: .6; pointer-events: none }
   .scenario-stage { grid-template-columns: minmax(0, 1fr) }
   .phone { min-height: 0; max-width: 420px; width: 100%; margin: 0 auto }
 }
-@media (max-width: 860px) {
+@media (max-width: 1180px) {
   .menu-toggle { display: inline-flex }
   .site-nav {
     position: absolute; top: 68px; left: 0; right: 0;
@@ -350,3 +350,17 @@ a[aria-disabled="true"] { opacity: .6; pointer-events: none }
   .hero-shot figcaption { grid-area: 2 / 1 }
 }
 @media (max-width: 640px) { .hero-chat { display: none } .browser-bar { height: 28px } }
+
+/* Native language control remains keyboard accessible at every breakpoint. */
+.language-picker { position: relative; margin-left: auto; display: flex; align-items: center }
+.language-picker select { max-width: 132px; min-height: 40px; padding: 7px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 13px; cursor: pointer }
+.language-status:not(:empty) { position: absolute; z-index: 10; right: 0; top: calc(100% + 8px); width: 230px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: var(--shadow-sm); font-size: 13px }
+@media (max-width: 640px) {
+  .header-inner { gap: 8px }
+  .language-picker select { width: 108px; max-width: 108px }
+}
+
+@media (min-width: 961px) {
+  .hero-shot { padding-bottom: 0 }
+  .hero-shot figcaption { position: static; margin-left: auto; margin-top: 12px }
+}

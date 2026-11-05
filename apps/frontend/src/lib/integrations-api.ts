@@ -1,3 +1,4 @@
+import type { AppMessageKey, Translate } from '../i18n'
 import { ApiError, request } from './api'
 
 export type PermissionMode = 'auto' | 'ask' | 'deny'
@@ -23,7 +24,8 @@ export interface CatalogOperation {
 }
 export interface IntegrationCatalog { integration: IntegrationSummary; groups: PermissionGroup[]; operations: CatalogOperation[] }
 export interface IntegrationPolicyResponse { integration: IntegrationSummary; policy: IntegrationPolicy }
-export const modeLabels: Record<RuleMode, string> = { auto: 'Auto — автоматично', ask: 'Ask — через погодження', deny: 'Deny — заборонено', inherit: 'Inherit — успадкувати' }
+const modeLabels: Record<RuleMode, AppMessageKey> = { auto: 'core.mode.auto', ask: 'core.mode.ask', deny: 'core.mode.deny', inherit: 'core.mode.inherit' }
+export const modeLabel = (mode: RuleMode, t: Translate) => t(modeLabels[mode])
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const modes = ['auto', 'ask', 'deny']
 const ruleMode = (value: unknown) => [...modes, 'inherit'].includes(String(value))
@@ -35,7 +37,7 @@ const operation = (value: unknown) => record(value) && ['operationKey', 'title',
 export const integrationPath = (id: string, businessId: string, suffix = '') => `/integrations/${encodeURIComponent(id)}${suffix}?businessId=${encodeURIComponent(businessId)}`
 export async function loadIntegrations(businessId: string, token: string, signal?: AbortSignal) {
   const value = await request<{ integrations: IntegrationSummary[] }>(`/integrations?businessId=${encodeURIComponent(businessId)}`, token, { signal })
-  if (!Array.isArray(value.integrations) || !value.integrations.every(item => summary(item) && item.businessId === businessId)) throw new ApiError(200, 'Некоректний список інтеграцій сервера.')
+  if (!Array.isArray(value.integrations) || !value.integrations.every(item => summary(item) && item.businessId === businessId)) throw new ApiError(200, '', undefined, { key: 'core.error.invalidResponse' })
   return value
 }
 export async function loadIntegration(id: string, businessId: string, token: string, signal?: AbortSignal) {
@@ -45,22 +47,23 @@ export async function loadIntegration(id: string, businessId: string, token: str
   ])
   if (!summary(catalog.integration) || !summary(policy.integration) || catalog.integration.businessId !== businessId || policy.integration.businessId !== businessId || catalog.integration.integrationId !== id || policy.integration.integrationId !== id || !Array.isArray(catalog.operations) || !Array.isArray(catalog.groups) || !catalog.groups.every(group)
     || !record(policy.policy) || !Array.isArray(policy.policy.groups) || !Array.isArray(policy.policy.operations)
-    || policy.policy.integrationId !== id || policy.policy.businessId !== businessId || !modes.includes(policy.policy.defaultMode) || !policy.policy.groups.every(group) || !policy.policy.operations.every(rule => record(rule) && typeof rule.operationKey === 'string' && ruleMode(rule.mode) && typeof rule.enabled === 'boolean' && (rule.reviewedOperationHash === null || hash(rule.reviewedOperationHash))) || !catalog.operations.every(operation)) throw new ApiError(200, 'Некоректний каталог або політика інтеграції.')
-  if (catalog.integration.version !== policy.integration.version || catalog.integration.loadedManifestHash !== policy.integration.loadedManifestHash) throw new ApiError(409, 'Каталог змінився під час читання. Перечитайте поточну політику.')
+    || policy.policy.integrationId !== id || policy.policy.businessId !== businessId || !modes.includes(policy.policy.defaultMode) || !policy.policy.groups.every(group) || !policy.policy.operations.every(rule => record(rule) && typeof rule.operationKey === 'string' && ruleMode(rule.mode) && typeof rule.enabled === 'boolean' && (rule.reviewedOperationHash === null || hash(rule.reviewedOperationHash))) || !catalog.operations.every(operation)) throw new ApiError(200, '', undefined, { key: 'core.error.invalidResponse' })
+  if (catalog.integration.version !== policy.integration.version || catalog.integration.loadedManifestHash !== policy.integration.loadedManifestHash) throw new ApiError(409, '', undefined, { key: 'core.error.catalogChanged' })
   return { catalog, policy }
 }
 
-export function decisionLabel(operation: CatalogOperation) {
+export function decisionLabel(operation: CatalogOperation, t: Translate) {
   const decision = operation.effective
   if (decision.source === 'guard') {
-    const reasons: Record<string, string> = {
-      operation_disabled: 'Вимкнено — операцію ще не активовано', operation_unreviewed: 'Вимкнено — поточна версія потребує review',
-      operation_changed: 'Вимкнено — визначення операції змінилось', integration_disabled: 'Вимкнено — інтеграція зупинена',
-      integration_draining: 'Вимкнено — завершуються поточні виклики', manifest_mismatch: 'Вимкнено — маніфест не збігається',
-      effect_unknown: 'Вимкнено — не визначено тип операції', effect_unreviewed: 'Вимкнено — тип операції потребує review',
+    const reasons: Record<string, AppMessageKey> = {
+      operation_disabled: 'core.permission.operationDisabled', operation_unreviewed: 'core.permission.operationUnreviewed',
+      operation_changed: 'core.permission.operationChanged', integration_disabled: 'core.permission.integrationDisabled',
+      integration_draining: 'core.permission.draining', manifest_mismatch: 'core.permission.manifestMismatch',
+      effect_unknown: 'core.permission.effectUnknown', effect_unreviewed: 'core.permission.effectUnreviewed',
     }
-    return reasons[decision.reasonCode] ?? `Deny — серверна перевірка (${decision.reasonCode})`
+    const key = reasons[decision.reasonCode]
+    return key ? t(key) : t('core.permission.guard', { reason: decision.reasonCode })
   }
-  const label = { auto: 'Auto', ask: 'Ask', deny: 'Deny' }[decision.mode]
-  return `${label} — ${decision.source === 'operation' ? 'власне правило' : decision.source === 'group' ? `успадковано від ${decision.matchedRuleIds.join(', ')}` : 'типове правило інтеграції'}`
+  const mode = modeLabel(decision.mode, t)
+  return decision.source === 'operation' ? t('core.permission.own', { mode }) : decision.source === 'group' ? t('core.permission.group', { mode, rules: decision.matchedRuleIds.join(', ') }) : t('core.permission.default', { mode })
 }

@@ -1,3 +1,4 @@
+import { translateMessage, formatMoney, formatDateTime, type AppMessageKey, type Locale, type Translate, type TranslationValues, type UiMessage } from '../i18n'
 import { captureOperatorUnauthorized } from './operator-session'
 
 export type CaseStatus = 'open' | 'awaiting_approval' | 'escalated' | 'resolved'
@@ -33,10 +34,31 @@ export interface Persona { name: string; plan: string; sessionToken: string; bus
 export interface CustomerRun { id: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' }
 export interface CustomerCase { id: string; status: CaseStatus; businessName: string; ownership?: 'bot' | 'staff'; messages: Message[]; activeRun?: CustomerRun | null }
 export interface CustomerMessageResult { caseId: string; status: CaseStatus; ownership?: 'bot' | 'staff'; reply: Message | null; runId?: string | null }
+export class UiError extends Error {
+  readonly key: AppMessageKey
+  readonly values?: TranslationValues
+  constructor(key: AppMessageKey, values?: TranslationValues) {
+    super(translateMessage({ key, values }, 'en'))
+    this.name = 'UiError'; this.key = key; this.values = values
+  }
+}
+function httpMessage(status: number, payload?: unknown): UiMessage {
+  const proposal = record(payload) && record(payload.proposal) ? payload.proposal : undefined
+  if (status === 502 && proposal?.status === 'unknown') return { key: 'core.error.executionUnknown' }
+  if (status === 502 && proposal?.status === 'failed') return { key: 'core.error.executionFailed' }
+  const keys: Partial<Record<number, AppMessageKey>> = { 401: 'core.error.invalidOperator', 403: 'core.error.forbidden', 404: 'core.error.notFound', 409: 'core.error.conflict', 422: 'core.error.invalidInput', 429: 'core.error.rateLimited', 500: 'core.error.serviceUnavailable', 502: 'core.error.serviceUnavailable', 503: 'core.error.serviceUnavailable' }
+  return status === 200 ? { key: 'core.error.invalidResponse' } : { key: keys[status] ?? 'core.error.http', values: { status } }
+}
 export class ApiError extends Error {
-  status: number
-  payload: unknown
-  constructor(status: number, message: string, payload?: unknown) { super(message); this.status = status; this.payload = payload }
+  readonly status: number
+  readonly payload: unknown
+  readonly uiMessage: UiMessage
+  readonly originalDetail?: string
+  constructor(status: number, message: string, payload?: unknown, uiMessage?: UiMessage, originalDetail?: string) {
+    super(status === 401 ? translateMessage(uiMessage ?? httpMessage(status, payload), 'en') : message); this.name = 'ApiError'; this.status = status; this.payload = payload
+    this.uiMessage = uiMessage ?? httpMessage(status, payload)
+    this.originalDetail = status === 401 ? undefined : originalDetail
+  }
 }
 export function readSession(key: string) { try { return sessionStorage.getItem(key) ?? '' } catch { return '' } }
 export function saveSession(key: string, value: string) { try { if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key) } catch { /* Storage may be disabled; the in-memory session still works. */ } }
@@ -94,25 +116,32 @@ export async function request<T>(path: string, token = '', options: { method?: s
     })
     if (response.status === 401) unauthorized?.()
     let payload: unknown
-    try { payload = await response.json() } catch { throw new ApiError(response.status, 'Сервер повернув неочікувану відповідь.') }
+    try { payload = await response.json() } catch { throw new ApiError(response.status, '', undefined, { key: 'core.error.unexpectedResponse' }) }
     if (!response.ok) {
-      const detail = response.status === 401 && !options.customer ? 'Ключ доступу недійсний або сесію завершено.' : record(payload) && typeof payload.detail === 'string' ? payload.detail : record(payload) && record(payload.proposal) && typeof payload.proposal.error === 'string' ? payload.proposal.error : response.status === 401 ? 'Ключ доступу недійсний або сесію завершено.' : response.status === 403 ? 'Для цієї дії немає дозволу.' : response.status === 404 ? 'Ресурс недоступний у цьому середовищі.' : `Запит не виконано (${response.status}).`
-      throw new ApiError(response.status, detail, payload)
+      const original = record(payload) && typeof payload.detail === 'string' ? payload.detail : record(payload) && record(payload.proposal) && typeof payload.proposal.error === 'string' ? payload.proposal.error : undefined
+      const uiMessage = response.status === 401 && options.customer ? { key: 'core.error.invalidCustomer' as const } : httpMessage(response.status, payload)
+      throw new ApiError(response.status, original ?? '', payload, uiMessage, original)
     }
     const valid = options.method === 'POST' && /^\/chat\/cases\/[^/]+\/messages$/.test(path)
       ? customerMessageShape(payload)
       : options.method ? record(payload) || Array.isArray(payload) : validPayload(path, payload)
-    if (!valid) throw new ApiError(response.status, 'Некоректна структура відповіді сервера.')
+    if (!valid) throw new ApiError(response.status, '', undefined, { key: 'core.error.invalidResponse' })
     return payload as T
   } catch (error) {
-    if (error instanceof ApiError) throw error
-    throw new Error(controller.signal.aborted ? 'Час очікування минув. Оновіть дані, щоб перевірити фактичний стан.' : 'Немає з’єднання із сервером. Спробуйте оновити дані.', { cause: error })
+    if (error instanceof ApiError || error instanceof UiError) throw error
+    throw new UiError(controller.signal.aborted ? 'core.error.timeout' : 'core.error.network')
   } finally { window.clearTimeout(timeout); options.signal?.removeEventListener('abort', abort) }
 }
-export function errorText(error: unknown) { return error instanceof Error ? error.message : 'Не вдалося виконати запит.' }
-export function money(cents: number, currency: string) { return new Intl.NumberFormat('uk-UA', { style: 'currency', currency }).format(cents / 100) }
-export function dateTime(date: string) { return new Intl.DateTimeFormat('uk-UA', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Kyiv' }).format(new Date(date)) }
-export const caseLabels: Record<CaseStatus, string> = { open: 'Відкрите', awaiting_approval: 'Очікує погодження', escalated: 'Потребує оператора', resolved: 'Вирішене' }
-export const proposalLabels: Record<ProposalStatus, string> = { pending: 'Очікує погодження', approved: 'Погоджено, очікує виконання', executing: 'Виконується', executed: 'Виконано', rejected: 'Відхилено', failed: 'Не виконано', denied: 'Дію не дозволено', unknown: 'Результат уточнюється', expired: 'Строк погодження минув', invalidated: 'Погодження втратило чинність' }
-export const intentLabels: Record<string, string> = { duplicate_charge: 'Подвійне списання', refund_request: 'Запит на повернення', billing_question: 'Питання про оплату', cancel_subscription: 'Скасування підписки', complaint: 'Скарга', other: 'Інше звернення' }
-export const toolLabels: Record<string, string> = { refund_payment: 'Повернення платежу', escalate_to_human: 'Передавання оператору', lookup_payments: 'Перевірка платежів' }
+export function errorText(error: unknown, t: Translate): string {
+  if (error instanceof UiError) return t(error.key, error.values)
+  if (error instanceof ApiError) return t(error.uiMessage.key, error.uiMessage.values)
+  return t('core.error.request')
+}
+export function money(cents: number, currency: string, locale: Locale = 'en') { return formatMoney(cents, currency, locale) }
+export function dateTime(date: string, locale: Locale = 'en') { return formatDateTime(date, locale) }
+export const caseLabels: Record<CaseStatus, AppMessageKey> = { open: 'core.status.open', awaiting_approval: 'core.status.awaiting_approval', escalated: 'core.status.escalated', resolved: 'core.status.resolved' }
+export const proposalLabels: Record<ProposalStatus, AppMessageKey> = { pending: 'core.status.awaiting_approval', approved: 'core.status.approved', executing: 'core.status.executing', executed: 'core.status.executed', rejected: 'core.status.rejected', failed: 'core.status.failed', denied: 'core.status.denied', unknown: 'core.status.unknown', expired: 'core.status.expired', invalidated: 'core.status.invalidated' }
+export const intentLabels: Record<string, AppMessageKey> = { duplicate_charge: 'core.intent.duplicate_charge', refund_request: 'core.intent.refund_request', billing_question: 'core.intent.billing_question', cancel_subscription: 'core.intent.cancel_subscription', complaint: 'core.intent.complaint', other: 'core.intent.other' }
+export const toolLabels: Record<string, AppMessageKey> = { refund_payment: 'core.tool.refund_payment', escalate_to_human: 'core.tool.escalate_to_human', lookup_payments: 'core.tool.lookup_payments' }
+export function toolLabel(tool: string, t: Translate) { const key = toolLabels[tool]; return key ? t(key) : tool }
+export function intentLabel(intent: string, t: Translate) { const key = intentLabels[intent]; return key ? t(key) : intent }

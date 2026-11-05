@@ -5,7 +5,9 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 
-const html = '<h1>Workspace</h1><a data-app-link="hero" href="https://app.example.test">Open</a><script src="/assets/app.js"></script>';
+const languages = { en: 'Workspace', es: 'Espacio de trabajo', uk: 'Робочий простір', de: 'Arbeitsbereich', pt: 'Área de trabalho' };
+const localizedHtml = (locale, heading = languages[locale]) => `<html lang="${locale}"><head><title data-i18n="meta.title">Workspace ${locale}</title><meta name="description" content="Description ${locale}"></head><body><h1>${heading}</h1><a data-app-link="hero" href="https://app.example.test">Open</a><select data-language-picker>${Object.keys(languages).map(code => `<option value="${code}">${code}</option>`).join('')}</select><script src="/assets/app.js"></script></body></html>`;
+const html = localizedHtml('en');
 
 async function runSmoke(script, { broken = '' } = {}) {
   const requests = [];
@@ -19,6 +21,12 @@ async function runSmoke(script, { broken = '' } = {}) {
       type = 'text/html';
       cache = 'no-cache';
       body = broken === 'cta' ? html.replace('data-app-link', 'data-no-link') : html;
+    } else if (Object.keys(languages).some(locale => request.url === `/${locale}/`)) {
+      const locale = request.url.split('/')[1];
+      type = 'text/html';
+      cache = 'no-cache';
+      status = broken === 'locale-missing' && locale === 'es' ? 404 : 200;
+      body = broken === 'locale-language' && locale === 'es' ? html : localizedHtml(locale, broken === 'locale-copy' ? languages.en : languages[locale]);
     } else if (request.url === '/assets/app.js') {
       type = broken === 'asset' ? 'text/html' : 'application/javascript';
       cache = 'public, max-age=31536000, immutable';
@@ -89,11 +97,20 @@ test('frontend smoke rejects authentication lost by the proxy', async () => {
 test('standalone landing smoke validates real HTML/assets/404s without analytics or credentials', async () => {
   const result = await runSmoke('landing');
   assert.equal(result.code, 0, result.output);
+  for (const locale of Object.keys(languages)) assert.ok(result.requests.some(request => request.path === `/${locale}/`));
   for (const { headers } of result.requests) {
     assert.equal(headers.host, 'configured.example.test');
     assert.equal(headers.authorization, undefined);
   }
 });
+
+for (const broken of ['locale-missing', 'locale-language', 'locale-copy']) {
+  test(`landing smoke rejects ${broken} instead of accepting a fallback page`, async () => {
+    const result = await runSmoke('landing', { broken });
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /Localized landing/);
+  });
+}
 
 test('landing smoke rejects a missing static CTA', async () => {
   const result = await runSmoke('landing', { broken: 'cta' });

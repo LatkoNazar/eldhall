@@ -66,6 +66,7 @@ jobs:
           npm --prefix apps/frontend ci
           npm --prefix apps/landing ci
           python3 scripts/license-artifacts.py --check
+          node --test packages/i18n/tests/core.test.mjs
           python3 -m unittest discover -s scripts/tests -p 'test_candidate_evidence.py' -v
           python3 -m unittest discover -s scripts/tests -p 'test_candidate_oci.py' -v
           python3 -m unittest discover -s scripts/tests -p 'test_base_image_lock.py' -v

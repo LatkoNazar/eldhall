@@ -21,7 +21,7 @@ class LicenseArtifactTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="eldhall-legal-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        paths = ["LICENSE", "NOTICE", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", "packages/analytics/package.json",
+        paths = ["LICENSE", "NOTICE", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", "packages/analytics/package.json", "packages/i18n/package.json",
                  "apps/mcp-openapi/pyproject.toml", "apps/mcp-openapi/uv.lock"]
         for app in ("api", "frontend", "landing"):
             paths.extend(f"apps/{app}/{name}" for name in ("package.json", "package-lock.json"))

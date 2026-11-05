@@ -1,3 +1,4 @@
+import { useI18n, formatNumber, type AppMessageKey } from '../i18n'
 import { AppLink } from './AppLink'
 import type { ReactNode } from 'react'
 import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react'
@@ -42,12 +43,14 @@ export function Icon({ name, size = 21 }: { name: string; size?: number }) {
   const icon = Object.hasOwn(icons, name) ? icons[name] ?? SparklesIcon : SparklesIcon
   return <HugeiconsIcon icon={icon} size={size} color="currentColor" strokeWidth={1.7} aria-hidden="true" focusable="false" />
 }
-export function Brand() { return <AppLink className="brand" href="/" aria-label="Eldhall Support — головна"><svg aria-hidden="true" viewBox="0 0 32 40"><path fill="currentColor" d="M18 0c5 12-12 13-10 24 1-6 10-7 14-14 11 10 10 19 2 25-6 5-18 5-21-4C-2 18 16 15 18 0Z"/><path fill="white" d="M23 20C20 31 7 26 9 35c-7-9 6-9 14-15Z"/></svg><span>eldhall<span className="brand-subtitle">SUPPORT</span></span></AppLink> }
+export function Brand() { const { t } = useI18n(); return <AppLink className="brand" href="/" aria-label={t("core.brand.home")}><svg aria-hidden="true" viewBox="0 0 32 40"><path fill="currentColor" d="M18 0c5 12-12 13-10 24 1-6 10-7 14-14 11 10 10 19 2 25-6 5-18 5-21-4C-2 18 16 15 18 0Z"/><path fill="white" d="M23 20C20 31 7 26 9 35c-7-9 6-9 14-15Z"/></svg><span>eldhall<span className="brand-subtitle">SUPPORT</span></span></AppLink> }
 export function Badge({ value, children }: { value?: string; children?: ReactNode }) {
-  const labels: Record<string, string> = { ...caseLabels, ...proposalLabels, bot: 'AI веде діалог', staff: 'Веде оператор', published: 'Опубліковано', draft: 'Чернетка', revoked: 'Відкликано', fallback: 'Резервні правила', llm: 'Мовна модель', ok: 'Завершено', captured: 'Оплачено', refunded: 'Повернено' }
-  return <span className={`badge badge-${value ?? 'neutral'}`}>{children ?? labels[value ?? ''] ?? value}</span>
+  const { t } = useI18n()
+  const labels: Record<string, AppMessageKey> = { ...caseLabels, ...proposalLabels, bot: 'core.status.bot', staff: 'core.status.staff', published: 'core.status.published', draft: 'core.status.draft', revoked: 'core.status.revoked', fallback: 'core.status.fallback', llm: 'core.status.llm', ok: 'core.status.ok', captured: 'core.status.captured', refunded: 'core.status.refunded', queued: 'core.status.queued', running: 'core.status.running', completed: 'core.status.completed', cancelled: 'core.status.cancelled' }
+  const key = labels[value ?? '']
+  return <span className={`badge badge-${value ?? 'neutral'}`}>{children ?? (key ? t(key) : value)}</span>
 }
 export function Empty({ icon = 'inbox', title, children }: { icon?: string; title: string; children?: ReactNode }) { return <div className="empty"><span className="empty-icon"><Icon name={icon} size={28} /></span><h3>{title}</h3>{children && <p>{children}</p>}</div> }
 export function Notice({ children, error = false }: { children: ReactNode; error?: boolean }) { return <div className={`notice ${error ? 'notice-error' : ''}`} role={error ? 'alert' : 'status'}>{children}</div> }
-export function Metric({ label, value, hint, icon = 'chart' }: { label: string; value: ReactNode; hint?: string; icon?: string }) { return <article className="metric card"><span className="metric-icon"><Icon name={icon} /></span><div><p>{label}</p><strong>{value}</strong>{hint && <small>{hint}</small>}</div></article> }
+export function Metric({ label, value, hint, icon = 'chart' }: { label: string; value: ReactNode; hint?: string; icon?: string }) { const { locale } = useI18n(); return <article className="metric card"><span className="metric-icon"><Icon name={icon} /></span><div><p>{label}</p><strong>{typeof value === 'number' ? formatNumber(value, locale) : value}</strong>{hint && <small>{hint}</small>}</div></article> }
 export { Avatar } from './Avatar'

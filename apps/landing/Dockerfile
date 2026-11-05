@@ -2,6 +2,7 @@ FROM docker.io/library/node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c70
 WORKDIR /app/apps/landing
 COPY apps/landing/package.json apps/landing/package-lock.json ./
 COPY packages/analytics /app/packages/analytics
+COPY packages/i18n /app/packages/i18n
 RUN npm ci --no-audit --no-fund
 COPY apps/landing .
 EXPOSE 5174

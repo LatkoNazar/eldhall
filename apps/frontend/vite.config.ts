@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
     host: localDemo ? '127.0.0.1' : '0.0.0.0',
     port: 5173,
     strictPort: true,
-    fs: { allow: ['.', '../../packages/analytics'] },
+    fs: { allow: ['.', '../../packages/analytics', '../../packages/i18n'] },
     proxy: {
       '^/api(?:[/?]|$)': backend,
       '^/health(?:[/?]|$)': backend,

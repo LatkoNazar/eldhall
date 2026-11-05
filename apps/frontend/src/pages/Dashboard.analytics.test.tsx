@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '../test/render'
 import { expect, it, vi } from 'vitest'
 import { Dashboard } from './Dashboard'
 import type { Metrics } from '../lib/api'

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from './test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -125,8 +125,9 @@ describe('customer channel', () => {
   })
 
   it('keeps an accepted worker turn pending until polling confirms the assistant reply, preserving later drafts', async () => {
-    const originalTimeout = window.setTimeout.bind(window)
-    const polling = vi.spyOn(window, 'setTimeout').mockImplementation((handler, delay, ...args) => originalTimeout(handler, delay === 2500 ? 20 : delay, ...args))
+    const browserTimers: Pick<Window, 'setTimeout'> = window
+    const originalTimeout = browserTimers.setTimeout.bind(browserTimers)
+    const polling = vi.spyOn(browserTimers, 'setTimeout').mockImplementation((handler, delay, ...args) => originalTimeout(handler, delay === 2500 ? 20 : delay, ...args))
     try {
       window.history.replaceState({}, '', '/chat')
       let conversation: CustomerCase = { id: 'case-1', businessName: 'Демо-сервіс', status: 'open', ownership: 'bot', activeRun: null, messages: [] }

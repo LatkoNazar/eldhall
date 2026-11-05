@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from './test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import App from './App'
@@ -77,13 +77,15 @@ it('returns an authenticated workspace to the key form on a current private-requ
   sessionStorage.setItem('support.operator', 'valid-then-expired')
   sessionStorage.setItem('support.customer', 'preserved-customer')
   let respond!: (value: Response) => void
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
     if (String(input) === '/api/v1/operator/session') return reply({ authenticated: true })
     if (String(input) === '/api/v1/cases') return new Promise<Response>(done => { respond = done })
     return reply(emptyMetrics)
-  }))
+  })
+  vi.stubGlobal('fetch', fetch)
   render(<App />)
   await waitFor(() => expect(document.querySelector('.app-shell')).toBeInTheDocument())
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) => String(path) === '/api/v1/cases')).toBe(true))
   await act(async () => { respond(reply({ detail: 'RAW_PRIVATE_ERROR' }, 401)) })
   expect(await screen.findByLabelText('Ключ доступу оператора')).toBeInTheDocument()
   expect(document.querySelector('.app-shell')).toBeNull()

@@ -1,4 +1,7 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { render as renderRaw } from '@testing-library/react'
+import { I18nProvider, useI18n, type Locale } from '../i18n'
+import { loadAppCatalog } from '../locales/load'
+import { act, render, screen, waitFor, within } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Integrations } from './Integrations'
@@ -134,7 +137,7 @@ it('shows group conflicts, explicit inheritance and disabled reviewed state with
   mockApi({ conflictingGroups: true })
   render(<Integrations token="operator-key" />)
   expect(await screen.findByText(/Конфлікт груп: billing, orders/)).toBeInTheDocument()
-  expect(screen.getByText('Deny — успадковано від billing, orders')).toBeInTheDocument()
+  expect(screen.getByText('Deny — заборонено — успадковано від billing, orders')).toBeInTheDocument()
   expect(screen.getByLabelText('Дозвіл операції Скасувати замовлення')).toHaveValue('inherit')
   expect(screen.getByText('Потрібен review поточної версії')).toBeInTheDocument()
 })
@@ -176,7 +179,7 @@ it('does not offer review when the server omits the operation definition', async
     return response(value)
   }))
   render(<Integrations token="operator-key" />)
-  expect(await screen.findByRole('alert')).toHaveTextContent('Некоректний каталог або політика')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Некоректна структура відповіді сервера.')
   expect(screen.queryByRole('button', { name: /Переглянути й увімкнути/ })).not.toBeInTheDocument()
 })
 
@@ -205,4 +208,39 @@ it('guards dirty policy edits and releases both unload and navigation guards whe
   expect(unloadIsPrevented()).toBe(false)
   act(() => { expect(navigate('/operator/team')).toBe(true) })
   expect(confirm).toHaveBeenCalledOnce()
+})
+
+function LocaleControls() {
+  const { setLocale } = useI18n()
+  return <>{(['en', 'es', 'uk', 'de', 'pt'] as const).map(locale => <button key={locale} onClick={() => setLocale(locale)}>switch-{locale}</button>)}</>
+}
+
+it('switches all five interface languages without losing a dirty policy or replaying a request', async () => {
+  const locales = ['en', 'es', 'uk', 'de', 'pt'] as const
+  await Promise.all(locales.map(loadAppCatalog))
+  const fetch = mockApi()
+  const user = userEvent.setup()
+  renderRaw(<I18nProvider initialLocale="uk"><LocaleControls /><Integrations token="operator-key" /></I18nProvider>)
+  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  await user.selectOptions(group, 'deny')
+  const reads = fetch.mock.calls.length
+  const headings: Record<Locale, string> = { en: 'Integrations', es: 'Integraciones', uk: 'Інтеграції', de: 'Integrationen', pt: 'Integrações' }
+  for (const locale of locales) {
+    await user.click(screen.getByRole('button', { name: `switch-${locale}` }))
+    expect(await screen.findByRole('heading', { name: headings[locale] })).toBeInTheDocument()
+    expect(group).toBeInTheDocument()
+    expect(group).toHaveValue('deny')
+    expect(fetch.mock.calls).toHaveLength(reads)
+  }
+  await user.click(screen.getByRole('button', { name: 'Guardar regras' }))
+  expect(await screen.findByText('O servidor guardou as alterações. As permissões efetivas foram recarregadas.')).toBeInTheDocument()
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+  expect(writes).toHaveLength(1)
+  const payload = JSON.parse(String(writes[0]![1]?.body))
+  expect(payload.version).toBe(1)
+  expect(payload.groups.find((item: { id: string }) => item.id === 'orders')).toMatchObject({ selector: { tag: 'Orders' }, mode: 'deny' })
+  const completedRequests = fetch.mock.calls.length
+  await user.click(screen.getByRole('button', { name: 'switch-en' }))
+  expect(await screen.findByText('The server saved the changes. Effective permissions were reloaded.')).toBeInTheDocument()
+  expect(fetch.mock.calls).toHaveLength(completedRequests)
 })

@@ -7,12 +7,12 @@
     "LICENSE": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
     "NOTICE": "b9563c3f3ad6e24f43bacd959defafef87237360b8c15ffaddeb51cb8b866715",
     "LICENSING.md": "147d145bd5741eaa222c686bb9d68cf510baeb766b69338bf1892e72e24727d4",
-    "THIRD_PARTY_NOTICES.md": "adea4fb6cab0bf8497042ee1af0d377edd2f3c20279d458401abf89b14fd41b3",
-    "BROWSER_NOTICES.txt": "ef2a3541bda3429048df52dae79488dec632c697377c600841d1b8f905289379"
+    "THIRD_PARTY_NOTICES.md": "b8177665eb50145dad3d982c22375c774ac4a4647c850378019039bbfdaa0667",
+    "BROWSER_NOTICES.txt": "3f0ce5a875d781baadd16d46e84a700e789d9e6b4abff5f042dfa552fb852afb"
   },
   "localInputs": {
-    "package.json": "a5421f972d693a10f6348314794da3fcde29943f6ce380b8914214c7865b8be0",
-    "package-lock.json": "f96d0bdd2a6a6ac92294a97538767d3aa673f68050059591203b96e84f12693d"
+    "package.json": "11513b9d9edf87694acd2e38128819a2b34b58a62859ee8f56cb7111d01d6552",
+    "package-lock.json": "bdaecc91ebfcb940c7ac34eda67de8d4b0db8990a01f970c1a06cb1c493ffca4"
   },
   "browserComponents": [
     {
@@ -50,6 +50,36 @@
       "version": "4.4.0",
       "license": "MIT",
       "noticeSha256": "1658d8213209df7b9b86dfc05d724ede48d00dbc27abc15976ec7adec9601cde"
+    },
+    {
+      "name": "i18next",
+      "version": "26.7.1",
+      "license": "MIT",
+      "noticeSha256": "1cd0a2b02a6cc40ef8ee16310d13eeffdd7b5de4a562fd3ee7c921d8eb54f60a"
+    },
+    {
+      "name": "react-i18next",
+      "version": "17.1.12",
+      "license": "MIT",
+      "noticeSha256": "29b8ae456ef442e53a98df183ad088cf98c2ece73aa84c462330c43e665b8ab2"
+    },
+    {
+      "name": "@babel/runtime",
+      "version": "7.29.10",
+      "license": "MIT",
+      "noticeSha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+    },
+    {
+      "name": "html-parse-stringify",
+      "version": "4.0.1",
+      "license": "MIT",
+      "noticeSha256": "3eb2802a4d0ea79f80977817451b056571dccd8373c9bf4e9be4b05f86afbf90"
+    },
+    {
+      "name": "use-sync-external-store",
+      "version": "1.7.0",
+      "license": "MIT",
+      "noticeSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
     }
   ]
 }

@@ -1,4 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render as renderRaw } from '@testing-library/react'
+import { I18nProvider, useI18n, formatNumber } from '../i18n'
+import { loadAppCatalog } from '../locales/load'
+import { render, screen } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { KnowledgeSearchTest } from './KnowledgeSearchTest'
@@ -33,7 +36,7 @@ it('asks the operator search route with the business scope and shows ranked pass
   await user.click(screen.getByRole('button', { name: 'Перевірити' }))
   expect(await screen.findByText('Знайдено джерел: 1', { exact: false })).toBeInTheDocument()
   expect(screen.getByText('Політика повернень › Подвійне списання')).toBeInTheDocument()
-  expect(screen.getByText('вектор: 1 (0.49)')).toBeInTheDocument()
+  expect(screen.getByText('вектор: 1 (0,49)')).toBeInTheDocument()
   const [url, init] = fetch.mock.calls.find(([path]) => String(path).includes('/knowledge/search')) as unknown as [string, RequestInit]
   expect(url).toBe(`/api/v1/knowledge/search?businessId=${businessId}&q=${encodeURIComponent('списали двічі')}&k=5&audience=customer&plan=Annual`)
   expect(new Headers(init.headers).get('Authorization')).toBe('Bearer op-token')
@@ -89,5 +92,36 @@ it.each(['lexical', 'external'])('preserves the real %s search response variant'
   expect(await screen.findByText('Повертаємо пізніше списання.')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   if (mode === 'external') expect(screen.queryByText(/RRF/)).not.toBeInTheDocument()
-  else expect(screen.getByText('RRF 0.0000')).toBeInTheDocument()
+  else expect(screen.getByText('RRF 0,0000')).toBeInTheDocument()
+})
+
+function LocaleControls() {
+  const { setLocale } = useI18n()
+  return <>{(['en', 'es', 'uk', 'de', 'pt'] as const).map(locale => <button key={locale} onClick={() => setLocale(locale)}>switch-{locale}</button>)}</>
+}
+
+it('reformats existing search evidence without translating content or repeating a customer query', async () => {
+  const locales = ['en', 'es', 'uk', 'de', 'pt'] as const
+  await Promise.all(locales.map(loadAppCatalog))
+  const index = { embedder: { id: 'local:hashing-v1:768' }, vectorStore: 'pgvector', chunks: 42, staleChunks: 0, published: 3, urlImport: true }
+  const fetch = vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/knowledge/index') ? index : result), { headers: { 'Content-Type': 'application/json' } }))
+  vi.stubGlobal('fetch', fetch)
+  const user = userEvent.setup()
+  renderRaw(<I18nProvider initialLocale="uk"><LocaleControls /><KnowledgeSearchTest token="op-token" businessId={businessId} /></I18nProvider>)
+  await screen.findByText('Індекс: PostgreSQL + pgvector')
+  const query = screen.getByLabelText('Питання клієнта')
+  await user.type(query, 'списали двічі')
+  await user.click(screen.getByRole('button', { name: 'Перевірити' }))
+  await screen.findByText('Повертаємо пізніше списання.')
+  const requests = fetch.mock.calls.length
+  for (const locale of locales) {
+    await user.click(screen.getByRole('button', { name: `switch-${locale}` }))
+    expect(await screen.findByText(`RRF ${formatNumber(0.0328, locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`)).toBeInTheDocument()
+    expect(query).toBeInTheDocument()
+    expect(query).toHaveValue('списали двічі')
+    expect(screen.getByText('Політика повернень › Подвійне списання')).toBeInTheDocument()
+    expect(screen.getByText('Повертаємо пізніше списання.')).toBeInTheDocument()
+    expect(fetch.mock.calls).toHaveLength(requests)
+  }
+  expect(fetch.mock.calls.filter(([url]) => url.includes('/knowledge/search'))).toHaveLength(1)
 })

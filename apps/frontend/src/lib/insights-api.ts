@@ -34,13 +34,13 @@ function findingShape(value: unknown): boolean {
   return value.proposedArticle === null || (record(value.proposedArticle) && text(value.proposedArticle.title, 200) && text(value.proposedArticle.content, 6000))
 }
 function parseRun(value: unknown, businessId: string): InsightRun {
-  if (!record(value) || !id(value.id) || value.businessId !== businessId || !['queued', 'running', 'completed', 'failed'].includes(String(value.status)) || !date(value.createdAt) || value.createdAt === null || !date(value.completedAt) || !text(value.provider, 200) || !text(value.model, 200) || !sampleShape(value.sample) || !Array.isArray(value.findings) || value.findings.length > 8 || !value.findings.every(findingShape) || !nullableText(value.error, 4000) || typeof value.stale !== 'boolean' || (value.stale && value.findings.length > 0)) throw new ApiError(200, 'Некоректна структура результату аналізу. Оновіть дані перед наступною дією.')
+  if (!record(value) || !id(value.id) || value.businessId !== businessId || !['queued', 'running', 'completed', 'failed'].includes(String(value.status)) || !date(value.createdAt) || value.createdAt === null || !date(value.completedAt) || !text(value.provider, 200) || !text(value.model, 200) || !sampleShape(value.sample) || !Array.isArray(value.findings) || value.findings.length > 8 || !value.findings.every(findingShape) || !nullableText(value.error, 4000) || typeof value.stale !== 'boolean' || (value.stale && value.findings.length > 0)) throw new ApiError(200, '', undefined, { key: 'core.error.invalidResponse' })
   return value as unknown as InsightRun
 }
 const scope = (businessId: string) => `businessId=${encodeURIComponent(businessId)}`
 export async function listInsightRuns(businessId: string, token: string, signal?: AbortSignal): Promise<InsightRun[]> {
   const payload = await request<unknown>(`/insights/runs?${scope(businessId)}`, token, { signal })
-  if (!record(payload) || !Array.isArray(payload.runs)) throw new ApiError(200, 'Некоректний список запусків аналізу.')
+  if (!record(payload) || !Array.isArray(payload.runs)) throw new ApiError(200, '', undefined, { key: 'core.error.invalidResponse' })
   return payload.runs.map(run => parseRun(run, businessId))
 }
 export async function getInsightRun(businessId: string, runId: string, token: string, signal?: AbortSignal): Promise<InsightRun> {
@@ -51,6 +51,6 @@ export async function startInsightRun(businessId: string, limit: number, clientR
 }
 export async function createInsightDraft(businessId: string, runId: string, findingId: string, token: string, signal?: AbortSignal): Promise<InsightDraft> {
   const payload = await request<unknown>(`/insights/runs/${encodeURIComponent(runId)}/findings/${encodeURIComponent(findingId)}/draft?${scope(businessId)}`, token, { method: 'POST', signal })
-  if (!record(payload) || !record(payload.draft) || !id(payload.draft.id) || payload.draft.businessId !== businessId || payload.draft.status !== 'draft' || !text(payload.draft.title, 200) || !text(payload.draft.content, 50_000) || !count(payload.draft.version) || Number(payload.draft.version) < 1) throw new ApiError(200, 'Сервер не підтвердив створення чернетки KB. Оновіть дані перед повтором.')
+  if (!record(payload) || !record(payload.draft) || !id(payload.draft.id) || payload.draft.businessId !== businessId || payload.draft.status !== 'draft' || !text(payload.draft.title, 200) || !text(payload.draft.content, 50_000) || !count(payload.draft.version) || Number(payload.draft.version) < 1) throw new ApiError(200, '', undefined, { key: 'core.error.draftUnconfirmed' })
   return payload.draft as unknown as InsightDraft
 }
