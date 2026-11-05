@@ -6,24 +6,24 @@ import { manifestSchema } from './manifest.js';
 import { integrationPolicySchema } from './permissions.js';
 import { qdrantKnowledgeSchema } from '../modules/knowledge/qdrant.js';
 
-const id = z.string().uuid();
+const id = z.uuid();
 const key = z.string().refine(safeKey, 'Expected a safe identifier');
-const policy = z.object({
+const policy = z.strictObject({
   refundLimitCents: z.number().int().min(1).max(100_000_000),
   duplicateWindowMinutes: z.number().int().min(1).max(1440),
   enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3),
-}).strict();
-const timestamp = z.string().datetime().default('2026-01-01T00:00:00.000Z');
-const toolSchema = z.object({
+});
+const timestamp = z.iso.datetime().default('2026-01-01T00:00:00.000Z');
+const toolSchema = z.strictObject({
   name: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
   description: z.string().min(1).max(500),
   inputSchema: z.custom<InputSchema>(value => {
     try { validateInputSchema(value); return value.type === 'object'; } catch { return false; }
   }, 'Expected a bounded object JSON Schema'),
-  scopeBindings: z.object({ businessId: key, customerId: key }).strict(),
+  scopeBindings: z.strictObject({ businessId: key, customerId: key }),
   outputFields: z.array(key).min(1).max(30),
   access: z.literal('read'),
-}).strict().superRefine((tool, ctx) => {
+}).superRefine((tool, ctx) => {
   if (!tool.inputSchema || typeof tool.inputSchema !== 'object') return;
   const fields = Object.values(tool.scopeBindings);
   if (new Set(fields).size !== 2 || fields.some(field => Object.hasOwn(tool.inputSchema.properties ?? {}, field))) ctx.addIssue({ code: 'custom', message: 'Scope fields must be distinct and excluded from model inputSchema' });
@@ -39,14 +39,14 @@ const validMcpUrl = (raw: string, allowInsecureLoopback: boolean, allowInternalS
   return !url.username && !url.password && !url.search && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && local && allowInsecureLoopback) || internal);
 };
 export const INTERNAL_SERVICE_ORIGIN = /^http:\/\/(?!localhost:)[a-z][a-z0-9-]{0,62}:[1-9]\d{0,4}$/;
-const integrationSchema = z.object({
-  id: key, businessId: id, url: z.string().url().max(1000),
+const integrationSchema = z.strictObject({
+  id: key, businessId: id, url: z.url().max(1000),
   credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/).optional(),
   allowInsecureLoopback: z.boolean().default(false),
   timeoutMs: z.number().int().min(50).max(30_000).default(5000),
   maxOutputBytes: z.number().int().min(128).max(32_768).default(8192),
   tools: z.array(toolSchema).min(1).max(20),
-}).strict().superRefine((integration, ctx) => {
+}).superRefine((integration, ctx) => {
   let url: URL;
   try { url = new URL(integration.url); } catch { ctx.addIssue({ code: 'custom', message: 'Invalid MCP URL' }); return; }
   const local = ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
@@ -56,20 +56,20 @@ const integrationSchema = z.object({
 
 // Reviewed OpenAPI catalog served by the Python sidecar (docs/integrations-manifest.md). The manifest and the
 // policy are embedded so the single read-only config mount carries them; credentials stay in the environment.
-const catalogSchema = z.object({
+const catalogSchema = z.strictObject({
   businessId: id,
   connectionRevision: z.string().regex(/^[1-9]\d{0,14}$/).default('1'),
   upstreamTargetFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   upstreamBusinessId: z.string().min(1).max(200).optional(),
   customerIdMap: z.record(id, z.string().min(1).max(200)).optional(),
-  url: z.string().url().max(1000),
+  url: z.url().max(1000),
   credentialEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,99}$/),
   allowInsecureLoopback: z.boolean().default(false),
   timeoutMs: z.number().int().min(50).max(30_000).default(5000),
   maxOutputBytes: z.number().int().min(128).max(32_768).default(8192),
   manifest: manifestSchema,
   policy: integrationPolicySchema,
-}).strict().superRefine((catalog, ctx) => {
+}).superRefine((catalog, ctx) => {
   if (!validMcpUrl(catalog.url, catalog.allowInsecureLoopback, true)) ctx.addIssue({ code: 'custom', message: 'Catalog sidecar URL requires HTTPS, or HTTP to an internal service origin (http://<service>:<port>), without URL credentials/query/fragment; explicit loopback HTTP is available for tests' });
   // A mismatch would make every call fail closed at runtime; refuse it at startup where an operator sees it.
   if (catalog.policy.businessId !== catalog.businessId) ctx.addIssue({ code: 'custom', message: 'Catalog policy belongs to another business' });
@@ -77,16 +77,16 @@ const catalogSchema = z.object({
   if (catalog.policy.manifestHash !== catalog.manifest.manifestHash) ctx.addIssue({ code: 'custom', message: 'Catalog policy was reviewed against another manifest' });
 });
 
-export const supportConfigSchema = z.object({
+export const supportConfigSchema = z.strictObject({
   version: z.literal(1).default(1),
-  businesses: z.array(z.object({ id, slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/), name: z.string().min(1).max(200), currency: z.string().regex(/^[A-Z]{3}$/), policy }).strict()).max(100).default([]),
-  knowledge: z.array(z.object({ id, businessId: id, title: z.string().min(1).max(200), category: z.string().max(100).default('general'), content: z.string().min(1).max(50_000), version: z.number().int().positive(), status: z.enum(['draft', 'published', 'revoked']), updatedAt: timestamp, audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().min(1).max(80)).max(20).optional(), sourceUrl: z.string().url().max(2000).nullable().optional() }).strict()).max(500).default([]),
-  skills: z.array(z.object({ id, businessId: id, name: z.string().min(1).max(200), content: z.string().min(1).max(20_000), revision: z.number().int().positive(), enabled: z.boolean(), updatedAt: timestamp }).strict()).max(200).default([]),
+  businesses: z.array(z.strictObject({ id, slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/), name: z.string().min(1).max(200), currency: z.string().regex(/^[A-Z]{3}$/), policy })).max(100).default([]),
+  knowledge: z.array(z.strictObject({ id, businessId: id, title: z.string().min(1).max(200), category: z.string().max(100).default('general'), content: z.string().min(1).max(50_000), version: z.number().int().positive(), status: z.enum(['draft', 'published', 'revoked']), updatedAt: timestamp, audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().min(1).max(80)).max(20).optional(), sourceUrl: z.url().max(2000).nullable().optional() })).max(500).default([]),
+  skills: z.array(z.strictObject({ id, businessId: id, name: z.string().min(1).max(200), content: z.string().min(1).max(20_000), revision: z.number().int().positive(), enabled: z.boolean(), updatedAt: timestamp })).max(200).default([]),
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),
   externalKnowledge: z.array(qdrantKnowledgeSchema).max(100).default([]),
   catalogs: z.array(catalogSchema).max(20).default([]),
-}).strict().superRefine((config, ctx) => {
+}).superRefine((config, ctx) => {
   for (const field of ['businesses', 'knowledge', 'skills', 'integrations'] as const) {
     if (new Set(config[field].map(row => row.id)).size !== config[field].length) ctx.addIssue({ code: 'custom', message: `Duplicate ${field} id` });
   }

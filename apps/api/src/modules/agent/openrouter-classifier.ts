@@ -12,7 +12,7 @@ interface Options {
   allowInsecureLoopback?: boolean;
 }
 
-const probability = z.number().finite().min(0).max(1);
+const probability = z.number().min(0).max(1);
 const responseSchema = z.object({
   model: z.string().min(1).max(200),
   answers: z.object({ ticket_class: z.object({

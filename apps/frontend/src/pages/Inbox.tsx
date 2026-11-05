@@ -37,7 +37,7 @@ function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged }: 
   const detail = resource.data
   useEffect(() => {
     if (!draft) return
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault() }
     const removeGuard = registerNavigationGuard(() => window.confirm('Є ненадіслана відповідь. Залишити її і продовжити?'))
     window.addEventListener('beforeunload', warn)
     return () => { removeGuard(); window.removeEventListener('beforeunload', warn) }

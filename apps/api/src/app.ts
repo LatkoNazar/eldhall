@@ -3,7 +3,8 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import type { Settings } from './core/config.js';
-import { hostAllowed, staffTokenMatches, tokenMatches } from './core/auth.js';
+import { hostAllowed, tokenMatches } from './core/auth.js';
+import { requireStaffToken } from './core/staff-auth.js';
 import type { JobStore } from './modules/jobs/repository.js';
 import { jobCreateSchema, jobReadSchema, type JobCreate, type Job } from './modules/jobs/schema.js';
 import { createJob, QueueUnavailable } from './modules/jobs/service.js';
@@ -70,9 +71,8 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
   // Authentication only: this must remain independent of business/service readiness.
   app.get('/api/v1/operator/session', (request, reply) => {
     reply.header('Cache-Control', 'no-store').header('Vary', 'Authorization');
-    if (!staffTokenMatches(request.headers.authorization, settings.operatorToken)) {
-      return reply.code(401).header('WWW-Authenticate', 'Bearer').send({ detail: 'Invalid operator token' });
-    }
+    const denied = requireStaffToken(request, reply, settings.operatorToken);
+    if (denied) return denied;
     return { authenticated: true };
   });
   app.get('/health/live', () => ({ status: 'ok' }));

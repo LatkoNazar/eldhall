@@ -31,15 +31,15 @@ export interface CatalogIntegrationConfig {
 
 const RESERVED = 'eldhall';
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
-const snapshotSchema = z.object({
+const snapshotSchema = z.strictObject({
   integrationId: z.string(), toolName: z.string(), operationKey: z.string(), title: z.string(),
   operationHash: hash, manifestHash: hash, policyRevision: z.number().int().positive(),
   effect: z.enum(['read', 'write']), customerId: z.string().min(1), input: z.record(z.string(), z.unknown()),
   businessId: z.string().min(1), caseId: z.string().min(1), ownershipVersion: z.number().int().nonnegative(),
-  connectionRevision: z.string().min(1), expiresAt: z.string().datetime(), tags: z.array(z.string()), managed: z.boolean(),
-  guard:z.object({id:z.string().nullable(),status:z.enum(['pending','not_required'])}).strict(),
+  connectionRevision: z.string().min(1), expiresAt: z.iso.datetime(), tags: z.array(z.string()), managed: z.boolean(),
+  guard:z.strictObject({id:z.string().nullable(),status:z.enum(['pending','not_required'])}),
   policySource:z.enum(['operation','group','integration','guard']),matchedRuleIds:z.array(z.string()),
-}).strict();
+});
 export type ExternalActionSnapshot = z.infer<typeof snapshotSchema>;
 
 type Operation = Manifest['operations'][number];

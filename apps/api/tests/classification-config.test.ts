@@ -4,6 +4,7 @@ import { bootstrapSupportConfig } from '../src/integrations/bootstrap.js';
 import { supportConfigSchema } from '../src/integrations/config.js';
 import { MemorySupportStore } from '../src/modules/support/store.js';
 import { SupportHarness } from '../src/modules/agent/harness.js';
+import { classificationDecisionSchema } from '../src/modules/agent/classification.js';
 import { RulesModel } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 
@@ -143,4 +144,15 @@ test('unrelated edits on a never-configured business do not prevent its first fi
   const configured = await store.settings(businessId);
   assert.equal(configured.classification?.revision, 1);
   assert.equal(configured.tone, 'neutral');
+});
+
+test('classification confidence and taxonomy reject non-finite values without relaxing boundary defaults', () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '0.6', null, -0.01, 1.01]) {
+    assert.equal(supportConfigSchema.safeParse({ classifications: [{ ...taxonomy(), minimumConfidence: value }] }).success, false);
+    assert.equal(classificationDecisionSchema.safeParse({ classId: '1', confidence: value, reason: 'Synthetic evidence' }).success, false);
+  }
+  for (const confidence of [0, 1]) {
+    assert.equal(classificationDecisionSchema.parse({ classId: '1', confidence, reason: 'Synthetic evidence' }).confidence, confidence);
+    assert.equal(supportConfigSchema.parse({ classifications: [{ ...taxonomy(), minimumConfidence: confidence }] }).classifications[0]?.minimumConfidence, confidence);
+  }
 });

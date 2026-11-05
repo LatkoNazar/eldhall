@@ -14,12 +14,12 @@ export const TOOLS = {
   refund_payment: {
     name: 'refund_payment', kind: 'write', risk: 'high',
     description: 'Propose refunding one specific payment (full amount). Requires policy validation and human approval.',
-    args: z.object({ payment_id: z.string().min(1).max(64), amount_cents: z.number().int().positive() }).strict(),
+    args: z.strictObject({ payment_id: z.string().min(1).max(64), amount_cents: z.number().int().positive() }),
   },
   escalate_to_human: {
     name: 'escalate_to_human', kind: 'write', risk: 'low',
     description: 'Hand the conversation to a human specialist (no money moves). Use for unsupported requests, abusive conversations or when unsure.',
-    args: z.object({ reason: z.string().min(3).max(300) }).strict(),
+    args: z.strictObject({ reason: z.string().min(3).max(300) }),
   },
 } satisfies Record<string, ToolDefinition>;
 

@@ -1,5 +1,12 @@
-export const campaignKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as const
-export type Campaign = Partial<Record<(typeof campaignKeys)[number], string>>
+import { acquisitionContext, campaignKeys, sanitizeAnalyticsUrl } from './campaign.ts'
+import { validateProductEvent } from './product-events.ts'
+import type { ProductEvent, ProductEventProps } from './product-events.ts'
+
+export { acquisitionContext, appLink, campaignFromUrl, campaignKeys, sanitizeAnalyticsUrl } from './campaign.ts'
+export type { Campaign } from './campaign.ts'
+export { productEvents, validateProductEvent } from './product-events.ts'
+export type { ProductEvent, ProductEventProps } from './product-events.ts'
+
 export type Surface = 'landing' | 'app'
 
 export interface PublicAnalyticsEnv {
@@ -15,34 +22,6 @@ export interface SignupCreated {
   status: 'created'
   registrationId: string
   method: 'email' | 'oauth' | 'passkey'
-}
-
-// Product events from docs/ANALYTICS_PLAN.md. Every property is an enum from this allow-list;
-// unknown keys or values drop the whole event, so free text, names, ids or amounts cannot leak.
-export const productEvents = {
-  demo_started: { scenario: ['refund', 'limit'] },
-  demo_completed: { scenario: ['refund', 'limit'] },
-  support_case_created: {},
-  approval_granted: { tool: ['refund_payment', 'escalate_to_human'] },
-  action_executed: { tool: ['refund_payment', 'escalate_to_human'] },
-  action_failed: { tool: ['refund_payment', 'escalate_to_human'], outcome: ['failed', 'unknown'] },
-} as const satisfies Record<string, Record<string, readonly string[]>>
-export type ProductEvent = keyof typeof productEvents
-export type ProductEventProps<E extends ProductEvent> = { [K in keyof (typeof productEvents)[E]]: (typeof productEvents)[E][K] extends readonly (infer V)[] ? V : never }
-
-/** Returns sanitized event data, or null when anything is outside the allow-list. */
-export function validateProductEvent(event: string, props: Record<string, unknown> = {}): Record<string, string> | null {
-  if (!Object.hasOwn(productEvents, event)) return null
-  const schema = productEvents[event as ProductEvent] as Record<string, readonly string[]>
-  const keys = Object.keys(props)
-  if (keys.some(key => !Object.hasOwn(schema, key)) || Object.keys(schema).some(key => !keys.includes(key))) return null
-  const data: Record<string, string> = {}
-  for (const key of keys) {
-    const value = props[key]
-    if (typeof value !== 'string' || !schema[key]!.includes(value)) return null
-    data[key] = value
-  }
-  return data
 }
 
 export interface Analytics {
@@ -68,72 +47,7 @@ type AnalyticsWindow = Window & {
   __eldhallBeforeSend?: (type: string, payload: Payload) => Payload
 }
 
-const storageKey = 'eldhall.acquisition.v1'
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const safeCampaign = /^[\p{L}\p{N}][\p{L}\p{N} ._~+-]{0,99}$/u
-
-function cleanCampaign(value: unknown): Campaign {
-  const result: Campaign = {}
-  if (!value || typeof value !== 'object') return result
-  for (const key of campaignKeys) {
-    const item = (value as Record<string, unknown>)[key]
-    if (typeof item === 'string' && safeCampaign.test(item)) result[key] = item
-  }
-  return result
-}
-
-export function campaignFromUrl(value: string): Campaign {
-  try {
-    return cleanCampaign(Object.fromEntries(new URL(value).searchParams))
-  } catch {
-    return {}
-  }
-}
-
-/** First campaign in this origin's browser-tab session wins. Storage is optional. */
-export function acquisitionContext(page: Window = window): Campaign {
-  const current = campaignFromUrl(page.location.href)
-  try {
-    const stored = cleanCampaign(JSON.parse(page.sessionStorage.getItem(storageKey) ?? 'null'))
-    if (Object.keys(stored).length) return stored
-    if (Object.keys(current).length) page.sessionStorage.setItem(storageKey, JSON.stringify(current))
-  } catch {
-    // Browsing restrictions and full storage must never affect the application.
-  }
-  return current
-}
-
-/** Resolve only a configured HTTP(S) app URL, never a redirect from the query string. */
-export function appLink(appUrl: string | undefined, campaign: Campaign): string | null {
-  try {
-    const url = new URL(appUrl ?? '')
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
-    url.search = ''
-    url.hash = ''
-    for (const [key, value] of Object.entries(cleanCampaign(campaign))) url.searchParams.set(key, value)
-    return url.href
-  } catch {
-    return null
-  }
-}
-
-/** Keep campaign reporting while removing arbitrary query strings and fragments. */
-export function sanitizeAnalyticsUrl(value: string, base: string): string {
-  if (!value) return ''
-  try {
-    const url = new URL(value, base)
-    if (!['http:', 'https:'].includes(url.protocol)) return ''
-    const campaign = campaignFromUrl(url.href)
-    url.username = ''
-    url.password = ''
-    url.search = ''
-    url.hash = ''
-    for (const [key, item] of Object.entries(campaign)) url.searchParams.set(key, item)
-    return value.startsWith('/') ? `${url.pathname}${url.search}` : url.href
-  } catch {
-    return ''
-  }
-}
 
 const disabled: Analytics = { enabled: false, track() {}, trackLandingCta() {}, trackSignupCompleted() {} }
 

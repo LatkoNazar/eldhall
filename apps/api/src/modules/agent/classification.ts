@@ -4,28 +4,28 @@ import type { AgentContext } from './model.js';
 const classId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/);
 
 /** Operator-owned taxonomy. Labels and examples never grant tool permissions. */
-export const classificationConfigSchema = z.object({
+export const classificationConfigSchema = z.strictObject({
   revision: z.number().int().positive(),
   fallbackClassId: classId,
-  minimumConfidence: z.number().finite().min(0).max(1).default(0.6),
-  classes: z.array(z.object({
+  minimumConfidence: z.number().min(0).max(1).default(0.6),
+  classes: z.array(z.strictObject({
     id: classId,
     label: z.string().trim().min(1).max(100),
     description: z.string().trim().min(1).max(500),
     examples: z.array(z.string().trim().min(1).max(200)).max(5).default([]),
-  }).strict()).min(2).max(50),
-}).strict().superRefine((config, ctx) => {
+  })).min(2).max(50),
+}).superRefine((config, ctx) => {
   if (new Set(config.classes.map(item => item.id)).size !== config.classes.length) ctx.addIssue({ code: 'custom', message: 'Classification class IDs must be unique' });
   if (!config.classes.some(item => item.id === config.fallbackClassId)) ctx.addIssue({ code: 'custom', message: 'Classification fallback must reference a configured class' });
   if (JSON.stringify(config).length > 16_000) ctx.addIssue({ code: 'custom', message: 'Classification taxonomy exceeds the 16000-character context budget' });
 });
 export type ClassificationConfig = z.infer<typeof classificationConfigSchema>;
 
-export const classificationDecisionSchema = z.object({
+export const classificationDecisionSchema = z.strictObject({
   classId,
-  confidence: z.number().finite().min(0).max(1),
+  confidence: z.number().min(0).max(1),
   reason: z.string().trim().min(1).max(400),
-}).strict();
+});
 export type ClassificationDecision = z.infer<typeof classificationDecisionSchema>;
 export interface ClassificationInput {
   businessId: string;

@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Integrations } from './Integrations'
 import App from '../App'
+import { navigate } from '../lib/navigation'
 import type { CatalogOperation, IntegrationPolicy, IntegrationSummary } from '../lib/integrations-api'
 
 const businessId = '20000000-0000-4000-8000-000000000001'
@@ -177,4 +178,31 @@ it('does not offer review when the server omits the operation definition', async
   render(<Integrations token="operator-key" />)
   expect(await screen.findByRole('alert')).toHaveTextContent('Некоректний каталог або політика')
   expect(screen.queryByRole('button', { name: /Переглянути й увімкнути/ })).not.toBeInTheDocument()
+})
+
+it('guards dirty policy edits and releases both unload and navigation guards when clean or unmounted', async () => {
+  mockApi()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  const user = userEvent.setup()
+  const view = render(<Integrations token="operator-key" />)
+  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  const unloadIsPrevented = () => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  expect(unloadIsPrevented()).toBe(false)
+  await user.selectOptions(group, 'deny')
+  expect(unloadIsPrevented()).toBe(true)
+  act(() => { expect(navigate('/operator/team')).toBe(false) })
+  expect(confirm).toHaveBeenCalledOnce()
+  expect(group).toHaveValue('deny')
+  await user.selectOptions(group, 'ask')
+  expect(unloadIsPrevented()).toBe(false)
+  await user.selectOptions(group, 'deny')
+  expect(unloadIsPrevented()).toBe(true)
+  view.unmount()
+  expect(unloadIsPrevented()).toBe(false)
+  act(() => { expect(navigate('/operator/team')).toBe(true) })
+  expect(confirm).toHaveBeenCalledOnce()
 })

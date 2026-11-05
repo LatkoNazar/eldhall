@@ -135,7 +135,7 @@ function useUnsaved(dirty: boolean) {
   useEffect(() => {
     if (scopeRef) scopeRef.current = dirty
     if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault() }
     const removeGuard = registerNavigationGuard(() => allowDiscard(true))
     window.addEventListener('beforeunload', warn)
     return () => { removeGuard(); if (scopeRef) scopeRef.current = false; window.removeEventListener('beforeunload', warn) }

@@ -9,6 +9,11 @@ const time = '2026-10-31T10:00:00.000Z'
 const ticket = (id: string) => ({ id, businessId: 'business-1', customerId: id, customerName: id, status: 'open', priority: 'P3', intent: null, analysis: null, ownership: 'staff', ownershipVersion: 0, assignedTo: null, createdAt: time, updatedAt: time })
 const source = (id: string, businessId: string) => ({ id, businessId, title: id, content: `Content ${id}`, category: 'General', status: 'draft', version: 1, updatedAt: time })
 function response(value: unknown) { return new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } }) }
+function unloadIsPrevented() {
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
 function mockApi() {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input)
@@ -120,7 +125,10 @@ it('preserves unsaved knowledge edits when client navigation is declined', async
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const user = userEvent.setup()
   render(<App />)
-  await user.type(await screen.findByLabelText('Назва'), ' unsaved')
+  const title = await screen.findByLabelText('Назва')
+  expect(unloadIsPrevented()).toBe(false)
+  await user.type(title, ' unsaved')
+  expect(unloadIsPrevented()).toBe(true)
   await user.click(screen.getByRole('link', { name: 'Команда' }))
   expect(confirm).toHaveBeenCalledTimes(1)
   expect(window.location.pathname).toBe('/operator/knowledge')
@@ -128,6 +136,32 @@ it('preserves unsaved knowledge edits when client navigation is declined', async
   confirm.mockReturnValue(true)
   await user.click(screen.getByRole('link', { name: 'Команда' }))
   expect(await screen.findByRole('heading', { name: 'Команда' })).toBeInTheDocument()
+  expect(unloadIsPrevented()).toBe(false)
+})
+
+it('warns only for an unsent reply and releases unload and navigation guards after unmount', async () => {
+  mockApi()
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  const user = userEvent.setup()
+  const view = render(<App />)
+  await screen.findByRole('heading', { name: 'Вхідні звернення' })
+  await screen.findByText('Message case-a')
+  const reply = screen.getByLabelText(/Відповідь клієнту/)
+  expect(unloadIsPrevented()).toBe(false)
+  await user.type(reply, 'Unsent reply')
+  expect(unloadIsPrevented()).toBe(true)
+  await user.click(screen.getByRole('link', { name: 'Команда' }))
+  expect(confirm).toHaveBeenCalledOnce()
+  expect(window.location.pathname).toBe('/operator')
+  expect(reply).toHaveValue('Unsent reply')
+  await user.clear(reply)
+  expect(unloadIsPrevented()).toBe(false)
+  await user.type(reply, 'Another unsent reply')
+  expect(unloadIsPrevented()).toBe(true)
+  view.unmount()
+  expect(unloadIsPrevented()).toBe(false)
+  act(() => { expect(navigate('/operator/team')).toBe(true) })
+  expect(confirm).toHaveBeenCalledOnce()
 })
 
 it('allows dirty same-page native fragments and restores the exact entry after rejected multi-step Back', async () => {

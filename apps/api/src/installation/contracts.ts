@@ -44,7 +44,7 @@ export function plannedResources(installationId: string, project: string, databa
     queue: { database: 2 as const, prefix: `eldhall_${hex}`, jobsQueue: 'jobs-transform-v1' as const } };
 }
 export const installationSchema = z.strictObject({
-  installationFormat: z.literal(1), installationId: z.string().uuid().refine(value => value === value.toLowerCase()), projectName: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(63), state: z.literal('prepared'),
+  installationFormat: z.literal(1), installationId: z.uuid().refine(value => value === value.toLowerCase()), projectName: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(63), state: z.literal('prepared'),
   releaseBinding: z.strictObject({ status: z.literal('unbound'), manifest: z.null() }),
   intent: z.strictObject({ project: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(63), mode: z.enum(['evaluation', 'production']), database: z.strictObject({ mode: z.enum(['bundled', 'external']) }), provider: publicProvider }),
   plannedResources: z.strictObject({ composeProject: z.string(), postgresVolume: z.string().nullable(), redisVolume: z.string(), runtimeVolume: z.string(), queue: z.strictObject({ database: z.literal(2), prefix: z.string(), jobsQueue: z.literal('jobs-transform-v1') }) }),
