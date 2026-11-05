@@ -48,7 +48,7 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
       const target = main?.querySelector<HTMLElement>('h1') ?? main
       target?.setAttribute('tabindex', '-1')
       target?.focus({ preventScroll: true })
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+      main?.scrollTo({ top: 0, left: 0, behavior: 'instant' })
     })
     return () => window.cancelAnimationFrame(frame)
   }, [routeKey])
@@ -58,16 +58,16 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
       <Brand />
       <button className="mobile-menu" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(value => !value)}>{t("core.nav.menu")} <Icon name="inbox" /></button>
       <nav id="main-nav" className={menuOpen ? 'nav-open' : ''} aria-label={t("core.nav.label")}>
-        {navigation.map(item => <AppLink href={item.href} key={item.id} onClick={() => setMenuOpen(false)} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{t(item.label)}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{formatNumber(metrics.data.cases - metrics.data.byStatus.resolved, locale)}</span>}</AppLink>)}
+          {navigation.map(item => <AppLink href={item.href} key={item.id} aria-label={t(item.label)} title={t(item.label)} onClick={() => setMenuOpen(false)} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{t(item.label)}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{formatNumber(metrics.data.cases - metrics.data.byStatus.resolved, locale)}</span>}</AppLink>)}
       </nav>
-      <div className="sidebar-bottom"><AppLink href="/chat" target="_blank" rel="noreferrer"><Icon name="help" /><span>{t("core.nav.testAgent")}</span></AppLink><div className="sidebar-caption">{t("core.nav.caption")}</div></div>
+      <div className="sidebar-bottom"><AppLink href="/chat" target="_blank" rel="noreferrer" aria-label={t("core.nav.testAgent")} title={t("core.nav.testAgent")}><Icon name="help" /><span>{t("core.nav.testAgent")}</span></AppLink><div className="sidebar-caption">{t("core.nav.caption")}</div></div>
     </aside>
     <div className="app-body">
       <header className="topbar">
         {page === 'inbox' || page === 'actions' ? <label className="search-field topbar-search"><Icon name="search" /><input aria-label={page === 'actions' ? t("core.nav.actionsSearch") : t("core.nav.casesSearch")} placeholder={page === 'actions' ? t("core.nav.actionsPlaceholder") : t("core.nav.casesPlaceholder")} value={search} onChange={event => setSearch(event.target.value)} /><kbd aria-hidden="true">⌕</kbd></label> : <span className="breadcrumb">{t("core.nav.workspace")} <span>/</span> {title}</span>}
         <div className="operator-profile"><LanguagePicker /><Avatar name={t("core.nav.operator")} /><span>{t("core.thread.operator")}<span className="profile-caption">{t("core.nav.staffAccess")}</span></span><button className="icon-button" aria-label={t("core.nav.logout")} onClick={onLogout}><Icon name="logout" /></button></div>
       </header>
-      <main id="main-content" className="page">
+      <main id="main-content" className={`page ${page === 'inbox' ? 'page-workspace' : page === 'actions' ? 'page-actions' : ''}`} tabIndex={page === 'inbox' ? -1 : 0}>
         {page === 'inbox' && <Fragment key={routeKey}>
           <div className="page-heading"><div><h1>{t("core.inbox.title")}</h1><p>{t("core.inbox.subtitle")}</p></div><button onClick={() => { cases.refresh(); metrics.refresh() }}><Icon name="refresh" />{t("core.common.refresh")}</button></div>
           {cases.error && <Notice error>{cases.error} {cases.checkedAt && t('core.common.lastConfirmed', { time: dateTime(cases.checkedAt, locale) })} <button className="text-button" onClick={cases.refresh}>{t("core.common.retryRead")}</button></Notice>}

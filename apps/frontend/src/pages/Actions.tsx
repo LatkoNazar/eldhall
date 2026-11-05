@@ -83,7 +83,7 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
   function changePhase(next: Phase) { setPhase(next); setSelectedId(undefined); setMobileDetail(false) }
   function closeInspector() { restoreFocusRef.current = selected?.proposal.id ?? ''; setMobileDetail(false); setSelectedId(null) }
   return <div className={`actions-page-grid ${mobileDetail ? 'actions-mobile-open' : ''}`}>
-    <div className="actions-main">
+    <div className="actions-main" tabIndex={0} role="region" aria-label={t("core.actions.list")}>
       <div className="page-heading"><div><h1>{t("core.nav.actions")}</h1><p>{t("core.actions.subtitle")}</p></div><button onClick={refresh}><Icon name="refresh" />{t("core.common.refresh")}</button></div>
       <div className="metrics-grid compact-metrics actions-metrics">
         <Metric icon="clock" label={t("core.actions.awaitingSteps")} value={metrics ? (metrics.proposals.pending ?? 0) + (metrics.proposals.approved ?? 0) : '—'} />
@@ -119,7 +119,7 @@ function ActionInspector({ row, token, stale, onChanged, onClose, onShowPhase, p
   return <aside className="card actions-inspector" aria-label={t("core.actions.detailsLabel")}>
     <div className="actions-inspector-header"><div className="customer-heading"><Avatar name={detail.customer.name} seed={`${detail.customer.businessId}:${detail.customer.id}`} /><div><h2>{detail.customer.name}</h2><span className="muted small">{detail.customer.email}</span><small>{t("core.actions.actionPrefix")}{row.proposal.id.slice(0, 8)}</small></div></div><button className="icon-button" aria-label={t("core.actions.closeDetails")} onClick={onClose}><Icon name="close" /></button></div>
     <div className="actions-inspector-label">{t("core.actions.details")}</div>
-    <div className="actions-inspector-body">
+    <div className="actions-inspector-body" tabIndex={0} role="region" aria-label={t("core.actions.details")}>
       {resource.error && <ErrorNotice error={resource.errorCause}>{t("core.common.stale")}<button onClick={resource.refresh}>{t("core.common.refresh")}</button></ErrorNotice>}
       {proposal ? <>
         {phaseOf(proposal.status) !== phase && <Notice>{t("core.actions.movedPrefix")}{t(phaseLabels[phaseOf(proposal.status)])}». <button onClick={() => onShowPhase(phaseOf(proposal.status))}>{t("core.actions.goToTab")}</button></Notice>}

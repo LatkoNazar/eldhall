@@ -39,7 +39,7 @@ beforeEach(() => {
   sessionStorage.clear()
   sessionStorage.setItem('support.operator', 'test-operator-token')
   window.history.replaceState({}, '', '/operator')
-  vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  vi.spyOn(HTMLElement.prototype, 'scrollTo')
 })
 
 it('navigates inside the same dashboard shell and retains its case polling resource', async () => {

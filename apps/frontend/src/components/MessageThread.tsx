@@ -14,7 +14,7 @@ export function MessageThread({ messages, customerName, customer = false, loadin
     if (element && follow.current) element.scrollTop = element.scrollHeight
   }, [lastId, pending])
   return <div className={`message-thread ${customer ? 'customer-message-thread' : ''}`}>
-    <div className={customer ? 'customer-transcript' : 'transcript'} ref={container} role="log" aria-live="polite" aria-relevant="additions" aria-label={t("core.thread.label")} onScroll={event => { const element = event.currentTarget; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 64; setAway(!follow.current) }}>
+    <div className={customer ? 'customer-transcript' : 'transcript'} ref={container} tabIndex={0} role="log" aria-live="polite" aria-relevant="additions" aria-label={t("core.thread.label")} onScroll={event => { const element = event.currentTarget; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 64; setAway(!follow.current) }}>
       {messages.length ? messages.map(message => <article key={message.id} className={`message message-${message.role}`}><span className="message-author">{message.role === 'customer' ? customer ? t("core.chat.you") : customerName : message.role === 'operator' ? t("core.thread.operator") : message.role === 'assistant' ? t("core.thread.assistant") : t("core.thread.system")}</span><div className="message-bubble">{message.body}</div><time dateTime={message.createdAt}>{formatDateTime(message.createdAt, locale)}</time></article>) : <Empty title={loading ? t("core.thread.loading") : t("core.thread.emptyTitle")}>{customer ? t("core.thread.emptyCustomer") : t("core.thread.emptyOperator")}</Empty>}
       {pending && <p className="typing" role="status">{pending}</p>}
     </div>

@@ -67,7 +67,7 @@ export function OperatorGate({ location, initialLink, onLinkConsumed }: { locati
   const begin = (key: string) => { setSession({ phase: 'checking', key }); void validate(key) }
   if (session.phase === 'authenticated') return <Dashboard token={session.key} location={location} onLogout={() => reset()} />
   const localDemo = import.meta.env.DEV && import.meta.env.MODE === 'local-demo' && window.location.hostname === '127.0.0.1'
-  return <main className="login-page">
+  return <main className="login-page" tabIndex={0}>
     <div className="login-brand"><Brand /><LanguagePicker /></div>
     <section className="login-card card" aria-labelledby="login-title">
       <span className="eyebrow">{t("core.auth.eyebrow")}</span>
