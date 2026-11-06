@@ -101,6 +101,30 @@ test('native informational reply repairs an invented action tool to literal null
   }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
 });
 
+test('native follow-up appends lost-card and statement requests without repurposing the earlier fees goal', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-distinct-goals-'));const store=new MemorySupportStore(seedData());
+  const supportCase=await store.createCase(seedData().businesses[0]!.id,seedData().customers[0]!.id);
+  const fees=await store.addMessage(supportCase.id,'customer','Яка комісія за обслуговування картки?');
+  const firstLease=(await store.acquireTurn(supportCase.id,'fees-checkpoint'))!;
+  const original=await store.requestCheckpoint(firstLease,fees.id,{version:0,syncState:'current',changes:[{localKey:'fees',title:'Комісія за картку',goal:'Дізнатися комісію за обслуговування картки',waitingOn:null,nextStep:null,sourceMessageIds:[fees.id],dependencyIds:[],dependencyKeys:[]}]});await store.releaseTurn(firstLease);
+  const followup=await store.addMessage(supportCase.id,'customer','Загубила картку. Ще потрібна виписка за жовтень у PDF.');
+  const lease=(await store.acquireTurn(supportCase.id,'new-independent-goals'))!;let catalog=await store.requestCatalog(supportCase.id);let accepted=false;
+  const batch={version:catalog.version,syncState:'current' as const,changes:[
+    {localKey:'lost-card',title:'Втрачена картка',goal:'Отримати допомогу через втрату картки',waitingOn:'staff' as const,nextStep:'Залучити спеціаліста',sourceMessageIds:[followup.id],dependencyIds:[],dependencyKeys:[]},
+    {localKey:'october-statement',title:'Виписка за жовтень',goal:'Отримати виписку за жовтень у PDF',waitingOn:'staff' as const,nextStep:'Перевірити доступний спосіб отримання виписки',sourceMessageIds:[followup.id],dependencyIds:[],dependencyKeys:[]}
+  ]};
+  const decision={...finalDecision,intent:'other' as const,action:null,reply:'Допоможу з новими питаннями.'};
+  const api=await endpoint([{name:'update_customer_requests',args:batch},{name:'submit_decision',args:decision}]);
+  try{
+    const result=await new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000}).decide(context({conversationId:supportCase.id,currentCustomerMessageId:followup.id,requestCatalog:()=>catalog,requestCheckpointAccepted:()=>accepted,requestSourceMessages:[{id:fees.id,body:fees.body},{id:followup.id,body:followup.body}],checkpointRequests:async input=>{assert.deepEqual(input,batch);catalog=await store.requestCheckpoint(lease,followup.id,input);accepted=true;return catalog;}}),new AbortController().signal);
+    assert.equal(result.decision.action,null);assert.equal(api.requests.length,2);assert.equal(catalog.requests.length,3);
+    assert.deepEqual(catalog.requests[0],original.requests[0]);assert.deepEqual(catalog.requests.map(row=>row.number),[1,2,3]);assert.equal(new Set(catalog.requests.map(row=>row.id)).size,3);
+    assert.deepEqual(catalog.requests.slice(1).map(row=>row.sourceMessageIds),[[followup.id],[followup.id]]);
+    const tool=JSON.stringify(api.requests[0]!.tools!.find(tool=>tool.function.name==='update_customer_requests'));assert.match(tool,/NEVER repurpose/);assert.match(tool,/THREE goals/);
+    assert.match(JSON.stringify(api.requests[0]!.messages),/THREE goals total/);
+  }finally{await store.releaseTurn(lease);await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
 function context(overrides: Partial<AgentContext> = {}): AgentContext {
   const data = seedData();
   const business = data.businesses[0]!;
