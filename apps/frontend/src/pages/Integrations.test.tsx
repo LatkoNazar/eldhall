@@ -61,14 +61,21 @@ beforeEach(() => {
 })
 
 async function openGroup(user: ReturnType<typeof userEvent.setup>) {
-  const control = await screen.findByText(translateMessage({ key: 'onboarding.advancedPolicy' }, 'uk'), { selector: 'summary' })
-  if (!control.parentElement?.hasAttribute('open')) await user.click(control)
+  if (!screen.queryByRole('combobox', { name: 'Дозвіл групи orders' })) {
+    await user.click(await screen.findByLabelText('Дії інтеграції'))
+    await user.click(screen.getByRole('button', { name: 'Розширені налаштування' }))
+  }
   return screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+}
+async function openTools(user: ReturnType<typeof userEvent.setup>) {
+  const back = screen.queryByRole('button', { name: 'Назад до інструментів' })
+  if (back) await user.click(back)
 }
 function selectedMode(title: string) {
   return within(screen.getByRole('group', { name: `Дозвіл операції ${title}` })).getByRole('radio', { checked: true }).getAttribute('value')
 }
 async function openOperation(user: ReturnType<typeof userEvent.setup>, title: string) {
+  await openTools(user)
   await screen.findByRole('group', { name: `Дозвіл операції ${title}` })
   const control = screen.getAllByRole('button').find(button => button.hasAttribute('aria-expanded') && button.textContent?.includes(title))!
   if (control.getAttribute('aria-expanded') !== 'true') await user.click(control)
@@ -93,14 +100,16 @@ it('preserves endpoint overrides when changing a group and sends business-scoped
   const fetch = mockApi()
   const user = userEvent.setup()
   render(<Integrations token="operator-key" />)
-  const group = await openGroup(user)
+  await screen.findByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })
   expect(selectedMode('Перевірити замовлення')).toBe('auto')
   const normalRow = screen.getByRole('group', { name: 'Дозвіл операції Перевірити замовлення' }).closest('article')!
   expect(normalRow.querySelector('.integration-tool-state')).toBeNull()
   expect(within(normalRow).getByText('Auto — автоматично — власне правило')).not.toBeVisible()
+  const group = await openGroup(user)
   group.focus()
   expect(group).toHaveFocus()
   await user.selectOptions(group, 'deny')
+  await openTools(user)
   expect(selectedMode('Перевірити замовлення')).toBe('auto')
   await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
   await screen.findByText('Сервер зберіг зміни. Ефективні дозволи перечитано.')
@@ -113,7 +122,7 @@ it('preserves endpoint overrides when changing a group and sends business-scoped
   await user.click(within(row).getByText(translateMessage({ key: 'operations.integrations.exactDefinition' }, 'uk'), { selector: 'summary' }))
   await user.click(screen.getByRole('button', { name: 'Скинути до успадкування Перевірити замовлення' }))
   expect(selectedMode('Перевірити замовлення')).toBe('deny')
-  expect(screen.getByRole('combobox', { name: 'Дозвіл групи orders' })).toHaveValue('deny')
+  expect(group).toHaveValue('deny')
 })
 
 it('keeps review separate from Auto and submits only an explicitly reviewed exact hash', async () => {
@@ -278,4 +287,32 @@ it('switches all five interface languages without losing a dirty policy or repla
   await user.click(screen.getByRole('button', { name: 'switch-en' }))
   expect(await screen.findByText('The server saved the changes. Effective permissions were reloaded.')).toBeInTheDocument()
   expect(fetch.mock.calls).toHaveLength(completedRequests)
+})
+
+it('keeps settings navigation read-only and disables only through an explicit versioned menu action', async () => {
+  const fetch = mockApi()
+  const user = userEvent.setup()
+  render(<Integrations token="operator-key" />)
+  const actions = await screen.findByLabelText('Дії інтеграції')
+  const writes = () => fetch.mock.calls.filter(([, init]) => init?.method === 'POST' || init?.method === 'PATCH')
+  expect(screen.queryByRole('combobox', { name: 'Дозвіл групи orders' })).not.toBeInTheDocument()
+  await user.click(actions)
+  await user.keyboard('{Escape}')
+  expect(actions.closest('details')).not.toHaveAttribute('open')
+  expect(actions).toHaveFocus()
+  await user.click(actions)
+  await user.click(screen.getByRole('heading', { name: 'Інтеграції' }))
+  expect(actions.closest('details')).not.toHaveAttribute('open')
+  await openGroup(user)
+  expect(screen.getByRole('heading', { name: 'Розширені налаштування' })).toHaveFocus()
+  expect(within(screen.getByRole('group', { name: 'Типовий дозвіл інтеграції' })).getByRole('radio', { checked: true }).getAttribute('value')).toBe('deny')
+  expect(writes()).toHaveLength(0)
+  await openTools(user)
+  expect(actions).toHaveFocus()
+  expect(await screen.findByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })).toBeVisible()
+  await user.click(actions)
+  await user.click(screen.getByRole('button', { name: 'Вимкнути інтеграцію' }))
+  await waitFor(() => expect(writes()).toHaveLength(1))
+  expect(writes()[0]![0]).toBe(`/api/v1/integrations/orders/disable?businessId=${businessId}`)
+  expect(JSON.parse(String(writes()[0]![1]?.body))).toEqual({ version: 1, draining: false })
 })
