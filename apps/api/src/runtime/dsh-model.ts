@@ -10,6 +10,7 @@ import { childEnvironment, markSessionStarted, prepareProfile, wasSessionStarted
 import { approvalPendingDecision } from '../modules/agent/pending.js';
 import { requestCheckpointSchema, requestTargetsSchema } from '../modules/support/requests/contracts.js';
 import type { RequestCatalog } from '../modules/support/requests/contracts.js';
+import { databaseGatewayError } from './database-errors.js';
 
 export interface DshSupportOptions {
   provider: 'google' | 'openai' | 'anthropic' | 'local';
@@ -174,8 +175,8 @@ export class DshSupportModel implements AgentModel {
           if (pending) decision = approvalPendingDecision(pending.summary);
           await send(200, { result, ...(pending ? { control: { endTurn: 'awaiting_approval', proposalId: pending.proposalId } } : {}) });
         } else await send(403, { error: 'Tool outside support allowlist' });
-      } catch {
-        if (!res.headersSent) await send(controller.signal.aborted ? 409 : 400, { error: 'Support gateway denied the request' });
+      } catch (error) {
+        if (!res.headersSent) await send(controller.signal.aborted ? 409 : 400, databaseGatewayError(error) ?? { error: 'Support gateway denied the request' });
         else res.end();
       }
     };

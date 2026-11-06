@@ -16,6 +16,7 @@ import { MemorySupportStore } from '../src/modules/support/store.js';
 import { SupportHarness } from '../src/modules/agent/harness.js';
 import { RulesModel } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
+import { DatabaseInvestigationError } from '../src/modules/database/contracts.js';
 
 const finalDecision: AgentDecision = { intent: 'duplicate_charge', summary: 'A duplicate charge was found.', reasoning: 'Two matching captured charges.',
   sentiment: { label: 'frustrated', urgency: 'high' }, reply: 'I prepared a refund for specialist review.',
@@ -276,6 +277,31 @@ test('actual installed DSH exposes a fourth scoped integration gateway tool only
     assert.equal(api.requests.length, 3);
     for (const request of api.requests) assert.deepEqual(request.tools?.map(tool => tool.function.name).sort(), [...SUPPORT_TOOLS, 'call_business_tool'].sort());
     assert.match(JSON.stringify(api.requests[2]?.messages), /shipped/);
+  } finally { await stop(api.server); await rm(homeRoot, { recursive: true, force: true }); }
+});
+
+test('native SQL failures provide safe repair guidance and a later supported aggregate can finish', { timeout: 60000 }, async () => {
+  const homeRoot = await mkdtemp(join(tmpdir(), 'support-sql-repair-'));
+  const api = await endpoint([
+    { name: 'call_business_tool', args: { integrationId: 'records', name: 'query_database', input: { query: 'unsupported synthetic aggregate' } } },
+    { name: 'call_business_tool', args: { integrationId: 'records', name: 'query_database', input: { query: 'SELECT status,count(*) FROM payments GROUP BY status' } } },
+    { name: 'submit_decision', args: { ...finalDecision, intent: 'other', action: null, reply: 'Your two payments are captured.' } },
+  ]);
+  let forwarded = 0;
+  try {
+    const model = new DshSupportModel({ provider: 'local', model: 'support-fixture', baseURL: api.url, homeRoot, timeoutMs: 25000 });
+    const result = await model.decide(context({
+      conversationId: 'sql-repair',
+      businessTools: [{ integrationId: 'records', name: 'query_database', description: 'Scoped read-only SQL.', inputSchema: { type: 'object' } }],
+      callBusinessTool: async () => {
+        if (++forwarded === 1) { const refused = new DatabaseInvestigationError('invalid_query'); refused.message = 'private-query-and-credential'; throw refused; }
+        return { scope: 'current_customer', rowCount: 1, columns: [{ name: 'status', type: 'text' }, { name: 'count', type: 'bigint' }], rows: [['captured', '2']], truncated: false };
+      },
+    }), new AbortController().signal);
+    assert.equal(forwarded, 2);
+    assert.equal(result.decision.reply, 'Your two payments are captured.');
+    assert.match(JSON.stringify(api.requests[1]?.messages), /GROUP BY/);
+    assert.doesNotMatch(JSON.stringify(api.requests), /private-query-and-credential/);
   } finally { await stop(api.server); await rm(homeRoot, { recursive: true, force: true }); }
 });
 
