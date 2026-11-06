@@ -22,7 +22,8 @@ async function main() {
   const store = new PostgresJobStore(pool);
   const redis = createWorkerRedis(settings);
   const options = jobOptions(settings);
-  const supportWorker = settings.supportExecution === 'worker' ? await startSupportWorker(settings, await createSupport(settings, pool)) : undefined;
+  const support = settings.supportExecution === 'worker' ? await createSupport(settings, pool) : undefined;
+  const supportWorker = support ? await startSupportWorker(settings, support) : undefined;
   const insights = await createInsights(settings, pool);
   const insightsWorker = insights ? startInsightsWorker(insights) : undefined;
   const worker = new Worker<JobMessage, string | null>(settings.bullmqQueue, job => processJob(job, store), {
@@ -61,6 +62,7 @@ async function main() {
     clearInterval(timer);
     await insightsWorker?.close();
     await supportWorker?.close();
+    await support?.databaseInvestigations?.close();
     await worker.close();
     await Promise.allSettled([...finalizers]);
     if (redis.isReady) await redis.withAbortSignal(AbortSignal.timeout(3000)).del(key).catch(() => undefined);

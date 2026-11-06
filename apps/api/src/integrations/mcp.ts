@@ -1,6 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { supportConfigSchema, type McpIntegrationConfig, type SupportConfig } from './config.js';
 import { validateToolInput, type InputSchema } from './schema.js';
+import type { NewActivity } from '../modules/support/activity.js';
 
 export interface BusinessTool {
   integrationId: string;
@@ -21,6 +22,7 @@ export type ActionOutcome = ({ status: 'executed'; data: unknown } | { status: '
 /** Immutable snapshot stored as proposal args; its hash binds approval to the exact operation and versions. */
 export interface ExternalActionRequest { args: Record<string, unknown>; mode: 'auto' | 'ask'; title: string }
 export interface BusinessIntegrationContext {
+  recordActivity?: (event: NewActivity) => Promise<void>;
   businessId: string; customerId: string; assertActive: () => Promise<void>;
   caseId?: string; ownershipVersion?: number;
   markDispatched?: () => Promise<void>;

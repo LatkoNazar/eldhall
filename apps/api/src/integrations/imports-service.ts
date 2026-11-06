@@ -6,10 +6,11 @@ import {ManagedGatewayClient,ManagedImportError} from './managed-client.js';
 import type {BusinessIntegrations} from './mcp.js';
 
 export class IntegrationImportsService {
-  constructor(private readonly store:IntegrationStore,readonly client:ManagedGatewayClient,private readonly runtime:BusinessIntegrations){}
+  constructor(private readonly store:IntegrationStore,readonly client:ManagedGatewayClient,private readonly runtime:BusinessIntegrations,private readonly reservedIds:readonly (readonly [string,string])[]=[]){}
   async capabilities(){return {enabled:true,...await this.client.capabilities(),maxSpecBytes:5_000_000};}
   async prepare(businessId:string,raw:unknown){
     const input=prepareImportSchema.parse(raw);
+    if(this.reservedIds.some(([business,id])=>business===businessId&&id===input.integrationId))throw new IntegrationConflict('Integration id is reserved by a database source');
     if((await this.store.list(businessId)).length>=20)throw new IntegrationConflict('Integration catalog limit reached');
     if(await this.store.get(businessId,input.integrationId))throw new IntegrationConflict('Integration id already exists');
     const capabilities=await this.client.capabilities();
@@ -25,6 +26,7 @@ export class IntegrationImportsService {
   async draft(businessId:string,id:string){const stored=await this.store.importDraft(businessId,id);if(!stored)throw new ManagedImportError(404,'import_not_found','Prepared import was not found');const parsed=importDraftSchema.safeParse(stored);if(!parsed.success)throw new ManagedImportError(409,'invalid_import','Stored import is invalid');const draft=parsed.data;if(draft.id!==id||draft.businessId!==businessId||draft.source.integrationId!==draft.integrationId)throw new ManagedImportError(409,'invalid_import','Stored import identity differs');if(draft.status==='prepared'&&Date.parse(draft.expiresAt)<=Date.now())throw new IntegrationConflict('Prepared import expired');return draft;}
   async confirm(businessId:string,id:string,raw:unknown){
     const body=confirmImportSchema.parse(raw),draft=await this.draft(businessId,id),confirmationHash=fingerprint(body);
+    if(this.reservedIds.some(([business,reserved])=>business===businessId&&reserved===draft.integrationId))throw new IntegrationConflict('Integration id is reserved by a database source');
     if(draft.prepared.specHash!==body.specHash)throw new IntegrationConflict('Prepared OpenAPI changed');
     let state:IntegrationState;
     if(draft.status==='confirmed'){

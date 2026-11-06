@@ -1,5 +1,6 @@
 import type { RequestCatalog } from './requests/contracts.js';
 import type { GuardRule } from './guards.js';
+import type { DatabaseInvestigationPolicy } from '../database/contracts.js';
 import type { AgentActivity } from './activity.js';
 export type { RequestCatalog, CustomerRequest, RequestEvent, RequestTarget } from './requests/contracts.js';
 import type { ClassificationConfig, TicketClassification } from '../agent/classification.js';
@@ -16,6 +17,7 @@ export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' |
 export type Risk = 'low' | 'high';
 
 export interface Policy {
+  databaseInvestigation?: DatabaseInvestigationPolicy;
   guards?: GuardRule[];
   guardRevision?: number;
   refundLimitCents: number;
@@ -77,6 +79,7 @@ export interface KnowledgeSource {
 }
 export interface SupportSkill { id: string; businessId: string; name: string; content: string; revision: number; enabled: boolean; updatedAt: string }
 export interface SupportSettings {
+  databaseInvestigation?: DatabaseInvestigationPolicy;
   guards?: GuardRule[];
   guardRevision?: number;
   businessId: string; version: number; language: string; tone: 'neutral' | 'empathetic' | 'de-escalating';

@@ -29,7 +29,7 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     }
   });
   const anyOrigin = settings.corsOrigins.includes('*');
-  const corsMethods = ['GET', 'POST', 'PATCH'];
+  const corsMethods = ['GET', 'POST', 'PATCH', 'PUT'];
   const corsHeaders = ['Accept', 'Accept-Language', 'Authorization', 'Content-Language', 'Content-Type', 'X-Customer-Session'];
   const allowedHeaders = new Set(corsHeaders.map(header => header.toLowerCase()));
   await app.register(cors, { origin: anyOrigin ? '*' : settings.corsOrigins, methods: corsMethods, allowedHeaders: corsHeaders, credentials: false, preflight: false });

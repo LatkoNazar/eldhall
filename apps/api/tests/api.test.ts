@@ -103,7 +103,9 @@ test('configured external clients can send customer sessions and PATCH; unconfig
       headers: { origin, 'access-control-request-method': 'PATCH', 'access-control-request-headers': 'authorization,content-type' },
     });
     assert.equal(patch.statusCode, 200);
-    assert.equal(patch.headers['access-control-allow-methods'], 'GET, POST, PATCH');
+    assert.equal(patch.headers['access-control-allow-methods'], 'GET, POST, PATCH, PUT');
+    const guardUpdate = await app.inject({ method: 'OPTIONS', url: '/api/v1/guards/database', headers: { origin, 'access-control-request-method': 'PUT', 'access-control-request-headers': 'authorization,content-type' } });
+    assert.equal(guardUpdate.statusCode, 200);
     for (const [headers, failure] of [
       [{ origin: 'https://unconfigured.example' }, 'origin'],
       [{ 'access-control-request-method': 'DELETE' }, 'method'],

@@ -60,6 +60,13 @@ export function safeToolResult(value:unknown):ActivityFacts {
   for(const key of ['payments','sources'])if(Array.isArray(row[key]))facts[key+'Count']=row[key].length;
   if(Array.isArray(row.payments))row.payments.slice(0,10).forEach((value,index)=>{if(!value||typeof value!=='object')return;const payment=value as Record<string,unknown>;if(typeof payment.id!=='string'||!/^[a-f0-9-]{36}$/i.test(payment.id)||!Number.isSafeInteger(payment.amountCents)||typeof payment.currency!=='string'||!/^[A-Z]{3}$/.test(payment.currency)||!['captured','refunded'].includes(String(payment.status)))return;if(Object.keys(facts).length+4>39){facts.omitted=true;return;}const key='payment'+(index+1);facts[key+'Id']=payment.id;facts[key+'AmountCents']=Number(payment.amountCents);facts[key+'Currency']=payment.currency;facts[key+'Status']=String(payment.status);});
   if(Array.isArray(row.sources))row.sources.slice(0,10).forEach((value,index)=>{if(!value||typeof value!=='object')return;const source=value as Record<string,unknown>;if(typeof source.id!=='string'||!/^[a-f0-9-]{36}$/i.test(source.id))return;if(Object.keys(facts).length+3>39){facts.omitted=true;return;}const key='source'+(index+1);facts[key+'Id']=source.id;if(typeof source.title==='string')facts[key+'Title']=source.title.slice(0,160);if(Number.isSafeInteger(source.version))facts[key+'Version']=Number(source.version);});
+  if (typeof row.queryId === 'string' && /^[a-f0-9-]{36}$/i.test(row.queryId) && row.scope === 'current_customer') {
+    facts.queryId = row.queryId;
+    facts.scope = 'current_customer';
+    if (typeof row.sourceId === 'string' && /^[a-z][a-z0-9_-]{0,63}$/.test(row.sourceId)) facts.sourceId = row.sourceId;
+    if (Number.isSafeInteger(row.rowCount) && Number(row.rowCount) >= 0) facts.rowCount = Number(row.rowCount);
+    if (typeof row.truncated === 'boolean') facts.truncated = row.truncated;
+  }
   if(row.requestCatalog&&typeof row.requestCatalog==='object')facts.requestCount=Array.isArray((row.requestCatalog as Record<string,unknown>).requests)?((row.requestCatalog as Record<string,unknown>).requests as unknown[]).length:0;
   if(!Object.keys(facts).length)facts.recorded=true;
   const entries=Object.entries(facts);

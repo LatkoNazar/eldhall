@@ -1,4 +1,5 @@
 import { evaluateGuards, guardPolicyUpdate } from './guards.js';
+import { databasePolicyUpdate } from './database-guards.js';
 import { requestCheckpointSchema } from './requests/contracts.js';
 import { hasUnrepresentedInput, isAcknowledgement } from './requests/text.js';
 import type { RequestCatalog, RequestCheckpoint, RequestEvent, RequestTarget, RequestTransition } from './requests/contracts.js';
@@ -480,7 +481,7 @@ export class MemorySupportStore implements SupportStore {
     this.skillRows.set(skill.id,copy(skill));return copy(skill);
   }
   async settings(businessId:string):Promise<SupportSettings> {
-    const stored=this.settingRows.get(businessId); if (stored) return copy({ ...stored, ...(this.businesses.get(businessId)?.policy.guards===undefined?{}:{guards:this.businesses.get(businessId)!.policy.guards,guardRevision:this.businesses.get(businessId)!.policy.guardRevision??0}), classification: visibleClassification(stored.classification) });
+    const stored=this.settingRows.get(businessId); if (stored) return copy({ ...stored, ...databasePolicyUpdate(this.businesses.get(businessId)?.policy??{},{}), ...(this.businesses.get(businessId)?.policy.guards===undefined?{}:{guards:this.businesses.get(businessId)!.policy.guards,guardRevision:this.businesses.get(businessId)!.policy.guardRevision??0}), classification: visibleClassification(stored.classification) });
     const business=this.businesses.get(businessId); if (!business) throw new Error('Business not found');
     return {businessId,version:1,language:'uk',tone:'empathetic',requireApproval:true,...copy(business.policy)};
   }
@@ -491,11 +492,12 @@ export class MemorySupportStore implements SupportStore {
     if (!canReplaceClassification(old?.classification, settings.classification)) throw new VersionConflict('Classification changes require a newer revision');
     const business=this.businesses.get(settings.businessId);if(!business)throw new VersionConflict('Business not found');
     const guards=guardPolicyUpdate(business.policy,settings);if(!guards)throw new VersionConflict('Guard revision changed');
-    settings={...settings,...guards};
+    const database = databasePolicyUpdate(business.policy, settings);
+    settings={...settings,...guards,...database};
     const classification = storedClassification(old?.classification, settings.classification);
     this.settingRows.set(settings.businessId,copy({ ...settings, classification }));
     settings = { ...settings, classification: visibleClassification(classification) };
-    business.policy={refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:copy(settings.enabledTools),...guards};
+    business.policy={refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:copy(settings.enabledTools),...guards,...database};
     return copy(settings);
   }
 }

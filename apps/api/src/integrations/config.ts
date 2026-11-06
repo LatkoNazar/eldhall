@@ -6,10 +6,12 @@ import { safeKey, validateInputSchema, type InputSchema } from './schema.js';
 import { manifestSchema } from './manifest.js';
 import { integrationPolicySchema } from './permissions.js';
 import { qdrantKnowledgeSchema } from '../modules/knowledge/qdrant.js';
+import { databaseInvestigationPolicySchema, databaseInvestigationSourceSchema } from '../modules/database/contracts.js';
 
 const id = z.uuid();
 const key = z.string().refine(safeKey, 'Expected a safe identifier');
 const policy = z.strictObject({
+  databaseInvestigation: databaseInvestigationPolicySchema.optional(),
   guards: guardRulesSchema.optional(), guardRevision: z.number().int().nonnegative().optional(),
   refundLimitCents: z.number().int().min(1).max(100_000_000),
   duplicateWindowMinutes: z.number().int().min(1).max(1440),
@@ -88,6 +90,7 @@ export const supportConfigSchema = z.strictObject({
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),
   externalKnowledge: z.array(qdrantKnowledgeSchema).max(100).default([]),
+  databaseSources: z.array(databaseInvestigationSourceSchema).max(20).default([]),
   catalogs: z.array(catalogSchema).max(20).default([]),
 }).superRefine((config, ctx) => {
   for (const field of ['businesses', 'knowledge', 'skills', 'integrations'] as const) {
@@ -99,7 +102,7 @@ export const supportConfigSchema = z.strictObject({
   if (new Set(config.externalKnowledge.map(row => row.id)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Duplicate external knowledge connector id' });
   if (new Set(config.externalKnowledge.map(row => row.businessId)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Only one external knowledge connector per business is supported' });
   // Proposals and routing identify an integration by business + id, across both integration kinds.
-  const owned = [...config.integrations.map(row => `${row.businessId}/${row.id}`), ...config.catalogs.map(row => `${row.businessId}/${row.manifest.integrationId}`)];
+  const owned = [...config.integrations.map(row => `${row.businessId}/${row.id}`), ...config.catalogs.map(row => `${row.businessId}/${row.manifest.integrationId}`), ...config.databaseSources.map(row => `${row.businessId}/${row.id}`)];
   if (new Set(owned).size !== owned.length) ctx.addIssue({ code: 'custom', message: 'Duplicate integration id within a business' });
 });
 export type SupportConfig = z.infer<typeof supportConfigSchema>;

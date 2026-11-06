@@ -1,3 +1,4 @@
+import { databasePolicyFixture } from '../test/database-investigation-fixtures'
 import { act, render, screen, waitFor, within } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
@@ -85,7 +86,8 @@ it('edits a stable skill by exact revision, keeps its draft on409 and never retr
 
 it('saves only supported structured guards with exact configurationCAS and preserves conflicts', async () => {
   const config = guardFixture()
-  const fetch = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
+  const fetch = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input).includes('/guards/database?')) return response(databasePolicyFixture())
     if (options?.method === 'PUT') { config.version = 2; return response({ detail: 'Settings version changed' }, 409) }
     return response(config)
   })
@@ -145,7 +147,7 @@ it('does not fabricate historical call inputs/results from old tool-name metadat
 it('keeps skill and guard drafts across all five interface languages without requests or writes on language changes', async () => {
   const locales = ['en', 'es', 'uk', 'de', 'pt'] as const
   await Promise.all(locales.map(loadAppCatalog))
-  const fetch = vi.fn(async (input: RequestInfo | URL) => response(String(input).includes('/guards?') ? guardFixture() : { skills: [skillFixture()], preset: 'support-v1' }))
+  const fetch = vi.fn(async (input: RequestInfo | URL) => response(String(input).includes('/guards/database?') ? databasePolicyFixture() : String(input).includes('/guards?') ? guardFixture() : { skills: [skillFixture()], preset: 'support-v1' }))
   vi.stubGlobal('fetch', fetch)
   const user = userEvent.setup()
   render(<><LanguagePicker /><SkillsPanel token="synthetic-operator" businessId={workspaceBusiness.id} /><GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} currency="UAH" /></>)

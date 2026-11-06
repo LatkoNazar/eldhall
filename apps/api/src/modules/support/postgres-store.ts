@@ -1,4 +1,5 @@
 import { evaluateGuards, guardPolicyUpdate } from './guards.js';
+import { databasePolicyUpdate } from './database-guards.js';
 import { requestCheckpointSchema } from './requests/contracts.js';
 import type { RequestCheckpoint, RequestTarget, RequestTransition } from './requests/contracts.js';
 import { actionAllowed, aggregateRequestStatus, applyCheckpoint, linkAction, transitionRequest } from './requests/engine.js';
@@ -381,7 +382,7 @@ export class PostgresSupportStore implements SupportStore {
   async settings(businessId:string):Promise<SupportSettings> {
     const row=first<StoredSettings>((await this.pool.query('SELECT * FROM support_settings WHERE business_id=$1',[businessId])).rows);
     const business=await this.business(businessId); if(!business) throw new Error('Business not found');
-    if(row)return {...row,...(business.policy.guards===undefined?{}:{guards:business.policy.guards,guardRevision:business.policy.guardRevision??0}),classification:visibleClassification(row.classification)};
+    if(row)return {...row,...databasePolicyUpdate(business.policy,{}),...(business.policy.guards===undefined?{}:{guards:business.policy.guards,guardRevision:business.policy.guardRevision??0}),classification:visibleClassification(row.classification)};
     return {businessId,version:1,language:'uk',tone:'empathetic',requireApproval:true,...business.policy};
   }
   async classificationState(businessId:string) {
@@ -393,14 +394,15 @@ export class PostgresSupportStore implements SupportStore {
       // Business row is the serialization point, including the first settings write.
       const business=first<Business>((await client.query('SELECT * FROM support_businesses WHERE id=$1 FOR UPDATE',[settings.businessId])).rows);if(!business)throw new VersionConflict('Business not found');
       const guards=guardPolicyUpdate(business.policy,settings);if(!guards)throw new VersionConflict('Guard revision changed');
-      settings={...settings,...guards};
+      const database = databasePolicyUpdate(business.policy, settings);
+      settings={...settings,...guards,...database};
       const old=first<StoredSettings>((await client.query('SELECT * FROM support_settings WHERE business_id=$1',[settings.businessId])).rows);
       if ((old?.version??1)!==expectedVersion) throw new VersionConflict('Settings version changed');
       if (!canReplaceClassification(old?.classification, settings.classification)) throw new VersionConflict('Classification changes require a newer revision');
       const classification = storedClassification(old?.classification, settings.classification);
       settings = { ...settings, classification: visibleClassification(classification) };
       await client.query('INSERT INTO support_settings(business_id,version,language,tone,require_approval,refund_limit_cents,duplicate_window_minutes,enabled_tools,classification) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(business_id) DO UPDATE SET version=excluded.version,language=excluded.language,tone=excluded.tone,require_approval=excluded.require_approval,refund_limit_cents=excluded.refund_limit_cents,duplicate_window_minutes=excluded.duplicate_window_minutes,enabled_tools=excluded.enabled_tools,classification=excluded.classification',[settings.businessId,settings.version,settings.language,settings.tone,true,settings.refundLimitCents,settings.duplicateWindowMinutes,json(settings.enabledTools),json(classification)]);
-      await client.query('UPDATE support_businesses SET policy=$2 WHERE id=$1',[settings.businessId,json({refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:settings.enabledTools,...guards})]); return settings;
+      await client.query('UPDATE support_businesses SET policy=$2 WHERE id=$1',[settings.businessId,json({refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:settings.enabledTools,...guards,...database})]); return settings;
     });
   }
 }

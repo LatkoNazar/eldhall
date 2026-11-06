@@ -177,10 +177,9 @@ export class SupportHarness {
     const observedPolicies=new Map<string,{manifestHash:string;connectionRevision:string;policyRevision:number}>();
     const assertActive = async () => {
       if (!await store.assertTurn(lease)) throw new StaleTurn('Conversation ownership changed');
-      if (externalMode) {
-        const currentCustomer = await store.customer(customer.id);
-        if (!currentCustomer || currentCustomer.businessId !== customer.businessId || currentCustomer.plan !== customer.plan) throw new StaleTurn('External knowledge scope changed');
-      }
+      const currentCustomer = await store.customer(customer.id);
+      if (!currentCustomer || currentCustomer.businessId !== customer.businessId) throw new StaleTurn('Customer scope changed');
+      if (externalMode && currentCustomer.plan !== customer.plan) throw new StaleTurn('External knowledge scope changed');
       const current = await store.knowledge(customer.businessId);
       if (knowledge.some(d => !current.some(n => n.id === d.id && n.version === d.version && n.status === 'published'))) throw new StaleTurn('Knowledge access changed');
       const currentSkills = await store.skills(customer.businessId);
@@ -296,7 +295,7 @@ export class SupportHarness {
       }
       return result;
     };
-    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose,
+    const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose, recordActivity,
       rememberRead:()=>{returnedBusinessRead=true;},
       rememberPolicy:(integrationId,manifestHash,connectionRevision,policyRevision)=>observedPolicies.set(integrationId,{manifestHash,connectionRevision,policyRevision}),
     });

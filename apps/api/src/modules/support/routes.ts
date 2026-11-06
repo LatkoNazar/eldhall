@@ -1,4 +1,6 @@
 import { guardDefinitions, guardRulesSchema } from './guards.js';
+import { databaseGuardConfiguration } from './database-guards.js';
+import { databaseInvestigationPolicySchema, type DatabaseSourceDescriptor } from '../database/contracts.js';
 import { businessVisible, publicBusiness, scopedMetrics } from './workspace.js';
 import { requestTransitionSchema } from './requests/contracts.js';
 import { RequestValidationError } from './requests/engine.js';
@@ -18,6 +20,7 @@ import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { integrationRoutes } from '../../integrations/routes.js';
 
 export interface SupportDependencies {
+  databaseInvestigations?: { getSources(businessId: string): DatabaseSourceDescriptor[]; close(): Promise<void> };
   harness: SupportHarness; store: SupportStore; workspaceBusinessId?: string;
   integrations?: BusinessIntegrations;
   integrationImports?: IntegrationImportsService;
@@ -43,6 +46,7 @@ async function guard(reply: FastifyReply, run: () => Promise<unknown>) {
 
 export async function supportRoutes(app: FastifyInstance, { support, operatorToken, demoResetEnabled }: Options) {
   const { harness, store } = support;
+  app.addHook('onClose', async () => support.databaseInvestigations?.close());
   await app.register(integrationRoutes, { support, operatorToken });
 
   // Customer channel: identity comes only from the X-Customer-Session header, never from message text.
@@ -250,6 +254,19 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     operator.get('/guards',(request,reply)=>guard(reply,async()=>{const settings=await store.settings(await scope(request.query));return {version:settings.version,revision:settings.guardRevision??0,rules:settings.guards??[],definitions:guardDefinitions};}));
     operator.put('/guards',(request,reply)=>guard(reply,async()=>{const businessId=await scope(request.query);const body=z.strictObject({version:z.number().int().positive(),rules:guardRulesSchema}).parse(request.body);const old=await store.settings(businessId);const saved=await store.saveSettings({...old,version:body.version+1,guards:body.rules,guardRevision:(old.guardRevision??0)+1},body.version);return {version:saved.version,revision:saved.guardRevision??0,rules:saved.guards??[],definitions:guardDefinitions};}));
+    operator.get('/guards/database', (request, reply) => guard(reply, async () => {
+      const businessId = await scope(request.query);
+      return databaseGuardConfiguration(await store.settings(businessId), support.databaseInvestigations?.getSources(businessId) ?? []);
+    }));
+    operator.put('/guards/database', (request, reply) => guard(reply, async () => {
+      const businessId = await scope(request.query);
+      const body = databaseInvestigationPolicySchema.extend({ version: z.number().int().positive() }).strict().parse(request.body);
+      const sources = support.databaseInvestigations?.getSources(businessId) ?? [];
+      if (body.enabled && !sources.length) throw new HarnessError(422, 'Configure a customer-scoped database source before enabling investigation');
+      const old = await store.settings(businessId);
+      const saved = await store.saveSettings({ ...old, version: body.version + 1, databaseInvestigation: { enabled: body.enabled, limits: body.limits } }, body.version);
+      return databaseGuardConfiguration(saved, sources);
+    }));
     operator.get('/settings', (request, reply) => guard(reply, async () => store.settings(await scope(request.query))));
     operator.patch('/settings', (request, reply) => guard(reply, async () => {
       const body = z.strictObject({ version: z.number().int().positive(), language: z.enum(['uk', 'en']), tone: z.enum(['neutral', 'empathetic', 'de-escalating']), requireApproval: z.literal(true), refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3), classification: classificationConfigSchema.nullable().optional() }).parse(request.body);

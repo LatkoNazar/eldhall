@@ -18,7 +18,7 @@
     "worker": "node dist/worker.js",
     "migrate": "node dist/migrate.js",
     "smoke": "node scripts/smoke.mjs",
-    "test:postgres": "node --import tsx --test tests/postgres-store.integration.ts tests/insights.integration.ts tests/integration-state.integration.ts tests/customer-requests.integration.ts",
+    "test:postgres": "node --import tsx --test tests/postgres-store.integration.ts tests/insights.integration.ts tests/integration-state.integration.ts tests/customer-requests.integration.ts tests/database.integration.ts tests/database-guard-store.integration.ts",
     "test:mcp-openapi": "node --import tsx --test tests/mcp-openapi.integration.ts",
     "test:runtime": "node --import tsx --test tests/runtime.test.ts tests/insights-runtime.test.ts"
   },
@@ -35,6 +35,7 @@
     "bullmq": "6.5.2",
     "fastify": "5.12.7",
     "pg": "8.23.1",
+    "pgsql-ast-parser": "12.0.2",
     "redis": "6.3.1",
     "zod": "4.6.7"
   },

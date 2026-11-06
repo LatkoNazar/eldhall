@@ -1,3 +1,4 @@
+import { databasePolicyFixture } from '../test/database-investigation-fixtures'
 import { guardFixture } from '../test/banking-fixtures'
 import { render, screen, waitFor } from '../test/render'
 import userEvent from '@testing-library/user-event'
@@ -24,6 +25,7 @@ it('keeps dirty settings and the two-language agent contract across all five UI 
       if (init?.method === 'PATCH') settings = { ...settings, ...JSON.parse(String(init.body)), version: settings.version + 1 }
       return response(settings)
     }
+    if (path.startsWith('/api/v1/guards/database?')) return response(databasePolicyFixture())
     if (path.startsWith('/api/v1/guards?')) return response(guardFixture())
     if (path.startsWith('/api/v1/skills?')) return response({ skills: [], preset: 'support-v1' })
     if (path === '/api/v1/capabilities') return response({ runtime: 'rules', provider: 'rules', model: 'keyword-rules-v1', persistence: 'memory', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', maxToolCalls: 8 })

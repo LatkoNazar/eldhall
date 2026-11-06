@@ -21,6 +21,7 @@ import { KnowledgeRetriever } from '../knowledge/retriever.js';
 import { configureKnowledge } from '../knowledge/runtime.js';
 import { PgVectorStore } from '../knowledge/vector-store.js';
 import { createExternalKnowledge } from '../knowledge/qdrant.js';
+import { createDatabaseIntegrations } from '../../integrations/database.js';
 
 export async function createSupport(settings: Settings, pool: pg.Pool): Promise<SupportDependencies> {
   if (settings.supportExecution === 'worker' && settings.supportStore !== 'postgres') throw new Error('Worker support execution requires SUPPORT_STORE=postgres; use SUPPORT_EXECUTION=inline for an explicit memory demo');
@@ -47,8 +48,9 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const staticIntegrations = createSupportIntegrations(config, loadEnvironment(), store.integrationStore);
   const managed=settings.managedMcp?new ManagedGatewayClient(settings.managedMcp):undefined;
   if(managed&&settings.supportStore==='postgres')await pool.query('SELECT id FROM support_integration_imports LIMIT 0');
-  const integrations=managed?withManagedIntegrations(staticIntegrations,store.integrationStore,managed):staticIntegrations;
-  const integrationImports=managed?new IntegrationImportsService(store.integrationStore,managed,integrations):undefined;
+  const apiIntegrations=managed?withManagedIntegrations(staticIntegrations,store.integrationStore,managed):staticIntegrations;
+  const { integrations, databaseInvestigations } = await createDatabaseIntegrations(config, loadEnvironment(), store, apiIntegrations);
+  const integrationImports=managed?new IntegrationImportsService(store.integrationStore,managed,integrations,config.databaseSources.map(source=>[source.businessId,source.id] as const)):undefined;
   await bootstrapSupportConfig(store, config);
   if(settings.supportWorkspaceBusinessId&&!await store.business(settings.supportWorkspaceBusinessId))throw new Error('Configured workspace business is unavailable');
   const fallback = new RulesModel();
@@ -66,7 +68,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
   configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
   const harness = new SupportHarness({ workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
-  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, integrationImports, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, databaseInvestigations, integrationImports, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,

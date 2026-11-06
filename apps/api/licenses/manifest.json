@@ -10,8 +10,8 @@
     "THIRD_PARTY_NOTICES.md": "6e2b19589dc16536d5170a2da2bf574a5ec2f9fbc811dd74fff92eb6b14cee26"
   },
   "localInputs": {
-    "package.json": "97d0b0a6158a31bc0f600f6b5064c198f45e62849d053bc7116af99ba093bb26",
-    "package-lock.json": "7cdf771c43a671a7284871b2ee041f526ef7739c8c39ae375ed46095f6a5b209"
+    "package.json": "ce710e45d7ff2ec7f52f204cb40af65e128ad743bf4221599c75c1216dcd4aa8",
+    "package-lock.json": "f866db88c2a348229b8e2d03305488cb52fb1ebb6e24b1e9f0e1908d3f4e6344"
   },
   "browserComponents": [],
   "fontAssets": {}

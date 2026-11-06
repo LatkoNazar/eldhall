@@ -1,3 +1,4 @@
+import { DatabaseInvestigationPanel } from './DatabaseInvestigationPanel'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
 import { ApiError, UiError, request } from '../lib/api'
@@ -13,10 +14,10 @@ export function GuardsPanel({ token, businessId, currency }: { token: string; bu
   const path = `/guards?businessId=${encodeURIComponent(businessId)}`
   const resource = useResource<GuardConfiguration>(path, token)
   const valid = !resource.data || validGuardConfiguration(resource.data)
-  return <section className="card padded guards-section"><h2><Icon name="lock" size={18} />{t('bank.guards.title')}</h2><p>{t('bank.guards.description')}</p>
+  return <><DatabaseInvestigationPanel key={businessId} token={token} businessId={businessId} /><section className="card padded guards-section"><h2><Icon name="lock" size={18} />{t('bank.guards.title')}</h2><p>{t('bank.guards.description')}</p>
     {resource.error && <ErrorNotice error={resource.errorCause}><button type="button" onClick={resource.refresh}>{t('core.common.retryRead')}</button></ErrorNotice>}{!valid && <ErrorNotice error={new UiError('core.error.invalidResponse')} />}
     {valid && resource.data && <GuardEditor config={resource.data} path={path} token={token} currency={currency} stale={!!resource.error} onChanged={resource.refresh} />}
-  </section>
+  </section></>
 }
 
 function GuardEditor({ config, path, token, currency, stale, onChanged }: { config: GuardConfiguration; path: string; token: string; currency: string; stale: boolean; onChanged: () => void }) {
