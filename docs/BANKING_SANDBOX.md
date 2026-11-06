@@ -30,8 +30,8 @@ model, while actual inference and tool behavior need their own recorded run.
 ## Register and change skills from code
 
 The [bank pack](../examples/banking/support.config.json) contains eight procedures,
-five published fact sheets and a versioned guard policy. Markdown sources live
-under [skills](../examples/banking/skills). Use the existing importer from
+five published fact sheets and a versioned guard policy. Markdown sources live under `examples/banking/skills`; start with the
+[workflow procedure](../examples/banking/skills/universal/banking-workflow/SKILL.md). Use the existing importer from
 `apps/api`:
 
 ```sh
