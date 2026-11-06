@@ -3,6 +3,7 @@ import { ApiError, request } from './api'
 
 export type PermissionMode = 'auto' | 'ask' | 'deny'
 export type RuleMode = PermissionMode | 'inherit'
+export interface PolicyOperationUpdate { operationKey: string; mode: RuleMode; operationHash?: string }
 export interface IntegrationSummary {
   businessId: string; integrationId: string; enabled: boolean; draining: boolean
   activeManifestHash: string | null; loadedManifestHash: string; connectionRevision: string

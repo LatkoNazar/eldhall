@@ -50,7 +50,11 @@ function bootstrapState(old: IntegrationState | null, seed: IntegrationSeed): In
     if (seed.connectionRevision !== old.connectionRevision && old.enabled) throw new IntegrationConflict('Disable the integration before changing its connection');
     const changed = seed.manifest.manifestHash !== old.loadedManifestHash || seed.connectionRevision !== old.connectionRevision;
     return { ...old, ...(changed ? { loadedManifestHash: seed.manifest.manifestHash, connectionRevision: seed.connectionRevision, connectionHash: seed.connectionHash,
-      enabled: false, draining: true, version: old.version + 1, updatedAt: new Date().toISOString() } : {}),
+      enabled: false, draining: true, version: old.version + 1, updatedAt: new Date().toISOString(),
+      policy:{...old.policy,operations:seed.manifest.operations.map(op=>{
+        const rule=old.policy.operations.find(row=>row.operationKey===op.operationKey);
+        return rule?.reviewedOperationHash===op.operationHash?copy(rule):{operationKey:op.operationKey,enabled:false,reviewedOperationHash:null,mode:'deny' as const};
+      })} } : {}),
       bootstrapPolicies: { ...old.bootstrapPolicies, [seed.policy.policyRevision]: seedHash } };
   }
   return {
@@ -58,7 +62,7 @@ function bootstrapState(old: IntegrationState | null, seed: IntegrationSeed): In
     activeManifestHash: null, loadedManifestHash: seed.manifest.manifestHash,
     connectionRevision: seed.connectionRevision, connectionHash: seed.connectionHash, version: 1, updatedAt: new Date().toISOString(),
     bootstrapPolicies: { [seed.policy.policyRevision]: seedHash },
-    policy: { ...copy(seed.policy), enabled: false, defaultMode: 'deny', operations: seed.manifest.operations.map(op => ({ operationKey: op.operationKey, enabled: false, reviewedOperationHash: null, mode: 'inherit' })) },
+    policy: { ...copy(seed.policy), enabled: false, defaultMode: 'deny', operations: seed.manifest.operations.map(op => ({ operationKey: op.operationKey, enabled: false, reviewedOperationHash: null, mode: 'deny' })) },
   };
 }
 

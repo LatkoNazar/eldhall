@@ -5,12 +5,11 @@ import { HarnessError } from '../modules/agent/harness.js';
 import { VersionConflict } from '../modules/support/store.js';
 import type { SupportDependencies } from '../modules/support/routes.js';
 import { IntegrationConflict, effectivePolicy, type IntegrationState } from './state.js';
-import { integrationPolicySchema, resolveWithPolicy } from './permissions.js';
+import { integrationPolicySchema, integrationPolicyUpdateSchema, resolveWithPolicy } from './permissions.js';
 import { ManagedImportError } from './managed-client.js';
 import { publicDraft,managedConnectionSchema } from './imports-contracts.js';
 import { IntegrationError, projectOutput } from './mcp.js';
 
-const ruleMode=z.enum(['auto','ask','deny','inherit']);
 const version=z.number().int().positive();
 const hash=z.string().regex(/^[a-f0-9]{64}$/);
 const operationKey=z.string().min(1).max(510);
@@ -64,14 +63,21 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
   }));
   app.patch('/api/v1/integrations/:id/policy',(request,reply)=>guarded(reply,async()=>{
     const state=await selected(request.query,request.params);const manifest=await loaded(state);
-    const body=z.strictObject({version,defaultMode:z.enum(['auto','ask','deny']).optional(),groups:integrationPolicySchema.shape.groups.optional(),operations:z.array(z.strictObject({operationKey,mode:ruleMode})).max(1000).optional()}).parse(request.body);
+    const body=integrationPolicyUpdateSchema.parse(request.body);
+    if(body.manifestHash!==undefined&&body.manifestHash!==state.loadedManifestHash)throw new IntegrationConflict('Loaded manifest changed');
     if(new Set(body.operations?.map(row=>row.operationKey)).size!==(body.operations?.length??0)) throw new HarnessError(422,'Duplicate operation rule');
     const keys=new Set(manifest.operations.map(op=>op.operationKey));
     if(body.operations?.some(op=>!keys.has(op.operationKey)) || body.groups?.some(group=>'operationKeys' in group.selector && group.selector.operationKeys.some(key=>!keys.has(key)))) throw new HarnessError(422,'Unknown operation');
+    if(body.operations?.some(row=>row.operationHash!==undefined&&!manifest.operations.some(op=>op.operationKey===row.operationKey&&op.operationHash===row.operationHash&&op.effect!=='unknown')))throw new HarnessError(422,'Operation hash or reviewed effect does not match');
+    const grants=body.operations?.some(row=>row.operationHash!==undefined&&(row.mode==='ask'||row.mode==='auto'))??false;
     const next=await registry.change(state.businessId,state.integrationId,body.version,'operator:staff','integration.policy_updated',current=>{
-      const operations=manifest.operations.map(op=>current.policy.operations.find(rule=>rule.operationKey===op.operationKey)??{operationKey:op.operationKey,enabled:false,reviewedOperationHash:null,mode:'inherit' as const});
-      for(const change of body.operations??[]){const rule=operations.find(op=>op.operationKey===change.operationKey)!;rule.mode=change.mode;}
-      return {...current,policy:integrationPolicySchema.parse({...current.policy,defaultMode:body.defaultMode??current.policy.defaultMode,groups:body.groups??current.policy.groups,operations,policyRevision:current.policy.policyRevision+1})};
+      if(current.loadedManifestHash!==manifest.manifestHash)throw new IntegrationConflict('Loaded manifest changed');
+      const operations=manifest.operations.map(op=>current.policy.operations.find(rule=>rule.operationKey===op.operationKey)??{operationKey:op.operationKey,enabled:false,reviewedOperationHash:null,mode:'deny' as const});
+      for(const change of body.operations??[]){const rule=operations.find(op=>op.operationKey===change.operationKey)!;rule.mode=change.mode;
+        if(change.mode==='deny'){rule.enabled=false;rule.reviewedOperationHash=null;}
+        else if(change.operationHash!==undefined&&(change.mode==='ask'||change.mode==='auto')){rule.enabled=true;rule.reviewedOperationHash=change.operationHash;}
+      }
+      return {...current,policy:integrationPolicySchema.parse({...current.policy,manifestHash:grants?manifest.manifestHash:current.policy.manifestHash,defaultMode:body.defaultMode??current.policy.defaultMode,groups:body.groups??current.policy.groups,operations,policyRevision:current.policy.policyRevision+1})};
     });return response(next);
   }));
   app.post('/api/v1/integrations/:id/review',(request,reply)=>guarded(reply,async()=>{
@@ -83,7 +89,9 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     if(body.operations.some(row=>!manifest.operations.some(op=>op.operationKey===row.operationKey&&op.operationHash===row.operationHash&&op.effect!=='unknown'))) throw new HarnessError(422,'Operation hash or reviewed effect does not match');
     const next=await registry.change(state.businessId,state.integrationId,body.version,'operator:staff','integration.reviewed',current=>{
       const operations=manifest.operations.map(op=>{const old=current.policy.operations.find(row=>row.operationKey===op.operationKey);const review=body.operations.find(row=>row.operationKey===op.operationKey);
-        return {operationKey:op.operationKey,mode:old?.mode??'inherit' as const,enabled:review?review.enabled:old?.reviewedOperationHash===op.operationHash&&(old?.enabled??false),reviewedOperationHash:review?op.operationHash:old?.reviewedOperationHash===op.operationHash?op.operationHash:null};});
+        const revoked=review&&!review.enabled;
+        const stale=old?.reviewedOperationHash!=null&&(old.reviewedOperationHash!==op.operationHash||!old.enabled);
+        return {operationKey:op.operationKey,mode:revoked||stale?'deny' as const:old?.mode??'deny' as const,enabled:review?review.enabled:old?.reviewedOperationHash===op.operationHash&&(old?.enabled??false),reviewedOperationHash:revoked?null:review?op.operationHash:old?.reviewedOperationHash===op.operationHash?op.operationHash:null};});
       return {...current,policy:{...current.policy,manifestHash:manifest.manifestHash,operations,policyRevision:current.policy.policyRevision+1}};
     });return response(next);
   }));

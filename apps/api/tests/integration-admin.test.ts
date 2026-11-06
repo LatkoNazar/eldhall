@@ -97,7 +97,7 @@ test('integration admin: imports stay disabled/unreviewed and policy edits, exac
     assert.equal(initial.integration.enabled, false);
     assert.equal(initial.integration.activeManifestHash, null);
     assert.equal(initial.policy.defaultMode, 'deny');
-    assert.ok(initial.policy.operations.every(op => !op.enabled && op.reviewedOperationHash === null && op.mode === 'inherit'));
+    assert.ok(initial.policy.operations.every(op => !op.enabled && op.reviewedOperationHash === null && op.mode === 'deny'));
     const before = await f.operations();
     assert.ok(before.operations.every(op => op.effective.mode === 'deny'));
     assert.deepEqual(before.operations.map(op => op.operationHash), f.manifest.operations.map(op => op.operationHash));
@@ -126,7 +126,7 @@ test('integration admin: imports stay disabled/unreviewed and policy edits, exac
     assert.equal(activated.json<PolicyResponse>().integration.activeManifestHash, f.manifest.manifestHash);
     assert.deepEqual(f.readinessCalls.at(-1), [A, 'orders', f.manifest.manifestHash, '1']);
     const executable = (await f.operations()).operations;
-    assert.ok(executable.filter(op => reviewedKeys.has(op.operationKey)).every(op => op.effective.mode === 'auto'));
+    assert.ok(executable.filter(op => reviewedKeys.has(op.operationKey)).every(op => op.effective.mode === 'deny'));
     assert.ok(executable.filter(op => !reviewedKeys.has(op.operationKey)).every(op => op.effective.mode === 'deny'));
     for (const result of [initial, before, configuredState, reviewed, activated.json()]) {
       const text = JSON.stringify(result);
@@ -157,6 +157,78 @@ test('integration admin: compare-and-swap conflicts preserve the winner and grou
     assert.equal(stale.statusCode, 409);
     assert.deepEqual(await f.readPolicy(), grouped.json<PolicyResponse>());
   } finally { await f.app.close(); }
+});
+
+test('integration admin: exact Ask/Auto saves grant only selected definitions; Deny revokes without re-review resurrection', async () => {
+  const f=await fixture();
+  try {
+    const read=f.manifest.operations.find(op=>op.effect==='read')!,write=f.manifest.operations.find(op=>op.effect==='write')!;
+    let current=await f.readPolicy();
+    const saved=await f.change('PATCH','/policy',{version:current.integration.version,manifestHash:f.manifest.manifestHash,defaultMode:'auto',groups:[{id:'all-orders',selector:{tag:'Orders'},mode:'auto'}],operations:[{operationKey:read.operationKey,mode:'auto',operationHash:read.operationHash},{operationKey:write.operationKey,mode:'ask',operationHash:write.operationHash}]});
+    assert.equal(saved.statusCode,200,saved.body);current=saved.json<PolicyResponse>();
+    assert.equal(current.integration.enabled,false);assert.equal(current.integration.activeManifestHash,null);
+    assert.equal(current.policy.operations.find(op=>op.operationKey===read.operationKey)!.reviewedOperationHash,read.operationHash);
+    assert.equal(current.policy.operations.find(op=>op.operationKey===write.operationKey)!.enabled,true);
+    const activated=await f.change('POST','/activate',{version:current.integration.version,manifestHash:f.manifest.manifestHash,connectionRevision:'1'});
+    assert.equal(activated.statusCode,200,activated.body);
+    let operations=(await f.operations()).operations;
+    assert.equal(operations.find(op=>op.operationKey===read.operationKey)!.effective.mode,'auto');
+    assert.equal(operations.find(op=>op.operationKey===write.operationKey)!.effective.mode,'ask');
+    assert.ok(operations.filter(op=>op.effect==='unknown').every(op=>!op.enabled&&op.effective.mode==='deny'));
+    current=await f.readPolicy();
+    const denied=await f.change('PATCH','/policy',{version:current.integration.version,operations:[{operationKey:read.operationKey,mode:'deny'}]});
+    assert.equal(denied.statusCode,200);current=denied.json<PolicyResponse>();
+    assert.deepEqual(current.policy.operations.find(op=>op.operationKey===read.operationKey),{operationKey:read.operationKey,mode:'deny',enabled:false,reviewedOperationHash:null});
+    const reviewed=await f.change('POST','/review',{version:current.integration.version,manifestHash:f.manifest.manifestHash,operations:[{operationKey:read.operationKey,operationHash:read.operationHash,enabled:true}]});
+    assert.equal(reviewed.statusCode,200);operations=(await f.operations()).operations;
+    assert.equal(operations.find(op=>op.operationKey===read.operationKey)!.effective.mode,'deny');
+    current=await f.readPolicy();
+    const disabled=await f.change('POST','/review',{version:current.integration.version,manifestHash:f.manifest.manifestHash,operations:[{operationKey:write.operationKey,operationHash:write.operationHash,enabled:false}]});
+    assert.equal(disabled.statusCode,200);current=disabled.json<PolicyResponse>();
+    const legacy=await f.change('PATCH','/policy',{version:current.integration.version,defaultMode:'auto',operations:[{operationKey:write.operationKey,mode:'auto'}]});
+    assert.equal(legacy.statusCode,200);
+    const blocked=(await f.operations()).operations.find(op=>op.operationKey===write.operationKey)!;
+    assert.equal(blocked.enabled,false);assert.equal(blocked.reviewedOperationHash,null);assert.equal(blocked.effective.mode,'deny');
+  } finally {await f.app.close();}
+});
+
+test('integration admin: invalid or stale exact-grant batches reject atomically and concurrent grants have one winner',async()=>{
+  const f=await fixture();
+  try {
+    const before=await f.readPolicy(),read=f.manifest.operations.find(op=>op.effect==='read')!,unknown=f.manifest.operations.find(op=>op.effect==='unknown')!;
+    const valid={operationKey:read.operationKey,mode:'auto',operationHash:read.operationHash};
+    const invalid=[
+      {status:422,body:{version:before.integration.version,operations:[valid]}},
+      {status:422,body:{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[{operationKey:read.operationKey,mode:'auto'}]}},
+      {status:409,body:{version:before.integration.version,manifestHash:'f'.repeat(64),operations:[valid]}},
+      {status:422,body:{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[valid,{operationKey:unknown.operationKey,mode:'ask',operationHash:unknown.operationHash}]}},
+      {status:422,body:{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[{...valid,operationHash:'f'.repeat(64)}]}},
+      {status:422,body:{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[valid,valid]}},
+      {status:422,body:{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[valid,{operationKey:'POST /unseen',mode:'ask',operationHash:read.operationHash}]}},
+    ];
+    const events=await f.store.integrationStore.events(A,'orders');
+    for(const row of invalid){const result=await f.change('PATCH','/policy',row.body);assert.equal(result.statusCode,row.status,result.body);assert.deepEqual(await f.readPolicy(),before);assert.deepEqual(await f.store.integrationStore.events(A,'orders'),events);}
+    const results=await Promise.all(['auto','ask'].map(mode=>f.change('PATCH','/policy',{version:before.integration.version,manifestHash:f.manifest.manifestHash,operations:[{...valid,mode}]})));
+    assert.deepEqual(results.map(row=>row.statusCode).sort(),[200,409]);
+    assert.deepEqual(await f.readPolicy(),results.find(row=>row.statusCode===200)!.json());
+  } finally {await f.app.close();}
+});
+
+test('integration admin: changed and added definitions reset Deny under Auto defaults and need an explicit current hash',async()=>{
+  const f=await fixture();
+  try {
+    await f.activate();const original=(await f.store.integrationStore.get(A,'orders'))!;
+    const manifest=structuredClone(f.manifest),read=manifest.operations.find(op=>op.effect==='read')!;
+    read.title='Changed order definition';read.operationHash=fingerprint(read,'operationHash');
+    const added={...structuredClone(read),operationKey:'GET /orders/{order_id}/receipt',toolName:'get_order_receipt'};added.operationHash=fingerprint(added,'operationHash');manifest.operations.push(added);manifest.manifestHash=fingerprint(manifest,'manifestHash');
+    await f.store.integrationStore.bootstrap({businessId:A,manifest,connectionRevision:original.connectionRevision,connectionHash:original.connectionHash,policy:{...original.policy,manifestHash:manifest.manifestHash,policyRevision:original.policy.policyRevision+1,defaultMode:'auto',groups:[{id:'auto-orders',selector:{tag:'Orders'},mode:'auto'}]}});
+    let current=await f.readPolicy();assert.equal(current.integration.enabled,false);assert.notEqual(current.policy.manifestHash,manifest.manifestHash);
+    for(const key of [read.operationKey,added.operationKey])assert.deepEqual(current.policy.operations.find(row=>row.operationKey===key),{operationKey:key,enabled:false,reviewedOperationHash:null,mode:'deny'});
+    const defaulted=await f.change('PATCH','/policy',{version:current.integration.version,defaultMode:'auto',groups:[{id:'auto-orders',selector:{tag:'Orders'},mode:'auto'}]});assert.equal(defaulted.statusCode,200);current=defaulted.json<PolicyResponse>();assert.notEqual(current.policy.manifestHash,manifest.manifestHash);
+    const stale=await f.change('PATCH','/policy',{version:current.integration.version,manifestHash:manifest.manifestHash,operations:[{operationKey:read.operationKey,mode:'auto',operationHash:f.manifest.operations.find(op=>op.operationKey===read.operationKey)!.operationHash}]});assert.equal(stale.statusCode,422);
+    const exact=await f.change('PATCH','/policy',{version:current.integration.version,manifestHash:manifest.manifestHash,operations:[{operationKey:read.operationKey,mode:'ask',operationHash:read.operationHash}]});assert.equal(exact.statusCode,200,exact.body);current=exact.json<PolicyResponse>();assert.equal(current.policy.manifestHash,manifest.manifestHash);assert.equal(current.integration.enabled,false);
+    const untouched=current.policy.operations.find(row=>row.operationKey===added.operationKey)!;assert.equal(untouched.enabled,false);assert.equal(untouched.mode,'deny');
+  } finally {await f.app.close();}
 });
 
 test('integration admin: policy-only edits invalidate pending and approved snapshots with terminal customer messages and audit', async () => {

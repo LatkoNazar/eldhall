@@ -57,7 +57,7 @@ const pt = {
   "onboarding.backToTools": "Voltar às ferramentas",
   "onboarding.advancedPolicy": "Permissões predefinidas e grupos",
   "onboarding.technical": "Detalhes técnicos",
-  "onboarding.modeHint": "Alterar um segmento edita um rascunho. Não revê, guarda nem ativa a operação.",
+  "onboarding.modeHint": "Alterar um segmento modifica um rascunho. Guardar aplica o acesso a esta definição exata; o servidor continua a verificar cada chamada.",
   "onboarding.original": "Os nomes e descrições são conteúdo original da especificação da API.",
   "onboarding.modeFor": "Permissão de {{operation}}",
   "onboarding.reviewPositive": "Escolha leitura ou escrita, âmbito fiável e campos de resposta para cada ferramenta suportada, incluindo Deny. Depois confirme uma vez.",

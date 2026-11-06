@@ -56,7 +56,7 @@ const en = {
   "onboarding.backToTools": "Back to tools",
   "onboarding.advancedPolicy": "Defaults and group rules",
   "onboarding.technical": "Technical details",
-  "onboarding.modeHint": "Changing a segment edits a draft. It does not review, save or activate the operation.",
+  "onboarding.modeHint": "Changing a segment edits a draft. Save applies access to this exact tool definition; server checks still run on every call.",
   "onboarding.original": "Tool names and descriptions are original content from the API specification.",
   "onboarding.modeFor": "Permission for {{operation}}",
   "onboarding.reviewPositive": "Choose Read or Write, trusted scope and response fields for every supported tool, including Deny. Then confirm once.",

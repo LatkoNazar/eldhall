@@ -7,7 +7,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { Integrations } from './Integrations'
 import App from '../App'
 import { navigate } from '../lib/navigation'
-import type { CatalogOperation, IntegrationPolicy, IntegrationSummary } from '../lib/integrations-api'
+import type { CatalogOperation, IntegrationPolicy, IntegrationSummary, PolicyOperationUpdate } from '../lib/integrations-api'
 
 const businessId = '20000000-0000-4000-8000-000000000001'
 const otherBusiness = '20000000-0000-4000-8000-000000000002'
@@ -21,10 +21,16 @@ const operations = (): CatalogOperation[] => [
   { operationKey: 'POST /orders/{order_id}/cancel', operationId: 'cancelOrder', toolName: 'cancelOrder', method: 'POST', path: '/orders/{order_id}/cancel', title: 'Скасувати замовлення', description: 'Скасування лише після перевірки власника й стану.', tags: ['Orders'], effect: 'write', operationHash: 'c'.repeat(64), enabled: false, reviewedOperationHash: null, mode: 'inherit', effective: { mode: 'deny', source: 'guard', matchedRuleIds: [], policyRevision: 1, reasonCode: 'operation_disabled' }, inputSchema: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'], additionalProperties: false }, parameters: { order_id: 'path' }, scope: { customerId: { in: 'query', name: 'customer_id' } }, outputFields: ['status'], guard: 'orders.cancel', idempotency: { header: 'Idempotency-Key' } },
 ]
 function response(value: unknown, status = 200) { return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } }) }
-function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean } = {}) {
+function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean; reviewedInherited?: boolean; changedDefinition?: boolean; unknownEffect?: boolean } = {}) {
   const currentSummary = summary()
   const currentPolicy = policy()
   const currentOperations = operations()
+  if (options.reviewedInherited) {
+    Object.assign(currentOperations[1]!, { enabled: true, reviewedOperationHash: currentOperations[1]!.operationHash, effective: { mode: 'ask', source: 'group', matchedRuleIds: ['orders'], policyRevision: 1, reasonCode: 'group_rule' } })
+    Object.assign(currentPolicy.operations[1]!, { enabled: true, reviewedOperationHash: currentOperations[1]!.operationHash })
+  }
+  if (options.changedDefinition) currentOperations[0]!.operationHash = 'd'.repeat(64)
+  if (options.unknownEffect) currentOperations[1]!.effect = 'unknown'
   if (options.conflictingGroups) currentOperations[0]!.effective = { mode: 'deny', source: 'group', matchedRuleIds: ['billing', 'orders'], policyRevision: 1, reasonCode: 'group_conflict_strictest' }
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
@@ -39,13 +45,23 @@ function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean } = 
     if (url.pathname === '/api/v1/integrations') return response({ integrations: [scopedSummary()] })
     if (url.pathname.endsWith('/operations')) return response({ integration: scopedSummary(), groups: currentPolicy.groups, operations: currentOperations })
     if (init?.method && ['PATCH', 'POST'].includes(init.method)) {
-      const body = JSON.parse(String(init.body)) as { defaultMode?: IntegrationPolicy['defaultMode']; groups?: IntegrationPolicy['groups']; operations?: IntegrationPolicy['operations'] }
+      const body = JSON.parse(String(init.body)) as { defaultMode?: IntegrationPolicy['defaultMode']; groups?: IntegrationPolicy['groups']; operations?: PolicyOperationUpdate[]; manifestHash?: string }
       if (options.conflict) {
         currentSummary.version = 2; currentSummary.policyRevision = 2; currentPolicy.groups[0]!.mode = 'auto'
         return response({ detail: 'Policy version conflict' }, 409)
       }
-      if (url.pathname.endsWith('/policy')) { if (body.defaultMode) currentPolicy.defaultMode = body.defaultMode; if (body.groups) currentPolicy.groups = body.groups; if (body.operations) currentPolicy.operations = currentPolicy.operations.map(rule => ({ ...rule, mode: body.operations?.find(change => change.operationKey === rule.operationKey)?.mode ?? rule.mode })) }
-      if (url.pathname.endsWith('/review')) { currentOperations[1]!.enabled = true; currentOperations[1]!.reviewedOperationHash = currentOperations[1]!.operationHash }
+      if (url.pathname.endsWith('/policy')) {
+        if (body.defaultMode) currentPolicy.defaultMode = body.defaultMode
+        if (body.groups) currentPolicy.groups = body.groups
+        for (const change of body.operations ?? []) {
+          const rule = currentPolicy.operations.find(item => item.operationKey === change.operationKey)!
+          const operation = currentOperations.find(item => item.operationKey === change.operationKey)!
+          rule.mode = operation.mode = change.mode
+          if (change.mode === 'deny') { rule.enabled = operation.enabled = false; rule.reviewedOperationHash = operation.reviewedOperationHash = null }
+          else if ((change.mode === 'ask' || change.mode === 'auto') && body.manifestHash === hash && change.operationHash === operation.operationHash) { rule.enabled = operation.enabled = true; rule.reviewedOperationHash = operation.reviewedOperationHash = operation.operationHash }
+          operation.effective = operation.enabled ? { mode: change.mode === 'inherit' ? 'deny' : change.mode, source: 'operation', matchedRuleIds: [change.operationKey], policyRevision: currentSummary.policyRevision + 1, reasonCode: 'operation_rule' } : { mode: 'deny', source: 'guard', matchedRuleIds: [], policyRevision: currentSummary.policyRevision + 1, reasonCode: 'operation_disabled' }
+        }
+      }
       currentSummary.version++; currentSummary.policyRevision++; currentPolicy.policyRevision++
       return response({ integration: scopedSummary(), policy: { ...currentPolicy, businessId: scope } })
     }
@@ -57,7 +73,6 @@ function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean } = 
 }
 beforeEach(() => {
   window.history.replaceState({}, '', '/operator/integrations')
-  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', '') } })
 })
 
 async function openGroup(user: ReturnType<typeof userEvent.setup>) {
@@ -116,7 +131,7 @@ it('preserves endpoint overrides when changing a group and sends business-scoped
   const mutation = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!
   expect(mutation[0]).toBe(`/api/v1/integrations/orders/policy?businessId=${businessId}`)
   expect(new Headers(mutation[1]?.headers).get('Authorization')).toBe('Bearer operator-key')
-  expect(JSON.parse(String(mutation[1]?.body))).toMatchObject({ version: 1, groups: [{ id: 'orders', mode: 'deny' }, { id: 'billing', mode: 'deny' }], operations: [{ operationKey: 'GET /orders/{order_id}', mode: 'auto' }, { operationKey: 'POST /orders/{order_id}/cancel', mode: 'inherit' }] })
+  expect(JSON.parse(String(mutation[1]?.body))).toMatchObject({ version: 1, groups: [{ id: 'orders', mode: 'deny' }, { id: 'billing', mode: 'deny' }], operations: [] })
   const row = await openOperation(user, 'Перевірити замовлення')
   expect(within(row).getByText('Auto — автоматично — власне правило')).toBeVisible()
   await user.click(within(row).getByText(translateMessage({ key: 'operations.integrations.exactDefinition' }, 'uk'), { selector: 'summary' }))
@@ -125,30 +140,29 @@ it('preserves endpoint overrides when changing a group and sends business-scoped
   expect(group).toHaveValue('deny')
 })
 
-it('keeps review separate from Auto and submits only an explicitly reviewed exact hash', async () => {
+it('saves explicit access with exact current pins atomically and revokes it through the same control', async () => {
   const fetch = mockApi()
   const user = userEvent.setup()
   render(<Integrations token="operator-key" />)
   const modes = await screen.findByRole('group', { name: 'Дозвіл операції Скасувати замовлення' })
+  expect(selectedMode('Скасувати замовлення')).toBe('deny')
+  expect(screen.getByRole('button', { name: 'Зберегти правила' })).toBeDisabled()
   await user.click(within(modes).getByRole('radio', { name: 'Auto — автоматично' }))
-  await openOperation(user, 'Скасувати замовлення')
-  expect(screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })).toBeDisabled()
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false)
   await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })).toBeEnabled())
+  await screen.findByText('Сервер зберіг зміни. Ефективні дозволи перечитано.')
+  const writes = () => fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+  expect(writes()).toHaveLength(1)
+  expect(JSON.parse(String(writes()[0]![1]?.body))).toEqual({ version: 1, manifestHash: hash, defaultMode: 'deny', groups: policy().groups, operations: [{ operationKey: 'POST /orders/{order_id}/cancel', mode: 'auto', operationHash: 'c'.repeat(64) }] })
+  expect(selectedMode('Скасувати замовлення')).toBe('auto')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(fetch.mock.calls.some(([path]) => String(path).includes('/review?'))).toBe(false)
-  expect(screen.getByText('Вимкнено — операцію ще не активовано')).toBeInTheDocument()
-  const opener = screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })
-  await user.click(opener)
-  const dialog = screen.getByRole('dialog', { name: 'Перегляд: Скасувати замовлення' })
-  await user.click(within(dialog).getByText(translateMessage({ key: 'onboarding.technical' }, 'uk'), { selector: 'summary' }))
-  expect(within(dialog).getByText(/"operationHash": "cccc/)).toBeVisible()
-  expect(within(dialog).getByRole('button', { name: 'Підтвердити review і ввімкнути' })).toBeDisabled()
-  await user.click(within(dialog).getByRole('checkbox'))
-  await user.click(within(dialog).getByRole('button', { name: 'Підтвердити review і ввімкнути' }))
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-  const review = fetch.mock.calls.find(([path]) => String(path).includes('/review?'))!
-  expect(JSON.parse(String(review[1]?.body))).toEqual({ version: 2, manifestHash: hash, operations: [{ operationKey: 'POST /orders/{order_id}/cancel', operationHash: 'c'.repeat(64), enabled: true }] })
-  expect(opener).toHaveFocus()
+  await openOperation(user, 'Скасувати замовлення')
+  expect(screen.queryByRole('button', { name: /Переглянути й увімкнути|Вимкнути операцію/ })).not.toBeInTheDocument()
+  await user.click(within(modes).getByRole('radio', { name: 'Deny — заборонено' }))
+  await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
+  await waitFor(() => expect(writes()).toHaveLength(2))
+  expect(JSON.parse(String(writes()[1]![1]?.body))).toEqual({ version: 2, defaultMode: 'deny', groups: policy().groups, operations: [{ operationKey: 'POST /orders/{order_id}/cancel', mode: 'deny' }] })
 })
 
 it('keeps stale edits locked after 409 until the operator explicitly reloads current policy', async () => {
@@ -167,9 +181,9 @@ it('keeps stale edits locked after 409 until the operator explicitly reloads cur
   expect(screen.getByRole('combobox', { name: 'Дозвіл групи orders' })).toHaveValue('auto')
 })
 
-it('shows group conflicts, explicit inheritance and disabled reviewed state without guessing effective permissions', async () => {
+it('shows group conflicts and preserves already reviewed inheritance without guessing effective permissions', async () => {
   const user = userEvent.setup()
-  mockApi({ conflictingGroups: true })
+  mockApi({ conflictingGroups: true, reviewedInherited: true })
   render(<Integrations token="operator-key" />)
   const modes = await screen.findByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })
   const restriction = modes.closest('article')!.querySelector<HTMLElement>('.integration-tool-state')!
@@ -180,7 +194,6 @@ it('shows group conflicts, explicit inheritance and disabled reviewed state with
   expect(selectedMode('Скасувати замовлення')).toBe('ask')
   await openOperation(user, 'Скасувати замовлення')
   expect(screen.getByText(/Успадковане правило/)).toBeVisible()
-  expect(screen.getByText('Потрібен review поточної версії')).toBeInTheDocument()
 })
 
 it('keeps the bank binding under a foreign business URL and retains dirty-policy navigation guards', async () => {
@@ -216,7 +229,7 @@ it('blocks editing when separately read catalog and policy versions do not match
   expect(original.mock.calls.some(([, init]) => init?.method === 'PATCH' || init?.method === 'POST')).toBe(false)
 })
 
-it('does not offer review when the server omits the operation definition', async () => {
+it('blocks permissions when the server omits the operation definition', async () => {
   const original = mockApi()
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const result = await original(input, init)
@@ -226,7 +239,7 @@ it('does not offer review when the server omits the operation definition', async
   }))
   render(<Integrations token="operator-key" />)
   expect(await screen.findByRole('alert')).toHaveTextContent('Некоректна структура відповіді сервера.')
-  expect(screen.queryByRole('button', { name: /Переглянути й увімкнути/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })).not.toBeInTheDocument()
 })
 
 it('guards dirty policy edits and releases both unload and navigation guards when clean or unmounted', async () => {
@@ -321,4 +334,46 @@ it('keeps settings navigation read-only and disables only through an explicit ve
   await user.click(await screen.findByRole('button', { name: 'Скасувати' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Підключити API' })).toHaveFocus())
   expect(writes()).toHaveLength(1)
+})
+
+it('keeps new and changed definitions denied when only default and group permissions change', async () => {
+  const fetch = mockApi({ changedDefinition: true })
+  const user = userEvent.setup()
+  render(<Integrations token="operator-key" />)
+  await screen.findByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })
+  expect(selectedMode('Перевірити замовлення')).toBe('deny')
+  expect(selectedMode('Скасувати замовлення')).toBe('deny')
+  expect(screen.getByRole('button', { name: 'Зберегти правила' })).toBeDisabled()
+  const group = await openGroup(user)
+  await user.selectOptions(group, 'auto')
+  await user.click(within(screen.getByRole('group', { name: 'Типовий дозвіл інтеграції' })).getByRole('radio', { name: 'Auto — автоматично' }))
+  await openTools(user)
+  expect(selectedMode('Перевірити замовлення')).toBe('deny')
+  expect(selectedMode('Скасувати замовлення')).toBe('deny')
+  await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
+  await screen.findByText('Сервер зберіг зміни. Ефективні дозволи перечитано.')
+  const write = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!
+  const body = JSON.parse(String(write[1]?.body))
+  expect(body).toMatchObject({ defaultMode: 'auto', operations: [] })
+  expect(body.manifestHash).toBeUndefined()
+  expect(selectedMode('Перевірити замовлення')).toBe('deny')
+  expect(selectedMode('Скасувати замовлення')).toBe('deny')
+})
+
+it('keeps unknown-effect operations blocked and preserves an explicit access draft after a stale save', async () => {
+  const fetch = mockApi({ unknownEffect: true, conflict: true })
+  const user = userEvent.setup()
+  render(<Integrations token="operator-key" />)
+  const unknown = await screen.findByRole('group', { name: 'Дозвіл операції Скасувати замовлення' })
+  expect(selectedMode('Скасувати замовлення')).toBe('deny')
+  for (const radio of within(unknown).getAllByRole('radio')) expect(radio).toBeDisabled()
+  const known = screen.getByRole('group', { name: 'Дозвіл операції Перевірити замовлення' })
+  await user.click(within(known).getByRole('radio', { name: 'Ask — через погодження' }))
+  await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Конфлікт версій')
+  expect(selectedMode('Перевірити замовлення')).toBe('ask')
+  expect(screen.getByRole('button', { name: 'Зберегти правила' })).toBeDisabled()
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+  expect(writes).toHaveLength(1)
+  expect(JSON.parse(String(writes[0]![1]?.body))).toMatchObject({ version: 1, manifestHash: hash, operations: [{ operationKey: 'GET /orders/{order_id}', mode: 'ask', operationHash }] })
 })

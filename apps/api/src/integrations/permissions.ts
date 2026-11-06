@@ -38,6 +38,18 @@ export const integrationPolicySchema = z.strictObject({
 });
 export type IntegrationPolicy = z.infer<typeof integrationPolicySchema>;
 
+/** An exact operation proof is optional for legacy mode-only clients; it never authorizes a group. */
+export const integrationPolicyUpdateSchema = z.strictObject({
+  version: z.number().int().positive(), manifestHash: hash.optional(),
+  defaultMode: mode.optional(), groups: integrationPolicySchema.shape.groups.optional(),
+  operations: z.array(z.strictObject({ operationKey, mode: ruleMode, operationHash: hash.optional() })).max(1000).optional(),
+}).superRefine((value, context) => {
+  if (value.operations?.some(operation => operation.operationHash !== undefined) && value.manifestHash === undefined)
+    context.addIssue({ code: 'custom', message: 'Operation proof requires the loaded manifest hash' });
+  if (value.manifestHash !== undefined && value.operations?.some(operation => (operation.mode === 'ask' || operation.mode === 'auto') && operation.operationHash === undefined))
+    context.addIssue({ code: 'custom', message: 'Ask or Auto proof requires the exact operation hash' });
+});
+
 /** The operation as described by the currently loaded manifest. */
 export interface CatalogOperation {
   operationKey: string;

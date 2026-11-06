@@ -5,6 +5,11 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import pg from 'pg';
+import Fastify from 'fastify';
+import { integrationRoutes } from '../src/integrations/routes.js';
+import { SupportHarness } from '../src/modules/agent/harness.js';
+import { RulesModel } from '../src/modules/agent/model.js';
+import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 import { fingerprint } from '../src/integrations/permissions.js';
 import { argsHash } from '../src/modules/agent/harness.js';
 import { migrateSupport } from '../src/modules/support/migrations.js';
@@ -32,6 +37,28 @@ test('PostgreSQL integration state, admission, takeover, completion, expiry and 
       return store.createProposal({caseId:supportCase.id,tool:'external_action',args,argsHash:argsHash(supportCase.id,'external_action',args),risk:'high',status:'pending',policy:{allowed:true,requiresApproval:!options.auto,checks:[]}});
     };
     const approved=async()=>{const row=await proposal();assert.ok(await store.decideProposal(row.id,row.argsHash,'approved','operator:test'));return row;};
+    await t.test('public exact-operation grants serialize in PostgreSQL and Deny survives a fresh store',async()=>{
+      const definition=structuredClone(manifest);definition.integrationId='permission-pg';definition.manifestHash=fingerprint(definition,'manifestHash');
+      await registry.bootstrap({...seed,manifest:definition,policy:{...policy,integrationId:definition.integrationId,manifestHash:definition.manifestHash}});
+      const rules=new RulesModel(),harness=new SupportHarness({store,model:rules,fallback:rules,provider:new SimulatedPaymentProvider(),timeoutMs:1000});
+      const app=Fastify(),operatorToken='synthetic-pg-policy-operator-key';
+      await app.register(integrationRoutes,{support:{store,harness},operatorToken});
+      const headers={authorization:'Bearer '+operatorToken},url='/api/v1/integrations/permission-pg/policy?businessId='+businessId;
+      const read=definition.operations.find(op=>op.effect==='read')!,write=definition.operations.find(op=>op.effect==='write')!;
+      try {
+        const before=(await registry.get(businessId,definition.integrationId))!,events=await registry.events(businessId,definition.integrationId);
+        const invalid=await app.inject({method:'PATCH',url,headers,payload:{version:before.version,manifestHash:definition.manifestHash,operations:[{operationKey:read.operationKey,mode:'auto',operationHash:read.operationHash},{operationKey:write.operationKey,mode:'ask',operationHash:'f'.repeat(64)}]}});
+        assert.equal(invalid.statusCode,422);assert.deepEqual(await registry.get(businessId,definition.integrationId),before);assert.deepEqual(await registry.events(businessId,definition.integrationId),events);
+        const results=await Promise.all(['auto','ask'].map(mode=>app.inject({method:'PATCH',url,headers,payload:{version:before.version,manifestHash:definition.manifestHash,operations:[{operationKey:read.operationKey,mode,operationHash:read.operationHash}]}})));
+        assert.deepEqual(results.map(result=>result.statusCode).sort(),[200,409]);
+        const granted=(await new PostgresSupportStore(pool!).integrationStore.get(businessId,definition.integrationId))!;
+        assert.equal(granted.enabled,false);assert.equal(granted.activeManifestHash,null);assert.equal(granted.policy.operations.find(op=>op.operationKey===read.operationKey)!.enabled,true);assert.equal(granted.policy.operations.find(op=>op.operationKey===read.operationKey)!.reviewedOperationHash,read.operationHash);
+        const denied=await app.inject({method:'PATCH',url,headers,payload:{version:granted.version,operations:[{operationKey:read.operationKey,mode:'deny'}]}});assert.equal(denied.statusCode,200);
+        const persisted=(await new PostgresSupportStore(pool!).integrationStore.get(businessId,definition.integrationId))!;
+        assert.deepEqual(persisted.policy.operations.find(op=>op.operationKey===read.operationKey),{operationKey:read.operationKey,mode:'deny',enabled:false,reviewedOperationHash:null});
+        assert.equal(persisted.policy.operations.find(op=>op.operationKey===write.operationKey)!.enabled,false);
+      } finally {await app.close();}
+    });
     await t.test('immutable bootstrap does not reactivate or overwrite operator policy; new store observes current state',async()=>{
       let state=(await registry.get(businessId,'orders'))!;assert.equal(state.enabled,false);assert.ok(state.policy.operations.every(row=>!row.enabled&&!row.reviewedOperationHash));
       state=await active();const persisted=await new PostgresSupportStore(pool!).integrationStore.get(businessId,'orders');assert.equal(persisted!.version,state.version);

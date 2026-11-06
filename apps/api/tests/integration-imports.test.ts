@@ -48,9 +48,9 @@ test('failed runtime stays disabled, concurrent retry is idempotent and old conf
  await assert.rejects(restarted.confirm(f.businessId,draft.id,{...body,operations:[]}));
 });
 
-test('reviewed Deny stores review authority without granting access; unsupported inventory stays separate',async()=>{
+test('reviewed Deny revokes operation authority; unsupported inventory stays separate',async()=>{
  const f=await managedFixture(),{publicValue:draft}=await f.draft(),body=f.confirmation(draft);body.operations[0]!.mode='deny';const result=await f.service.confirm(f.businessId,draft.id,body);
- const first=result.state.policy.operations[0]!;assert.equal(first.enabled,true);assert.equal(first.mode,'deny');assert.match(first.reviewedOperationHash!,/^[a-f0-9]{64}$/);assert.equal(result.state.policy.operations.some(row=>row.operationKey===f.manifest.operations[2]!.operationKey),false);
+ const first=result.state.policy.operations[0]!;assert.equal(first.enabled,false);assert.equal(first.mode,'deny');assert.equal(first.reviewedOperationHash,null);assert.equal(result.state.policy.operations.some(row=>row.operationKey===f.manifest.operations[2]!.operationKey),false);
 });
 
 test('fresh DB resolver rehydrates lost gateway cache without static catalogs or upstream secrets',async()=>{

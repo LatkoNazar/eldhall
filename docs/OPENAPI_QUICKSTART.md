@@ -97,9 +97,9 @@ For existing PostgreSQL, replace the first Compose file with `deploy/support.ext
 
 ## 4. Review, set rules and activate
 
-In the operator **Integrations** page choose the business and catalog. Inspect each exact operation definition before enabling it. Set `get_order_status` to `auto`; set the `Orders` group to `ask` and cancellation to `inherit`. Activate the catalog after the live verification succeeds. All these actions are also available through the [headless integration endpoints](API_CONTRACTS.md).
+In the operator **Integrations** page choose the business and catalog. Inspect each exact operation definition, select Auto for `get_order_status` and Ask for cancellation, then save. Activate the catalog after the live verification succeeds. Advanced inherited rules apply only after an exact definition has been explicitly granted; they never enable a new operation. All these actions are also available through the [headless integration endpoints](API_CONTRACTS.md).
 
-Every mutation sends the last read integration `version`; a concurrent change returns 409 and requires rereading. Permission edits apply from PostgreSQL without restarting API or worker and invalidate pending/approved snapshots. A group rule does not review new operations. An operation override takes precedence over group defaults; mandatory scope, ownership and business guards always apply.
+Every mutation sends the last read integration `version`; a concurrent change returns 409 and requires rereading. Selecting Ask or Auto for an exact operation and saving its loaded manifest/operation hashes atomically grants that definition; no separate per-operation review or enable action is needed. New or changed operations remain Deny, and selecting Deny revokes their grant; default/group edits never grant unseen definitions. Permission edits apply from PostgreSQL without restarting API or worker and invalidate pending/approved snapshots. An operation override takes precedence over group defaults; mandatory scope, ownership and business guards always apply.
 
 `ask` returns a durable pending proposal and ends the turn. Approval records consent for the exact snapshot; separate execute admits the action and records its outcome. Explicit `auto` writes use the same guard and ledger. Built-in refunds still require human approval.
 

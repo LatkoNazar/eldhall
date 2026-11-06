@@ -57,7 +57,7 @@ const de = {
   "onboarding.backToTools": "Zurück zu den Werkzeugen",
   "onboarding.advancedPolicy": "Standard- und Gruppenregeln",
   "onboarding.technical": "Technische Details",
-  "onboarding.modeHint": "Ein Segment ändert den Entwurf. Es prüft, speichert oder aktiviert die Operation nicht.",
+  "onboarding.modeHint": "Die Auswahl ändert einen Entwurf. Speichern wendet den Zugriff auf genau diese Werkzeugdefinition an; der Server prüft weiterhin jeden Aufruf.",
   "onboarding.original": "Toolnamen und Beschreibungen sind Originalinhalte der API-Spezifikation.",
   "onboarding.modeFor": "Berechtigung für {{operation}}",
   "onboarding.reviewPositive": "Für jedes unterstützte Tool, auch bei Deny, Lesen oder Schreiben, vertrauenswürdigen Bereich und Antwortfelder festlegen. Danach einmal bestätigen.",

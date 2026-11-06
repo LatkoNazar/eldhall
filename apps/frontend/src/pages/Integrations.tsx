@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Badge, Empty, Icon, Notice } from '../components/ui'
 import { ApiError, request } from '../lib/api'
 import { decisionLabel, inheritedMode, integrationPath, loadIntegration, loadIntegrations, modeLabel } from '../lib/integrations-api'
-import type { CatalogOperation, IntegrationCatalog, IntegrationPolicy, IntegrationPolicyResponse, IntegrationSummary, PermissionGroup, PermissionMode, RuleMode } from '../lib/integrations-api'
+import type { CatalogOperation, IntegrationCatalog, IntegrationPolicy, IntegrationPolicyResponse, IntegrationSummary, PermissionGroup, PermissionMode, RuleMode, PolicyOperationUpdate } from '../lib/integrations-api'
 import { registerNavigationGuard } from '../lib/navigation'
 import { PermissionModeControl } from '../components/integrations/PermissionModeControl'
 import { OperationRow } from '../components/integrations/OperationRow'
@@ -13,7 +13,8 @@ import { IntegrationImportWizard } from '../components/integrations/IntegrationI
 import type { ImportResult } from '../lib/integration-imports-api'
 
 interface Draft { defaultMode: PermissionMode; groups: PermissionGroup[]; operations: { operationKey: string; mode: RuleMode }[] }
-const toDraft = (policy: IntegrationPolicy, operations: CatalogOperation[]): Draft => ({ defaultMode: policy.defaultMode, groups: structuredClone(policy.groups), operations: operations.map(({ operationKey }) => ({ operationKey, mode: policy.operations.find(rule => rule.operationKey === operationKey)?.mode ?? 'inherit' })) })
+const eligible = (operation: CatalogOperation) => operation.enabled && operation.effect !== 'unknown' && operation.reviewedOperationHash === operation.operationHash
+const toDraft = (policy: IntegrationPolicy, operations: CatalogOperation[]): Draft => ({ defaultMode: policy.defaultMode, groups: structuredClone(policy.groups), operations: operations.map(operation => ({ operationKey: operation.operationKey, mode: eligible(operation) ? policy.operations.find(rule => rule.operationKey === operation.operationKey)?.mode ?? 'inherit' : 'deny' })) })
 const effectLabel = { read: "operations.integrations.readEffect", write: "operations.integrations.writeEffect", unknown: "operations.integrations.unknownEffect" } as const
 
 export function Integrations({ token }: { token: string }) {
@@ -61,7 +62,6 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged, picker,
   const [conflict, setConflict] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [reviewing, setReviewing] = useState<CatalogOperation | null>(null)
   const [search, setSearch] = useState('')
   const [tag, setTag] = useState('')
   const [newGroupId, setNewGroupId] = useState('')
@@ -102,22 +102,28 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged, picker,
     try {
       await request(integrationPath(id, businessId, suffix), token, { method, body: { ...body, version: data.policy.integration.version } })
       setLoading(true); const reloaded = await load()
-      setReviewing(null)
       onChanged()
       setNotice({ key: reloaded ? "operations.integrations.savedReloaded" : "operations.integrations.savedNotReloaded" })
     } catch (cause) {
       setError(cause)
-      setReviewing(null)
       if (cause instanceof ApiError && cause.status === 409) setConflict(true)
     } finally { setBusy(false) }
   }
-  function refresh() { if (!isDirty || window.confirm(t("operations.integrations.reloadPrompt"))) { setReviewing(null); setLoading(true); void load() } }
+  function refresh() { if (!isDirty || window.confirm(t("operations.integrations.reloadPrompt"))) { setLoading(true); void load() } }
   if (!data || !draft) return <section className="integration-console" aria-label={id}><header className="integration-summary"><h2 className="sr-only">{id}</h2>{picker}<div className="integration-primary-actions" />{connect}</header>{Boolean(error) && <ErrorNotice error={error}> <button onClick={refresh}>{t("operations.integrations.reloadPolicy")}</button></ErrorNotice>}<div className="card"><Empty title={loading ? t("operations.integrations.loadingCatalog") : t("operations.integrations.catalogUnavailable")} /></div></section>
   const integration = data.policy.integration
   const operations = data.catalog.operations.filter(operation => `${operation.title} ${operation.operationKey} ${operation.tags.join(' ')}`.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)))
   const tags = [...new Set(data.catalog.operations.flatMap(operation => operation.tags))].sort()
   const unavailable = data.catalog.unavailableOperations ?? []
-  const save = () => void mutate('/policy', { defaultMode: draft.defaultMode, groups: draft.groups, operations: draft.operations }, 'PATCH')
+  const baseline = toDraft(data.policy.policy, data.catalog.operations)
+  const save = () => {
+    const operations: PolicyOperationUpdate[] = draft.operations.filter(rule => rule.mode !== baseline.operations.find(saved => saved.operationKey === rule.operationKey)?.mode).map(rule => {
+      const operation = data.catalog.operations.find(item => item.operationKey === rule.operationKey)!
+      return rule.mode === 'ask' || rule.mode === 'auto' ? { ...rule, operationHash: operation.operationHash } : rule
+    })
+    const proof = operations.some(operation => operation.operationHash)
+    void mutate('/policy', { defaultMode: draft.defaultMode, groups: draft.groups, operations, ...(proof ? { manifestHash: integration.loadedManifestHash } : {}) }, 'PATCH')
+  }
   return <section className="integration-console" aria-label={id}>
     <header className="integration-summary">
       <h2 className="sr-only">{id}</h2>{picker}
@@ -139,19 +145,19 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged, picker,
     <div className="integration-tool-list" tabIndex={0} aria-label={t('operations.integrations.operationCatalog')}>
       {operations.map(operation => {
         const rule = draft.operations.find(item => item.operationKey === operation.operationKey)
-        const reviewed = operation.reviewedOperationHash === operation.operationHash
-        const changed = rule?.mode !== operation.mode
-        const savedMode = operation.mode === 'inherit' ? inheritedMode(operation, data.policy.policy.groups, data.policy.policy.defaultMode) : operation.mode
-        const restrictionVisible = expanded !== operation.operationKey && (operation.effective.source === 'guard' || operation.effective.mode !== savedMode)
+        const saved = baseline.operations.find(item => item.operationKey === operation.operationKey)!
+        const changed = rule?.mode !== saved.mode
+        const savedMode = saved.mode === 'inherit' ? inheritedMode(operation, data.policy.policy.groups, data.policy.policy.defaultMode) : saved.mode
+        const displayedMode = rule?.mode === 'inherit' ? inheritedMode(operation, draft.groups, draft.defaultMode) : rule?.mode ?? 'deny'
+        const restrictionVisible = expanded !== operation.operationKey && (operation.effective.mode !== savedMode || operation.effective.mode !== displayedMode)
         return <OperationRow key={operation.operationKey} operationKey={operation.operationKey} method={operation.method} path={operation.path} title={operation.title} expanded={expanded === operation.operationKey} onToggle={() => setExpanded(expanded === operation.operationKey ? null : operation.operationKey)}
-          status={!reviewed || !operation.enabled || restrictionVisible || changed ? <>{(!reviewed || !operation.enabled) && <Badge value="draft">{t(!reviewed ? 'operations.integrations.reviewRequired' : 'operations.integrations.reviewedDisabled')}</Badge>}{restrictionVisible && <small>{decisionLabel(operation, t)}</small>}{changed && <small>{t('onboarding.draft')}</small>}</> : null}
-          controls={<PermissionModeControl value={rule?.mode ?? 'inherit'} inherited={inheritedMode(operation, draft.groups, draft.defaultMode)} label={t('operations.integrations.operationPermission') + ' ' + operation.title} disabled={blocked} onChange={mode => setOperationMode(operation.operationKey, mode)} />}>
+          status={operation.effect === 'unknown' || restrictionVisible || changed ? <>{operation.effect === 'unknown' && <Badge value="denied">{t('onboarding.blocked')}</Badge>}{restrictionVisible && <small>{decisionLabel(operation, t)}</small>}{changed && <small>{t('onboarding.draft')}</small>}</> : null}
+          controls={<PermissionModeControl value={rule?.mode ?? 'inherit'} inherited={inheritedMode(operation, draft.groups, draft.defaultMode)} label={t('operations.integrations.operationPermission') + ' ' + operation.title} disabled={blocked || operation.effect === 'unknown'} onChange={mode => setOperationMode(operation.operationKey, mode)} />}>
           <dl className="facts integration-effective"><dt>{t('core.action.permissionSource')}</dt><dd>{decisionLabel(operation, t)}{operation.mode === 'inherit' && <small className="muted"> · {t('onboarding.inherited')}</small>}</dd></dl>
           <p>{operation.description}</p><p className="small muted">{t(effectLabel[operation.effect])} · {operation.tags.join(', ') || t('operations.integrations.noTags')}</p>
           {operation.effective.reasonCode === 'group_conflict_strictest' && <Notice>{t('operations.integrations.groupConflict')} {operation.effective.matchedRuleIds.join(', ')}{t('operations.integrations.strictestApplied')}</Notice>}
-          <div className="integration-controls"><button type="button" disabled={blocked || isDirty || operation.effect === 'unknown'} onClick={() => setReviewing(operation)}>{t('operations.integrations.reviewEnable')} {operation.title}</button>{operation.enabled && <button type="button" disabled={blocked || isDirty} onClick={() => void mutate('/review', { manifestHash: integration.loadedManifestHash, operations: [{ operationKey: operation.operationKey, operationHash: operation.operationHash, enabled: false }] })}>{t('operations.integrations.disableOperation')} {operation.title}</button>}</div>
           <details><summary>{t('operations.integrations.exactDefinition')}</summary><pre>{JSON.stringify({ operationKey: operation.operationKey, operationHash: operation.operationHash, mode: operation.mode, effective: operation.effective, inputSchema: operation.inputSchema, parameters: operation.parameters, scope: operation.scope, outputFields: operation.outputFields, guard: operation.guard, idempotency: operation.idempotency, reconciliation: operation.reconciliation }, null, 2)}</pre>
-            <button type="button" disabled={blocked || rule?.mode === 'inherit'} onClick={() => setOperationMode(operation.operationKey, 'inherit')}>{t('operations.integrations.resetInheritance')} {operation.title}</button>
+            <button type="button" disabled={blocked || !eligible(operation) || rule?.mode === 'inherit'} onClick={() => setOperationMode(operation.operationKey, 'inherit')}>{t('operations.integrations.resetInheritance')} {operation.title}</button>
           </details>
         </OperationRow>
       })}
@@ -159,14 +165,5 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged, picker,
       {!operations.length && !unavailable.length && <Empty title={t('operations.integrations.noOperations')} />}
     </div>
     </div>
-    {reviewing && <ReviewOperation operation={reviewing} busy={busy} onClose={() => setReviewing(null)} onConfirm={() => void mutate('/review', { manifestHash: integration.loadedManifestHash, operations: [{ operationKey: reviewing.operationKey, operationHash: reviewing.operationHash, enabled: true }] })} />}
   </section>
-}
-
-function ReviewOperation({ operation, busy, onClose, onConfirm }: { operation: CatalogOperation; busy: boolean; onClose: () => void; onConfirm: () => void }) {
-  const { t } = useI18n()
-  const dialog = useRef<HTMLDialogElement>(null)
-  const [confirmed, setConfirmed] = useState(false)
-  useEffect(() => { const opener = document.activeElement as HTMLElement | null; dialog.current?.showModal(); return () => opener?.focus() }, [])
-  return <dialog ref={dialog} className="modal integration-review" onCancel={event => { event.preventDefault(); if (!busy) onClose() }} aria-labelledby="integration-review-title"><div className="modal-header"><h2 id="integration-review-title">{t("operations.integrations.reviewTitle")} {operation.title}</h2><button type="button" disabled={busy} aria-label={t("operations.integrations.closeReview")} onClick={onClose}><Icon name="close" /></button></div><p>{t("operations.integrations.reviewHint")}</p><dl className="facts"><dt>{t('onboarding.effect')}</dt><dd>{t(effectLabel[operation.effect])}</dd><dt>{t('onboarding.customerScope')}</dt><dd><code>{JSON.stringify(operation.scope)}</code></dd><dt>{t('onboarding.outputs')}</dt><dd>{operation.outputFields?.join(', ')}</dd></dl><details><summary>{t('onboarding.technical')}</summary><pre>{JSON.stringify({ operationKey: operation.operationKey, effect: operation.effect, tags: operation.tags, operationHash: operation.operationHash, inputSchema: operation.inputSchema, parameters: operation.parameters, scope: operation.scope, outputFields: operation.outputFields, guard: operation.guard, idempotency: operation.idempotency, reconciliation: operation.reconciliation }, null, 2)}</pre></details><label className="integration-review-check"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />{t("operations.integrations.reviewConfirmation")}</label><div className="form-actions"><button type="button" disabled={busy} onClick={onClose}>{t("operations.common.cancel")}</button><button className="primary" type="button" disabled={busy || !confirmed} onClick={onConfirm}>{busy ? t("operations.common.saving") : t("operations.integrations.confirmReview")}</button></div></dialog>
 }

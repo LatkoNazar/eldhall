@@ -57,7 +57,7 @@ const es = {
   "onboarding.backToTools": "Volver a las herramientas",
   "onboarding.advancedPolicy": "Permisos predeterminados y grupos",
   "onboarding.technical": "Detalles técnicos",
-  "onboarding.modeHint": "Cambiar un segmento edita un borrador. No revisa, guarda ni activa la operación.",
+  "onboarding.modeHint": "Cambiar un segmento modifica un borrador. Guardar aplica el acceso a esta definición exacta; el servidor sigue comprobando cada llamada.",
   "onboarding.original": "Los nombres y descripciones son el contenido original de la especificación.",
   "onboarding.modeFor": "Permiso de {{operation}}",
   "onboarding.reviewPositive": "Elija lectura o escritura, alcance de confianza y campos de respuesta para cada herramienta compatible, incluso Deny. Después confirme una vez.",
