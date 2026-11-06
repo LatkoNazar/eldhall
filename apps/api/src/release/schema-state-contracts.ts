@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-export const schemaStateProfile = 'eldhall-pg17-public-v1' as const;
+export const schemaStateProfile = 'eldhall-pg17-public-v2' as const;
 export const starterRelations = ['jobs', 'alembic_version'] as const;
 // These exact names are reviewed; the support_ prefix is NOT reserved.
-export const supportRelations = ['support_businesses', 'support_customers', 'support_payments', 'support_cases', 'support_messages', 'support_proposals', 'support_payment_executions', 'support_refunds', 'support_audit_events', 'support_agent_runs', 'support_knowledge', 'support_skills', 'support_settings', 'support_turn_jobs', 'support_insight_runs', 'support_knowledge_versions', 'support_integrations', 'support_integration_manifests', 'support_integration_audit', 'support_external_executions', 'support_request_catalogs', 'support_request_checkpoints', 'support_request_events'] as const;
+export const supportRelations = ['support_businesses', 'support_customers', 'support_payments', 'support_cases', 'support_messages', 'support_proposals', 'support_payment_executions', 'support_refunds', 'support_audit_events', 'support_agent_runs', 'support_knowledge', 'support_skills', 'support_settings', 'support_turn_jobs', 'support_insight_runs', 'support_knowledge_versions', 'support_integrations', 'support_integration_manifests', 'support_integration_audit', 'support_external_executions', 'support_request_catalogs', 'support_request_checkpoints', 'support_request_events', 'support_integration_imports'] as const;
 export const vectorRelation = 'support_knowledge_chunks';
 export const schemaSourcePaths = {
   starter: ['apps/api/migrations/0001_jobs.sql', 'apps/api/src/core/migrations.ts'],
-  support: ['apps/api/migrations/0002_support.sql', 'apps/api/migrations/0003_support_turns.sql', 'apps/api/migrations/0004_classification.sql', 'apps/api/migrations/0005_insights.sql', 'apps/api/migrations/0006_knowledge.sql', 'apps/api/migrations/0007_external_knowledge.sql', 'apps/api/migrations/0008_integrations.sql', 'apps/api/migrations/0009_customer_requests.sql', 'apps/api/src/modules/support/migrations.ts'],
+  support: ['apps/api/migrations/0002_support.sql', 'apps/api/migrations/0003_support_turns.sql', 'apps/api/migrations/0004_classification.sql', 'apps/api/migrations/0005_insights.sql', 'apps/api/migrations/0006_knowledge.sql', 'apps/api/migrations/0007_external_knowledge.sql', 'apps/api/migrations/0008_integrations.sql', 'apps/api/migrations/0009_customer_requests.sql', 'apps/api/migrations/0010_integration_imports.sql', 'apps/api/src/modules/support/migrations.ts'],
 } as const;
 export const schemaHash = z.string().regex(/^[a-f0-9]{64}$/);
 export const schemaComponent = z.enum(['starter', 'support']);

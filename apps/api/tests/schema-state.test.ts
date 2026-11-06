@@ -156,15 +156,15 @@ test('disposable fixture admission requires matching GitHub identity and exact d
 });
 
 test('checked-in reviewed references preserve empirical candidate identity and reject real source/receipt drift', async () => {
-  const registryText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.json'), 'utf8');
-  const receiptText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.receipt.json'), 'utf8');
+  const registryText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v2.json'), 'utf8');
+  const receiptText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v2.receipt.json'), 'utf8');
   const paths = [...observerPaths, ...schemaSourcePaths.starter, ...schemaSourcePaths.support];
   const sources = new Map(await Promise.all(paths.map(async path => [path, await readFile(resolve(fixtureRoot, path))] as const)));
   const registry = verifyPinnedSchemaArtifacts(registryText, receiptText, sources);
   assert.equal(registry.entries.length, 5);
   assert.deepEqual(registry.entries.filter(entry => entry.component === 'support').map(entry => entry.profile).sort(), ['vector-available-uninstalled', 'vector-installed', 'vector-unavailable']);
   assert.equal(registry.entries.filter(entry => entry.component === 'starter').length, 2);
-  for (const path of [schemaSourcePaths.starter[1], 'apps/api/migrations/0009_customer_requests.sql', 'apps/api/src/modules/support/migrations.ts', observerPaths[0]!]) {
+  for (const path of [schemaSourcePaths.starter[1], 'apps/api/migrations/0009_customer_requests.sql', 'apps/api/migrations/0010_integration_imports.sql', 'apps/api/src/modules/support/migrations.ts', observerPaths[0]!]) {
     const drifted = new Map(sources); drifted.set(path, Buffer.concat([sources.get(path)!, Buffer.from('\n// drift\n')]));
     assert.throws(() => verifyPinnedSchemaArtifacts(registryText, receiptText, drifted), /Current source drift/);
   }
@@ -176,4 +176,20 @@ test('checked-in reviewed references preserve empirical candidate identity and r
   changedReceipt.registrySha256 = hash(registryText);
   changedReceipt.candidate.runId = '999999';
   assert.throws(() => verifyPinnedSchemaArtifacts(registryText, JSON.stringify(changedReceipt), sources), /original unreviewed candidate bytes/);
+});
+
+test('historical v1 reference files stay byte-exact without granting current-profile compatibility', async () => {
+  const registryText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.json'), 'utf8');
+  const receiptText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.receipt.json'), 'utf8');
+  assert.equal(hash(registryText), '89204eeb35af89ff4d3f9d89ff54dd1397cfbb56b36c8ebce7c9b241429e8364');
+  assert.equal(hash(receiptText), 'dba8d02a469e18356cc7f702af7048e688491ed6fc0174b661ec9398f4e97e68');
+  const registry = parseInstallationJson(registryText) as { observerProfile: string; entries: unknown[] };
+  const receipt = receiptSchema.extend({ observerProfile: z.literal('eldhall-pg17-public-v1') }).parse(parseInstallationJson(receiptText));
+  assert.equal(hash(registryText), receipt.registrySha256);
+  const candidate = JSON.stringify({ candidateFormat: 1, status: 'unreviewed', observerProfile: registry.observerProfile,
+    sourceCommit: receipt.candidate.sourceCommit, runId: receipt.candidate.runId, observerSources: receipt.observerSources,
+    references: registry.entries }, null, 2) + '\n';
+  assert.equal(hash(candidate), receipt.candidate.sha256);
+  assert.equal(schemaReferenceRegistrySchema.safeParse(parseInstallationJson(registryText)).success, false,
+    'Historical v1 does not authorize the changed v2 owned-object profile');
 });
