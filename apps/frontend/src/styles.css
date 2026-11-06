@@ -871,6 +871,9 @@ td { padding: 14px 15px; border-top: 1px solid var(--ds-color-border); vertical-
 @media (max-height: 420px) { .request-inspector-header { max-height: 50%; min-height: 0; overflow: auto; } }
 
 .workspace-identity { margin: 0 12px 12px; color: var(--ds-color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+@media (min-width: 768px) and (max-width: 1199px) {
+  .workspace-identity { display: none; }
+}
 .workspace-unavailable { max-width: 36rem; margin: auto; }
 .guards-section > h2 { display: flex; gap: 8px; align-items: center; }
 .guard-rule { min-width: 0; padding: 14px; margin-block: 16px; border: 1px solid var(--ds-color-border); border-radius: 10px; }
