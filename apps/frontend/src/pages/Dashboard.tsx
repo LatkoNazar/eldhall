@@ -45,6 +45,7 @@ function WorkspaceDashboard({ token, location, onLogout, business }: { token: st
   const cases = useResource<SupportCase[]>('/cases', token, 4000)
   const metrics = useResource<Metrics>('/metrics', token, 5000)
   const businessNames = { [business.id]: business.name }
+  const refreshInbox = () => { cases.refresh(); metrics.refresh() }
   const title = t(navigation.find(item => item.id === page)?.label ?? 'core.nav.inbox')
   const previousRoute = useRef(routeKey)
   useEffect(() => {
@@ -78,9 +79,10 @@ function WorkspaceDashboard({ token, location, onLogout, business }: { token: st
       <main id="main-content" className={`page ${page === 'inbox' ? 'page-workspace' : page === 'actions' ? 'page-actions' : ''}`} tabIndex={page === 'inbox' ? -1 : 0}>
         <ReadOnlyDemoBanner />
         {page === 'inbox' && <Fragment key={routeKey}>
-          <div className="page-heading"><div><h1>{t("core.inbox.title")}</h1><p>{t("core.inbox.subtitle")}</p></div><button onClick={() => { cases.refresh(); metrics.refresh() }}><Icon name="refresh" />{t("core.common.refresh")}</button></div>
+          <h1 className="sr-only">{t("core.inbox.title")}</h1>
           {cases.error && <Notice error>{cases.error} {cases.checkedAt && t('core.common.lastConfirmed', { time: dateTime(cases.checkedAt, locale) })} <button className="text-button" onClick={cases.refresh}>{t("core.common.retryRead")}</button></Notice>}
-          {cases.loading ? <div className="card"><Empty title={t("core.inbox.loading")} /></div> : cases.data && <CaseWorkspace token={token} businessNames={businessNames} cases={cases.data} search={search} actionOnly={false} onChanged={() => { cases.refresh(); metrics.refresh() }} />}
+          {!cases.data && <div className="case-toolbar"><button className="workspace-refresh" onClick={refreshInbox}><Icon name="refresh" />{t("core.common.refresh")}</button></div>}
+          {cases.loading ? <div className="card"><Empty title={t("core.inbox.loading")} /></div> : cases.data && <CaseWorkspace token={token} businessNames={businessNames} cases={cases.data} search={search} actionOnly={false} onRefresh={refreshInbox} onChanged={refreshInbox} />}
         </Fragment>}
         {page === 'actions' && <Actions key={routeKey} token={token} businessNames={businessNames} cases={cases.data} casesError={cases.error} metrics={metrics.data} metricsError={metrics.error} search={search} onRefresh={() => { cases.refresh(); metrics.refresh() }} />}
         {page === 'analytics' && <AnalyticsWorkspace key={routeKey} token={token} />}

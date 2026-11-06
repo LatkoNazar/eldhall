@@ -635,13 +635,12 @@ td { padding: 14px 15px; border-top: 1px solid var(--ds-color-border); vertical-
 .sidebar > .brand { margin-bottom: 24px; }
 .sidebar-bottom { padding-top: 16px; }
 .page-workspace { display: flex; flex-direction: column; padding-top: 16px; }
-.page-workspace > .page-heading, .page-workspace > .notice { flex: none; }
-.page-workspace > .page-heading { margin-bottom: 12px; }
-.page-workspace > .page-heading h1 { font-size: var(--ds-font-size-page); margin-bottom: 4px; }
-.page-workspace > .page-heading p { font-size: var(--ds-font-size-sm); }
+.page-workspace > .notice { flex: none; }
 .case-workspace { flex: 1 0 20rem; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.case-workspace > .tabs { flex: none; margin-bottom: 12px; }
-.case-workspace > .tabs button { padding-block: 8px; }
+.case-toolbar { display: flex; flex: none; align-items: flex-start; gap: 12px; min-width: 0; margin-bottom: 12px; }
+.case-toolbar > .tabs { flex: 1; min-width: 0; margin-bottom: 0; }
+.case-toolbar > .tabs button { padding-block: 8px; }
+.workspace-refresh { flex: none; margin-left: auto; white-space: nowrap; }
 .inbox-layout { flex: 1; min-height: 12rem; grid-template-rows: minmax(0, 1fr); }
 .case-placeholder { min-height: 0; overflow: auto; }
 .conversation-header, .conversation > .composer, .conversation > .notice { flex: none; }
@@ -710,11 +709,8 @@ td { padding: 14px 15px; border-top: 1px solid var(--ds-color-border); vertical-
   .workspace-panels { display: none; }
   .case-workspace-detail .workspace-panels { display: flex; }
   .case-workspace-detail { flex: 1 1 0; }
-  .case-workspace-detail > .tabs { display: none; }
+  .case-workspace-detail > .case-toolbar { display: none; }
   .page-workspace:has(.case-workspace-detail) { overflow: hidden; }
-  .page-workspace:has(.case-workspace-detail) > .page-heading { margin: 0; }
-  .page-workspace:has(.case-workspace-detail) > .page-heading > div { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .page-workspace:has(.case-workspace-detail) > .page-heading > button { display: none; }
   .workspace-panels button { min-width: 0; padding-inline: 9px; font-size: var(--ds-font-size-sm); }
   .workspace-queue-back { display: inline-flex; }
   .inbox-layout { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -749,10 +745,6 @@ td { padding: 14px 15px; border-top: 1px solid var(--ds-color-border); vertical-
 }
 @media (min-width: 768px) and (max-height: 800px) {
   .topbar { min-height: 68px; padding-block: 12px; }
-  .page-workspace > .page-heading { margin-bottom: 8px; }
-  .page-workspace > .page-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; }
-  .page-workspace > .page-heading h1 { font-size: var(--ds-font-size-page); margin-bottom: 0; }
-  .page-workspace > .page-heading p { font-size: var(--ds-font-size-sm); }
 }
 /* When browser chrome/keyboard leaves less than a useful reading area, the
    conversation itself scrolls; history remains reachable instead of shrinking
