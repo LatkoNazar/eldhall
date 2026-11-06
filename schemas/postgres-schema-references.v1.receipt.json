@@ -3,16 +3,16 @@
   "observerProfile": "eldhall-pg17-public-v1",
   "status": "reviewed-reference-derivation",
   "reviewBasis": "independent-source-and-private-ci-candidate-review",
-  "registrySha256": "542ac4170e9880e8f6b52a767944710f46cbbdad834ab3f595b189a1fd29cf7a",
+  "registrySha256": "89204eeb35af89ff4d3f9d89ff54dd1397cfbb56b36c8ebce7c9b241429e8364",
   "candidate": {
-    "sha256": "3dd3c8b8c2e8d7648e2c3e809255837650cd7fb10fdf5fdc5e23061872a73a02",
-    "artifactId": "13355251303",
-    "artifactZipSha256": "a4113eb43fa78d85e47bb6591bea8c0785ded07cce6f6d8c3aef03e6c6460261",
-    "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-    "testedTree": "3ed05e5a0a4675f4a8e9d2fa49132f33decc1046",
-    "runId": "41892940403",
+    "sha256": "8895dcc04b6428172f04b314f4dcdf10e8504ad6f84fd1c0806ece0e8d12be74",
+    "artifactId": "13493532242",
+    "artifactZipSha256": "484a3b973937540b923f784f1a13b7fdfa5cbb4527dbc01d1df01907f720d54e",
+    "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+    "testedTree": "8abf5eb592d5ac6fe8331a663a224db6d21c29ff",
+    "runId": "42199510843",
     "runAttempt": 1,
-    "integrationJobId": "126794828801",
+    "integrationJobId": "127831017402",
     "schemaTests": {
       "passed": 6,
       "failed": 0,
@@ -26,7 +26,7 @@
     },
     {
       "path": "apps/api/src/release/schema-state-contracts.ts",
-      "sha256": "0683690f57d3431fe35b50b930e13ba009ae0bb837af501c5b3d1d66509fa206"
+      "sha256": "5cb658c2b995a76c83409155503eea2c9c65f55116ae9f23c7fbc9f2644aa3c6"
     },
     {
       "path": "apps/api/src/release/schema-state-sql.ts",
@@ -34,7 +34,7 @@
     },
     {
       "path": "apps/api/src/release/schema-state-registry.ts",
-      "sha256": "33637107e6a7de9e4f2a135f6a64b565d869b143bb7ecfef705a73818af4b4b1"
+      "sha256": "68368429306ae5589dbb157879597479c2e96be9f8bad762741df55ee99f8a0d"
     }
   ],
   "fixtureIdentity": "declared-ci-service-input-not-server-attestation",

@@ -19,17 +19,17 @@
         }
       ],
       "evidence": {
-        "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-        "runId": "41892940403",
+        "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+        "runId": "42199510843",
         "postgresVersionNum": 170011,
         "fixtureImageInput": "docker.io/library/postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
       }
     },
     {
-      "id": "support-8fb108cc36782e53b8969cacd79e27c8d6028cc4c6262f9e29d968ce0d92582f",
+      "id": "support-d72ea0591ab8bcdd475effcd387ebe898350496939dddd6b06848fbe1f34c7b0",
       "component": "support",
       "profile": "vector-unavailable",
-      "fingerprint": "8fb108cc36782e53b8969cacd79e27c8d6028cc4c6262f9e29d968ce0d92582f",
+      "fingerprint": "d72ea0591ab8bcdd475effcd387ebe898350496939dddd6b06848fbe1f34c7b0",
       "sources": [
         {
           "path": "apps/api/migrations/0002_support.sql",
@@ -60,13 +60,17 @@
           "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
         },
         {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
           "path": "apps/api/src/modules/support/migrations.ts",
-          "sha256": "cde38ea359ca64da50713dc664454c3a1edc85586460ad2aab1624511117e479"
+          "sha256": "53611ea4fa5adcd16b9b2bc032f2375f886aa75dd5bd2b63e603e82236590db7"
         }
       ],
       "evidence": {
-        "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-        "runId": "41892940403",
+        "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+        "runId": "42199510843",
         "postgresVersionNum": 170011,
         "fixtureImageInput": "docker.io/library/postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
       }
@@ -87,17 +91,17 @@
         }
       ],
       "evidence": {
-        "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-        "runId": "41892940403",
+        "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+        "runId": "42199510843",
         "postgresVersionNum": 170006,
         "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
       }
     },
     {
-      "id": "support-89f31be3e2d4de14610b1b77001adb2f6fc78f3d1f39da7b1351b93cc496aff7",
+      "id": "support-42ec9774ef6dd5f497e4387e5b5fb212154be0a901c797c9307355caeb4208dc",
       "component": "support",
       "profile": "vector-installed",
-      "fingerprint": "89f31be3e2d4de14610b1b77001adb2f6fc78f3d1f39da7b1351b93cc496aff7",
+      "fingerprint": "42ec9774ef6dd5f497e4387e5b5fb212154be0a901c797c9307355caeb4208dc",
       "sources": [
         {
           "path": "apps/api/migrations/0002_support.sql",
@@ -128,22 +132,26 @@
           "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
         },
         {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
           "path": "apps/api/src/modules/support/migrations.ts",
-          "sha256": "cde38ea359ca64da50713dc664454c3a1edc85586460ad2aab1624511117e479"
+          "sha256": "53611ea4fa5adcd16b9b2bc032f2375f886aa75dd5bd2b63e603e82236590db7"
         }
       ],
       "evidence": {
-        "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-        "runId": "41892940403",
+        "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+        "runId": "42199510843",
         "postgresVersionNum": 170006,
         "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
       }
     },
     {
-      "id": "support-8509466d002f4f8ebd7d0b5173106143349b0f6c12d20467089c0dee2509942d",
+      "id": "support-57baebdadd0f531a5a5a599d830fc7d0bf7fde7fbabd98d2a3abedcfdebc70d6",
       "component": "support",
       "profile": "vector-available-uninstalled",
-      "fingerprint": "8509466d002f4f8ebd7d0b5173106143349b0f6c12d20467089c0dee2509942d",
+      "fingerprint": "57baebdadd0f531a5a5a599d830fc7d0bf7fde7fbabd98d2a3abedcfdebc70d6",
       "sources": [
         {
           "path": "apps/api/migrations/0002_support.sql",
@@ -174,13 +182,17 @@
           "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
         },
         {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
           "path": "apps/api/src/modules/support/migrations.ts",
-          "sha256": "cde38ea359ca64da50713dc664454c3a1edc85586460ad2aab1624511117e479"
+          "sha256": "53611ea4fa5adcd16b9b2bc032f2375f886aa75dd5bd2b63e603e82236590db7"
         }
       ],
       "evidence": {
-        "sourceCommit": "2b346ae3584122572b72244ac1bea7feaf9dc9de",
-        "runId": "41892940403",
+        "sourceCommit": "d145a8093093524798f377db8cbbd7f35bb0a7a0",
+        "runId": "42199510843",
         "postgresVersionNum": 170006,
         "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
       }
