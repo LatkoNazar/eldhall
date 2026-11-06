@@ -1,3 +1,5 @@
+import { requestTransitionSchema } from './requests/contracts.js';
+import { RequestValidationError } from './requests/engine.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -28,6 +30,7 @@ async function guard(reply: FastifyReply, run: () => Promise<unknown>) {
   try { return await run(); }
   catch (error) {
     if (error instanceof HarnessError) return reply.code(error.status).send({ detail: error.message });
+    if (error instanceof RequestValidationError) return reply.code(422).send({ detail: error.message });
     if (error instanceof VersionConflict) return reply.code(409).send({ detail: error.message });
     if (error instanceof z.ZodError) return reply.code(422).send({ detail: error.issues.map(i => i.message).join('; ') });
     throw error;
@@ -84,6 +87,12 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       schema: { querystring: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
     }, request => store.listCases(request.query.status));
     operator.get<{ Params: { id: string } }>('/cases/:id', { schema: { params: uuidParams } }, (request, reply) => guard(reply, () => harness.detail(request.params.id)));
+    operator.post<{ Params: { id: string; requestId: string } }>('/cases/:id/requests/:requestId/transition', (request, reply) => guard(reply, async () => {
+      const params=z.strictObject({id:z.uuid(),requestId:z.uuid()}).parse(request.params);
+      const catalog=await store.requestCatalog(params.id);
+      if(!await store.getCase(params.id) || !catalog.requests.some(row=>row.id===params.requestId)) throw new HarnessError(404,'Request not found');
+      return {requestCatalog:await store.requestTransition(params.id,params.requestId,requestTransitionSchema.parse(request.body),'operator:staff')};
+    }));
     operator.post<{ Params: { id: string }; Body: { operator?: string; argsHash: string } }>('/proposals/:id/approve', {
       schema: { params: uuidParams, body: { type: 'object', additionalProperties: false, required: ['argsHash'], properties: { operator: { type: 'string', maxLength: 80 }, argsHash: { type: 'string', pattern: '^[a-f0-9]{64}$' } } } },
     }, (request, reply) => guard(reply, async () => {
@@ -104,8 +113,8 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       operator.post<{ Params: { id: string } }>('/cases/:id/' + command, { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
         const body = ownershipBody.parse(request.body ?? {});
         if (!await store.getCase(request.params.id)) throw new HarnessError(404, 'Case not found');
-        let supportCase = await store.setOwnership(request.params.id, command === 'resume-bot' ? 'bot' : 'staff', 'operator:staff', body.ownershipVersion);
-        supportCase = await store.updateCase(supportCase.id, { status: command === 'resolve' ? 'resolved' : command === 'resume-bot' ? 'open' : 'escalated' });
+        let supportCase = command === 'resolve' ? await store.resolveCase(request.params.id,'operator:staff',body.ownershipVersion) : await store.setOwnership(request.params.id, command === 'resume-bot' ? 'bot' : 'staff', 'operator:staff', body.ownershipVersion);
+        if(command !== 'resolve') supportCase = await store.updateCase(supportCase.id, { status: command === 'resume-bot' ? 'open' : 'escalated' });
         await store.audit(supportCase.id, 'ownership.' + command, 'operator:staff', { ownershipVersion: supportCase.ownershipVersion });
         return { case: supportCase };
       }));

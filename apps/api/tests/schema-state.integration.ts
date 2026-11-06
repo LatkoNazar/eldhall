@@ -57,6 +57,10 @@ test('actual PG17 observations, empirical references and read-only namespace gua
     });
 
     await t.test('actual default, guard/index and trigger drift loses the exact reference', async () => {
+      await plain.owner.query('ALTER TABLE public.support_request_catalogs ADD COLUMN unexpected_schema_field text');
+      assert.equal(matchSchemaReferences(await observeSchemaState(plain), registry, sources).support.status, 'denied');
+      await plain.owner.query('ALTER TABLE public.support_request_catalogs DROP COLUMN unexpected_schema_field');
+      assert.deepEqual((await observeSchemaState(plain)).components, baseline.components);
       await plain.owner.query("ALTER TABLE public.support_messages ALTER COLUMN source_refs SET DEFAULT '[1]'::jsonb");
       assert.equal(matchSchemaReferences(await observeSchemaState(plain), registry, sources).support.status, 'denied');
       await plain.owner.query("ALTER TABLE public.support_messages ALTER COLUMN source_refs SET DEFAULT '[]'::jsonb");

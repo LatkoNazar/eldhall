@@ -5,15 +5,61 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import type { AgentContext, AgentDecision } from '../src/modules/agent/model.js';
+import type { AgentContext, AgentDecision, AgentModel } from '../src/modules/agent/model.js';
 import { seedData } from '../src/modules/support/seed.js';
 import { DshSupportModel } from '../src/runtime/dsh-model.js';
 import { childEnvironment, prepareProfile, SUPPORT_TOOLS } from '../src/runtime/profile.js';
 import { classificationConfigSchema } from '../src/modules/agent/classification.js';
+import { emptyCatalog } from '../src/modules/support/requests/engine.js';
+import { fallbackCheckpoint } from '../src/modules/support/requests/rules.js';
+import { MemorySupportStore } from '../src/modules/support/store.js';
+import { SupportHarness } from '../src/modules/agent/harness.js';
+import { RulesModel } from '../src/modules/agent/model.js';
+import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 
 const finalDecision: AgentDecision = { intent: 'duplicate_charge', summary: 'A duplicate charge was found.', reasoning: 'Two matching captured charges.',
   sentiment: { label: 'frustrated', urgency: 'high' }, reply: 'I prepared a refund for specialist review.',
   action: { tool: 'refund_payment', args: { payment_id: '00000000-0000-4000-8000-000000000202', amount_cents: 49900 } } };
+
+test('native request checkpoint is enforced before final decision and exposes canonical source identities', {timeout:60000}, async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-request-runtime-'));
+  const messageId='00000000-0000-4000-8000-000000000901';
+  const batch={version:0,syncState:'needs_review' as const,changes:[]};
+  const decision={...finalDecision,intent:'other' as const,action:null};
+  const api=await endpoint([{name:'submit_decision',args:decision},{name:'update_customer_requests',args:batch},{name:'submit_decision',args:decision}]);
+  let accepted=false;let calls=0;let catalog=emptyCatalog();
+  try {
+    const model=new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000});
+    const result=await model.decide(context({currentCustomerMessageId:messageId,requestCatalog:()=>catalog,requestSourceMessages:[{id:messageId,body:'A request requiring clarification'}],requestCheckpointAccepted:()=>accepted,
+      checkpointRequests:async input=>{assert.deepEqual(input,batch);calls++;accepted=true;catalog={...catalog,version:1,lastSourceMessageId:messageId};return catalog;}}),new AbortController().signal);
+    assert.equal(calls,1);assert.equal(api.requests.length,3);assert.deepEqual(result.toolCalls,['update_customer_requests','submit_decision']);
+    assert.match(JSON.stringify(api.requests[0]!.messages),new RegExp(messageId));
+    assert.equal(api.requests[0]!.tools!.some(tool=>tool.function.name==='update_customer_requests'),true);assert.equal(result.decision.action,null);
+  } finally {await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
+test('native request checkpoint survives business ask and fences the remaining parallel tools', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-request-ask-'));const store=new MemorySupportStore(seedData());
+  const rules=new RulesModel();const c=await store.createCase(seedData().businesses[0]!.id,seedData().customers[0]!.id);
+  const first=await store.addMessage(c.id,'customer','Змініть адресу. Перенесіть доставку. Поверніть повторне списання. Надішліть рахунок.');const lease=(await store.acquireTurn(c.id,'seed-request-turn'))!;
+  const original=await store.requestCheckpoint(lease,first.id,fallbackCheckpoint(await store.requestCatalog(c.id),first));await store.releaseTurn(lease);
+  const refund=original.requests.find(row=>row.title.includes('списання'))!;let remoteCalls=0;let api:Awaited<ReturnType<typeof endpoint>>|undefined;
+  const model:AgentModel={provider:'dsh:local',model:'request-ask-fixture',requestCatalogProtocol:'checkpoint-v1',decide:async(ctx,signal)=>{
+    const batch={version:ctx.requestCatalog!().version,syncState:'current',changes:[{localKey:'refund',id:refund.id,expectedRevision:refund.revision,title:refund.title,goal:refund.goal,waitingOn:null,nextStep:null,sourceMessageIds:[ctx.currentCustomerMessageId!],dependencyIds:[],dependencyKeys:[]}]};
+    api=await endpoint([{name:'update_customer_requests',args:batch},{batch:[{name:'call_business_tool',args:{integrationId:'fixture',name:'refund_duplicate',input:{payment_id:'synthetic-payment'},requests:[{id:refund.id,revision:refund.revision}]}},{name:'search_knowledge',args:{query:'must not run after pending approval'}}]}]);
+    return new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000}).decide(ctx,signal);
+  }};
+  const harness=new SupportHarness({store,model,fallback:rules,provider:new SimulatedPaymentProvider(),timeoutMs:40000,integrations:{forContext:ctx=>({
+    tools:[{integrationId:'fixture',name:'refund_duplicate',description:'Synthetic action requiring review',inputSchema:{type:'object',properties:{payment_id:{type:'string'}},additionalProperties:false}}],
+    callTool:async(_integration,_name,input)=>{remoteCalls++;return ctx.propose!({mode:'ask',title:'Review duplicate refund',args:{managed:false,integrationId:'fixture',operationKey:'POST /refunds',toolName:'refund_duplicate',title:'Review duplicate refund',effect:'write',input,tags:['eldhall.ui.payments'],businessId:ctx.businessId,customerId:ctx.customerId,caseId:ctx.caseId,ownershipVersion:ctx.ownershipVersion,manifestHash:'a'.repeat(64),operationHash:'b'.repeat(64),connectionRevision:'1',policyRevision:1,expiresAt:new Date(Date.now()+900000).toISOString()}});},
+  })}});
+  try {
+    const result=await harness.runTurn('demo-olena',c.id,'Please prepare that duplicate refund');const detail=await harness.detail(c.id);
+    assert.equal(remoteCalls,1);assert.equal(api!.requests.length,2);assert.equal(detail.requestCatalog.requests.length,4);assert.equal(detail.proposals.length,1);assert.equal(detail.proposals[0]!.status,'pending');
+    const current=detail.requestCatalog.requests.find(row=>row.id===refund.id)!;assert.equal(current.actions[0]!.proposalId,detail.proposals[0]!.id);assert.equal(current.actions[0]!.requestRevision,refund.revision);assert.equal(current.lifecycle,'open');
+    assert.equal(detail.audit.some(event=>event.type==='knowledge.searched'),false);assert.equal(result.case.status,'awaiting_approval');assert.equal(result.reply!.body.includes(refund.id),false);
+  } finally {if(api)await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
 
 function context(overrides: Partial<AgentContext> = {}): AgentContext {
   const data = seedData();

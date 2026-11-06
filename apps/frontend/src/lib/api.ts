@@ -1,5 +1,6 @@
 import { translateMessage, formatMoney, formatDateTime, type AppMessageKey, type Locale, type Translate, type TranslationValues, type UiMessage } from '../i18n'
 import { captureOperatorUnauthorized } from './operator-session'
+import { validRequestCatalog, type RequestCatalog } from './request-catalog'
 
 export type CaseStatus = 'open' | 'awaiting_approval' | 'escalated' | 'resolved'
 export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' | 'rejected' | 'failed' | 'denied' | 'unknown' | 'expired' | 'invalidated'
@@ -22,6 +23,8 @@ export interface SupportCase { id: string; businessId: string; customerId: strin
 export interface Message { id: string; caseId: string; role: 'customer' | 'assistant' | 'operator' | 'system'; body: string; createdAt: string }
 export interface Proposal { id: string; caseId: string; tool: string; args: Record<string, unknown>; argsHash: string; risk: string; status: ProposalStatus; policy: { allowed: boolean; requiresApproval: boolean; checks: { name: string; passed: boolean; detail: string }[] }; authorizationOrigin?: 'policy_auto' | 'operator_approval' | null; decidedBy: string | null; decidedAt: string | null; result: Record<string, unknown> | null; error: string | null; createdAt: string }
 export interface CaseDetail {
+  requestCatalog?: RequestCatalog
+  activeRun?: { id: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' } | null
   case: SupportCase; customer: { id: string; name: string; email: string; plan: string; businessId: string }
   messages: Message[]; proposals: Proposal[]
   payments: { id: string; amountCents: number; currency: string; description: string; merchantRef: string; status: string; createdAt: string }[]
@@ -89,7 +92,7 @@ function validPayload(path: string, value: unknown): boolean {
   const route = path.split('?')[0] ?? path
   if (route === '/operator/session') return record(value) && value.authenticated === true
   if (route === '/cases') return list(value, caseShape)
-  if (/^\/cases\/[^/]+$/.test(route)) return record(value) && caseShape(value.case) && record(value.customer) && strings(value.customer, ['name', 'email', 'plan']) && list(value.messages, messageShape) && list(value.proposals, proposalShape) && list(value.payments, item => record(item) && strings(item, ['id', 'currency', 'createdAt', 'description', 'status']) && finite(item.amountCents)) && list(value.refunds, item => record(item) && strings(item, ['id', 'providerRef'])) && list(value.audit, item => record(item) && strings(item, ['id', 'type', 'actor', 'createdAt'])) && list(value.runs, item => record(item) && strings(item, ['id', 'status', 'provider', 'model']) && finite(item.latencyMs) && Array.isArray(item.toolCalls))
+  if (/^\/cases\/[^/]+$/.test(route)) return record(value) && caseShape(value.case) && record(value.customer) && strings(value.customer, ['name', 'email', 'plan']) && list(value.messages, messageShape) && list(value.proposals, proposalShape) && list(value.payments, item => record(item) && strings(item, ['id', 'currency', 'createdAt', 'description', 'status']) && finite(item.amountCents)) && list(value.refunds, item => record(item) && strings(item, ['id', 'providerRef'])) && list(value.audit, item => record(item) && strings(item, ['id', 'type', 'actor', 'createdAt'])) && list(value.runs, item => record(item) && strings(item, ['id', 'status', 'provider', 'model']) && finite(item.latencyMs) && Array.isArray(item.toolCalls)) && customerRunShape(value.activeRun) && validRequestCatalog(value.requestCatalog, value as unknown as CaseDetail)
   if (route === '/metrics') return record(value) && finite(value.cases) && record(value.byStatus) && ['open', 'awaiting_approval', 'escalated', 'resolved'].every(key => finite((value.byStatus as Record<string, unknown>)[key])) && record(value.byPriority) && record(value.proposals) && Object.values(value.proposals).every(finite) && finite(value.agentRuns) && finite(value.fallbackRuns) && (value.avgAgentLatencyMs === null || finite(value.avgAgentLatencyMs))
   if (route === '/chat/personas') return list(value, item => record(item) && strings(item, ['name', 'sessionToken', 'businessName', 'plan']))
   if (/^\/chat\/cases\/[^/]+$/.test(route)) return record(value) && strings(value, ['id', 'status', 'businessName']) && ownershipShape(value.ownership) && customerRunShape(value.activeRun) && list(value.messages, messageShape)

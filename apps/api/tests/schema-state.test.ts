@@ -164,7 +164,7 @@ test('checked-in reviewed references preserve empirical candidate identity and r
   assert.equal(registry.entries.length, 5);
   assert.deepEqual(registry.entries.filter(entry => entry.component === 'support').map(entry => entry.profile).sort(), ['vector-available-uninstalled', 'vector-installed', 'vector-unavailable']);
   assert.equal(registry.entries.filter(entry => entry.component === 'starter').length, 2);
-  for (const path of [schemaSourcePaths.starter[1], schemaSourcePaths.support[7], observerPaths[0]!]) {
+  for (const path of [schemaSourcePaths.starter[1], 'apps/api/migrations/0009_customer_requests.sql', 'apps/api/src/modules/support/migrations.ts', observerPaths[0]!]) {
     const drifted = new Map(sources); drifted.set(path, Buffer.concat([sources.get(path)!, Buffer.from('\n// drift\n')]));
     assert.throws(() => verifyPinnedSchemaArtifacts(registryText, receiptText, drifted), /Current source drift/);
   }

@@ -1,3 +1,4 @@
+import { reopenTrackedCaseForMessage } from './requests/postgres.js';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { AcceptedTurn, Message, SupportCase, SupportTurnJob, TurnLease } from './contracts.js';
@@ -50,6 +51,8 @@ export class PostgresTurnJobs {
       if (cases.rows[0].active_run_id) throw new VersionConflict('A support run is active');
       const messages = await client.query("INSERT INTO support_messages(id,case_id,role,body,client_message_id) VALUES($1,$2,'customer',$3,$4) RETURNING *", [randomUUID(), caseId, body, clientMessageId ?? null]);
       const message = row<Message>(messages.rows[0]);
+      await reopenTrackedCaseForMessage(client,caseId,body);
+      const refreshed=(await client.query('SELECT status FROM support_cases WHERE id=$1',[caseId])).rows[0];supportCase.status=refreshed.status;
       await client.query('UPDATE support_cases SET updated_at=now() WHERE id=$1', [caseId]);
       if (supportCase.ownership === 'staff') {
         await client.query("INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,'message.routed_to_staff',$3,'{}')", [randomUUID(), caseId, 'customer:' + customerId]);

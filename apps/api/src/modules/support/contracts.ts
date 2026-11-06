@@ -1,3 +1,5 @@
+import type { RequestCatalog } from './requests/contracts.js';
+export type { RequestCatalog, CustomerRequest, RequestEvent, RequestTarget } from './requests/contracts.js';
 import type { ClassificationConfig, TicketClassification } from '../agent/classification.js';
 import type { ExternalKnowledgeRef } from '../knowledge/qdrant.js';
 
@@ -99,6 +101,7 @@ export interface AgentRun {
 }
 
 export interface CaseDetail {
+  requestCatalog: RequestCatalog;
   activeRun?: { id: string; status: SupportTurnJob['status'] } | null;
   case: SupportCase; customer: Omit<Customer, 'sessionToken'>; payments: Payment[];
   messages: Message[]; proposals: Proposal[]; audit: AuditEvent[]; runs: AgentRun[]; refunds: Refund[];

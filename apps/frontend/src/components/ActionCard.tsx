@@ -2,6 +2,7 @@ import { useI18n, type UiMessage } from '../i18n'
 import { ProposalContext } from './ProposalContext'
 import { isReadOnlyDemo } from '../lib/demo-mode'
 import { validCurrency } from '../lib/presentation'
+import { blockedRequestProposals } from '../lib/request-catalog'
 import { ErrorNotice } from './ErrorNotice'
 import { currentAnalytics } from '@eldhall/analytics'
 import { useEffect, useState } from 'react'
@@ -31,14 +32,16 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
   const payment = detail.payments.find(item => item.id === proposal.args.payment_id)
   const amount = proposal.tool === 'refund_payment' && typeof proposal.args.amount_cents === 'number' && Number.isSafeInteger(proposal.args.amount_cents) && proposal.args.amount_cents >= 0 && payment && validCurrency(payment.currency) ? money(proposal.args.amount_cents, payment.currency, locale) : ''
   const terminal = ['executed', 'failed', 'denied', 'rejected', 'unknown', 'expired', 'invalidated'].includes(proposal.status)
+  const requestBlocked = blockedRequestProposals(detail.requestCatalog, detail).has(proposal.id)
   const locked = isReadOnlyDemo() || busy || stale || lockedStatus === proposal.status || expired
   async function decide(action: 'approve' | 'execute' | 'reject') {
-    if (locked || (uncertain && !terminal)) return
+    if (locked || (requestBlocked && action !== 'reject') || (uncertain && !terminal)) return
     setBusy(true); setError(null); setNotice(null)
     try {
       const latest = await request<CaseDetail>(`/cases/${encodeURIComponent(detail.case.id)}`, token)
       const current = latest.proposals.find(item => item.id === proposal.id)
       if (!current || current.argsHash !== proposal.argsHash || current.status !== proposal.status) throw new UiError('core.action.changed')
+      if (action !== 'reject' && blockedRequestProposals(latest.requestCatalog, latest).has(proposal.id)) throw new UiError('core.action.changed')
       const result = await request(`/proposals/${encodeURIComponent(proposal.id)}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
       trackDecision(action, proposal.tool, result)
       setLockedStatus(proposal.status)
@@ -60,9 +63,10 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
     {proposal.error && <ErrorNotice error={new ApiError(502, proposal.error, { proposal: { status: proposal.status } }, undefined, proposal.error)} />}{error !== null && <ErrorNotice error={error} />}{notice && <Notice>{translateMessage(notice)}</Notice>}
     {expired && <Notice error>{t("core.action.expiredNotice")}</Notice>}
     {uncertain && !terminal && <Notice>{t("core.action.uncertain")}</Notice>}
-    {proposal.status === 'pending' && !uncertain && proposal.policy.requiresApproval && <div className="action-buttons"><button className="primary" disabled={locked || !proposal.policy.allowed} onClick={() => void decide('approve')}>{busy ? t("core.common.checking") : proposal.tool === 'refund_payment' ? t("core.action.approveRefund") : t("core.action.approve")}</button><button className="outline-danger" disabled={locked} onClick={() => setRejecting(value => !value)}>{t("core.common.reject")}</button></div>}
+    {requestBlocked && <Notice>{t('requests.blockedExecution')}</Notice>}
+    {proposal.status === 'pending' && !uncertain && proposal.policy.requiresApproval && <div className="action-buttons"><button className="primary" disabled={locked || requestBlocked || !proposal.policy.allowed} onClick={() => void decide('approve')}>{busy ? t("core.common.checking") : proposal.tool === 'refund_payment' ? t("core.action.approveRefund") : t("core.action.approve")}</button><button className="outline-danger" disabled={locked} onClick={() => setRejecting(value => !value)}>{t("core.common.reject")}</button></div>}
     {proposal.status === 'pending' && !proposal.policy.requiresApproval && <Notice>{t("core.action.autoPending")}</Notice>}
-    {proposal.status === 'approved' && !uncertain && <><p className="small">{t("core.action.executionHint")}</p><button className="primary full" disabled={locked} onClick={() => void decide('execute')}>{busy ? t("core.action.executing") : t("core.action.execute")}</button></>}
+    {proposal.status === 'approved' && !uncertain && <><p className="small">{t("core.action.executionHint")}</p><button className="primary full" disabled={locked || requestBlocked} onClick={() => void decide('execute')}>{busy ? t("core.action.executing") : t("core.action.execute")}</button></>}
     {rejecting && proposal.status === 'pending' && <form className="reject-form" onSubmit={event => { event.preventDefault(); if (reason.trim()) void decide('reject') }}><label htmlFor={`reject-${proposal.id}`}>{t("core.action.rejectReason")}</label><textarea id={`reject-${proposal.id}`} required maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /><button disabled={locked || !reason.trim()} type="submit">{t("core.action.confirmReject")}</button></form>}
     {proposal.status === 'unknown' && <Notice>{external ? t("core.action.externalUnknown") : t("core.action.paymentUnknown")}  {t("core.action.noRetry")}</Notice>}
     {proposal.status === 'unknown' && external && <ReconcileAction proposal={proposal} caseId={detail.case.id} token={token} stale={stale} onChanged={onChanged} />}

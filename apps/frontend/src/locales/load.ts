@@ -2,29 +2,30 @@ import type { Locale } from '../../../../packages/i18n/src/core.ts'
 import coreEn from './core/en.ts'
 import operationsEn from './operations/en.ts'
 import presentationEn from './presentation/en.ts'
+import requestsEn from './requests/en.ts'
 
-export type AppMessageKey = keyof typeof coreEn | keyof typeof operationsEn | keyof typeof presentationEn
+export type AppMessageKey = keyof typeof coreEn | keyof typeof operationsEn | keyof typeof presentationEn | keyof typeof requestsEn
 export type AppCatalog = Record<AppMessageKey, string>
-export const englishCatalog: AppCatalog = { ...coreEn, ...operationsEn, ...presentationEn }
+export const englishCatalog: AppCatalog = { ...coreEn, ...operationsEn, ...presentationEn, ...requestsEn }
 
 const loaded = new Map<Locale, AppCatalog>([['en', englishCatalog]])
 const pending = new Map<Locale, Promise<AppCatalog>>()
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<AppCatalog>> = {
   es: async () => {
-    const [core, operations, presentation] = await Promise.all([import('./core/es.ts'), import('./operations/es.ts'), import('./presentation/es.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default }
+    const [core, operations, presentation, requests] = await Promise.all([import('./core/es.ts'), import('./operations/es.ts'), import('./presentation/es.ts'), import('./requests/es.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default }
   },
   uk: async () => {
-    const [core, operations, presentation] = await Promise.all([import('./core/uk.ts'), import('./operations/uk.ts'), import('./presentation/uk.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default }
+    const [core, operations, presentation, requests] = await Promise.all([import('./core/uk.ts'), import('./operations/uk.ts'), import('./presentation/uk.ts'), import('./requests/uk.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default }
   },
   de: async () => {
-    const [core, operations, presentation] = await Promise.all([import('./core/de.ts'), import('./operations/de.ts'), import('./presentation/de.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default }
+    const [core, operations, presentation, requests] = await Promise.all([import('./core/de.ts'), import('./operations/de.ts'), import('./presentation/de.ts'), import('./requests/de.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default }
   },
   pt: async () => {
-    const [core, operations, presentation] = await Promise.all([import('./core/pt.ts'), import('./operations/pt.ts'), import('./presentation/pt.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default }
+    const [core, operations, presentation, requests] = await Promise.all([import('./core/pt.ts'), import('./operations/pt.ts'), import('./presentation/pt.ts'), import('./requests/pt.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default }
   },
 }
 

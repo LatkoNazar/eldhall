@@ -13,6 +13,7 @@ This is a **source-build preview**, not a published installable release. The sel
 - Records action outcomes and audit with replay protection. An ambiguous external effect remains `unknown` for reconciliation rather than being blindly repeated.
 - Provides English, Spanish, Ukrainian, German and Portuguese interfaces with saved language preferences, local formatting and localized landing pages. See [localization and adding languages](docs/LOCALIZATION.md).
 - Structures case context and actions with twelve explicit business presentation templates and a generic fallback. See [template fields, reviewed tags and isolated examples](docs/INSPECTOR_TEMPLATES.md).
+- Tracks customer requests inside one shared ticket conversation, with message provenance, revisioned action links and a catalog/detail operator view. See [request tracking, checkpoints and lifecycle boundaries](docs/REQUEST_CATALOG.md).
 
 The built-in financial provider is **simulated**; refund identifiers do not represent real money movement. Staff authentication uses a deployment-wide operator bearer. SSO, invitations, complete RBAC and scoped host-service credentials are not implemented. Model/provider availability and output quality require their own evaluation.
 

@@ -45,7 +45,8 @@ test('1. duplicate charge: approved refund updates payment, refund, case and aud
   assert.equal(turn.proposal?.args.payment_id, DUP_LATER);
   const result = await approveAndExecute(h, turn.proposal!);
   assert.equal(result.proposal.status, 'executed');
-  assert.equal(result.case.status, 'resolved');
+  assert.equal(result.case.status, 'open');
+  assert.equal((await h.store.requestCatalog(caseId)).requests[0]!.lifecycle, 'open');
   assert.equal((await h.store.payment(DUP_LATER))?.status, 'refunded');
   assert.equal((await h.store.payment(DUP_FIRST))?.status, 'captured');
   assert.equal((await h.store.refunds()).length, 1);

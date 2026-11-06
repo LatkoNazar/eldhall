@@ -1,3 +1,4 @@
+import { fallbackCheckpoint } from '../src/modules/support/requests/rules.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
@@ -156,7 +157,8 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       const old=simultaneous.find(Boolean)!;
       assert.equal(simultaneous.filter(Boolean).length,1);
       const args={payment_id:'00000000-0000-4000-8000-000000000202',amount_cents:49900};
-      await restarted.createProposal({caseId:c.id,tool:'refund_payment',args,argsHash:argsHash(c.id,'refund_payment',args),risk:'high',status:'pending',policy:{allowed:true,requiresApproval:true,checks:[]}},old.lease);
+      const catalog=await restarted.requestCheckpoint(old.lease,accepted.message.id,fallbackCheckpoint(await restarted.requestCatalog(c.id),accepted.message));const request=catalog.requests[0]!;
+      await restarted.createProposal({caseId:c.id,tool:'refund_payment',args,argsHash:argsHash(c.id,'refund_payment',args),risk:'high',status:'pending',policy:{allowed:true,requiresApproval:true,checks:[]}},old.lease,[{id:request.id,revision:request.revision}]);
       await pool!.query("UPDATE support_turn_jobs SET lease_expires_at=now()-interval '1 second' WHERE id=$1",[accepted.job!.id]);
       const recovered=(await restarted.claimTurnJob(accepted.job!.id,'replacement-worker'))!;
       assert.equal(recovered.lease.jobFence,2);

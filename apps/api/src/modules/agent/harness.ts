@@ -1,3 +1,5 @@
+import { fallbackCheckpoint, fallbackTargets } from '../support/requests/rules.js';
+import { requestCheckpointSchema, requestTargetsSchema, type RequestTarget } from '../support/requests/contracts.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Analysis, CaseDetail, Customer, Message, Proposal, SupportCase, SupportTurnJob, TurnLease, TurnResult } from '../support/contracts.js';
 import { ProviderError, type PaymentProvider } from '../support/payment-provider.js';
@@ -115,11 +117,11 @@ export class SupportHarness {
   async runQueued(job: SupportTurnJob, lease: TurnLease) {
     const customer = await this.deps.store.customer(job.customerId);
     if (!customer) throw new HarnessError(404, 'Customer not found');
-    return this.runTurn(customer.sessionToken, job.caseId, job.body, lease);
+    return this.runTurn(customer.sessionToken, job.caseId, job.body, lease, job.customerMessageId);
   }
 
   /** One customer message -> one bounded agent run -> at most one proposal. */
-  async runTurn(sessionToken: string | undefined, caseId: string, body: string, preparedLease?: TurnLease): Promise<TurnResult> {
+  async runTurn(sessionToken: string | undefined, caseId: string, body: string, preparedLease?: TurnLease, acceptedMessageId?: string): Promise<TurnResult> {
     const { store } = this.deps;
     const { customer, supportCase } = await this.customerCase(sessionToken, caseId);
     body = body.trim();
@@ -128,15 +130,16 @@ export class SupportHarness {
       if (preparedLease) throw new HarnessError(409, 'Conversation is owned by staff');
       await store.addMessage(caseId, 'customer', body);
       await store.audit(caseId, 'message.routed_to_staff', `customer:${customer.id}`);
-      return { case: supportCase, reply: null, proposal: null };
+      return { case: (await store.getCase(caseId))!, reply: null, proposal: null };
     }
     const lease = preparedLease ?? await store.acquireTurn(caseId, randomUUID());
     if (!lease) throw new HarnessError(409, 'A run is active or the conversation is owned by staff');
     try {
     const business = (await store.business(customer.businessId))!;
     const settings = await store.settings(customer.businessId);
+    let currentCustomerMessageId = acceptedMessageId;
     if (!preparedLease) {
-      await store.addMessage(caseId, 'customer', body);
+      currentCustomerMessageId = (await store.addMessage(caseId, 'customer', body)).id;
       await store.audit(caseId, 'message.received', `customer:${customer.id}`, { length: body.length });
     }
 
@@ -183,6 +186,21 @@ export class SupportHarness {
       if (externalFailed) throw new StaleTurn('External knowledge is unavailable');
       for(const [integrationId,observed] of observedPolicies) { const state=await store.integrationStore.get(customer.businessId,integrationId);if(!state||!state.enabled||state.draining||state.activeManifestHash!==observed.manifestHash||state.connectionRevision!==observed.connectionRevision||state.policy.policyRevision!==observed.policyRevision) throw new StaleTurn('Integration policy changed'); }
     };
+    const requestMessages = await store.messages(caseId);
+    const sourceMessage = requestMessages.find(message => message.id === currentCustomerMessageId && message.role === 'customer');
+    if (!sourceMessage) throw new StaleTurn('Current customer message is unavailable');
+    let requestCatalog = await store.requestCatalog(caseId);
+    let checkpointAccepted = requestCatalog.lastSourceMessageId === sourceMessage.id;
+    let selectedRequests: RequestTarget[] = [];
+    const checkpoint = async (batch: import('../support/requests/contracts.js').RequestCheckpoint) => {
+      await assertActive();
+      requestCatalog = await store.requestCheckpoint(lease, sourceMessage.id, requestCheckpointSchema.parse(batch));
+      checkpointAccepted = true;
+      return structuredClone(requestCatalog);
+    };
+    const ensureCheckpoint = async () => { if (!checkpointAccepted) await checkpoint(fallbackCheckpoint(requestCatalog, sourceMessage)); };
+    // Old custom models remain compatible through an explicit source-grounded local checkpoint.
+    if (this.deps.model.requestCatalogProtocol !== 'checkpoint-v1') await ensureCheckpoint();
     let awaitingApproval: { proposalId: string; title: string } | undefined;
     let finishPending!: (decision: AgentDecision) => void;
     const pendingDecision = new Promise<AgentDecision>(resolve => { finishPending = resolve; });
@@ -198,6 +216,10 @@ export class SupportHarness {
       runtimeAttempt: lease.jobFence !== undefined && lease.jobFence > 1 ? lease.jobFence : undefined,
       ...(externalMode ? { knowledgeSessionKey: lease.runId } : {}),
       turnJobId: lease.jobFence !== undefined ? lease.runId : undefined,
+      currentCustomerMessageId: sourceMessage.id,
+      requestCatalog: () => structuredClone(requestCatalog), requestSourceMessages: requestMessages.filter(message => message.role === 'customer').slice(-30).map(({id,body})=>({id,body})),
+      checkpointRequests: batch => modelTool(() => checkpoint(batch)),
+      ensureRequestCheckpoint: ensureCheckpoint, requestCheckpointAccepted: () => checkpointAccepted,
       assertActive, knowledge, skills, classification: settings.classification,
       pendingApproval: () => awaitingApproval ? { proposalId: awaitingApproval.proposalId, summary: awaitingApproval.title } : undefined,
       searchKnowledge: (query, signal) => modelTool(async () => {
@@ -238,9 +260,10 @@ export class SupportHarness {
       const semantic = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([key])=>key!=='expiresAt'));
       if (prior && argsHash(caseId,'external_action',semantic(prior.args)) !== argsHash(caseId,'external_action',semantic(requestedArgs))) return { status: 'denied', reasonCode: 'one_external_action_per_turn' };
       const args = prior?.args ?? requestedArgs;
+      if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before proposing an action');
       const hash = argsHash(caseId, 'external_action', args);
       let proposal = prior ?? await store.createProposal({ caseId, tool: 'external_action', args, argsHash: hash, risk: 'high', status: 'pending',
-        policy: { allowed: true, requiresApproval: mode === 'ask', checks: [{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease);
+        policy: { allowed: true, requiresApproval: mode === 'ask', checks: [{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease, selectedRequests);
       if (!prior) await store.audit(caseId, 'action.proposed', 'agent', { proposalId: proposal.id, tool: 'external_action', operationKey: args.operationKey, mode });
       if (mode === 'auto' && proposal.status === 'pending') {
         const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
@@ -260,11 +283,14 @@ export class SupportHarness {
     ctx.businessTools = integrations?.listTools ? await integrations.listTools() : integrations?.tools ?? [];
     // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
     const evidence: string[] = [];
-    ctx.callBusinessTool = integrations ? (integrationId, name, input, signal) => modelTool(async () => {
+    ctx.callBusinessTool = integrations ? (integrationId, name, input, signal, requests) => modelTool(async () => {
+      if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before business tools');
+      selectedRequests = requests ? requestTargetsSchema.parse(requests) : fallbackTargets(requestCatalog, 'external_action');
       const result = await integrations.callTool(integrationId, name, input, signal);collectStrings(result, evidence);return result;
     }).catch(error => { if (error instanceof ApprovalPendingToolError) return { status: 'denied', reasonCode: 'turn_awaiting_approval' };throw error; }) : undefined;
 
     const { decision, source, model, classification } = await this.decide(caseId, ctx, terminal);
+    if (!checkpointAccepted) throw new HarnessError(409, 'Request catalog checkpoint required');
     await assertActive();
     await assertExternal();
     const sentiment = mergeSentiment(lexicalSentiment(body), decision.sentiment);
@@ -281,13 +307,13 @@ export class SupportHarness {
       action = { tool: 'escalate_to_human', args: { reason: `High escalation risk (${sentiment.label})` } };
     }
     let proposal: Proposal | null = null;
-    if (action) proposal = await this.propose(caseId, customer, action.tool, action.args, lease);
+    if (action) proposal = await this.propose(caseId, customer, action.tool, action.args, lease, action.requests ?? fallbackTargets(requestCatalog, action.tool));
     let escalated = proposal?.status === 'executed' && proposal.tool === 'escalate_to_human';
     if (externalAction) externalAction.proposal = (await store.proposal(externalAction.proposal.id)) ?? externalAction.proposal;
     // An unconfirmed external effect needs a person to reconcile it before anything else happens.
     if (externalAction && ['unknown','failed','expired','invalidated'].includes(externalAction.proposal.status)) escalated = true;
     if (proposal?.status === 'denied' && proposal.tool !== 'escalate_to_human') {
-      const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` }, lease);
+      const handoff = await this.propose(caseId, customer, 'escalate_to_human', { reason: `Policy denied ${proposal.tool}` }, lease, fallbackTargets(requestCatalog, 'escalate_to_human'));
       escalated = handoff.status === 'executed';
     }
 
@@ -357,6 +383,7 @@ export class SupportHarness {
         return { decision: applicationDecision, source: 'fallback', model: model.model, classification };
       }
       const message = error instanceof Error ? error.message.slice(0, 300) : 'Model failed';
+      await ctx.ensureRequestCheckpoint?.();
       const output = await fallback.decide(ctx, new AbortController().signal);
       const classification = await classified(output.decision, 'fallback');
       await ctx.assertActive();
@@ -381,14 +408,14 @@ export class SupportHarness {
     };
   }
 
-  private async propose(caseId: string, customer: Customer, tool: string, args: Record<string, unknown>, lease: TurnLease): Promise<Proposal> {
+  private async propose(caseId: string, customer: Customer, tool: string, args: Record<string, unknown>, lease: TurnLease, requests: RequestTarget[] = []): Promise<Proposal> {
     const { store } = this.deps;
     const policy = evaluatePolicy(tool, args, await this.policyContext(customer));
     const proposal = await store.createProposal({
       caseId, tool, args, argsHash: argsHash(caseId, tool, args),
       risk: isToolName(tool) ? TOOLS[tool].risk : 'high',
       status: policy.allowed ? 'pending' : 'denied', policy,
-    }, lease);
+    }, lease, requests);
     await store.audit(caseId, policy.allowed ? 'action.proposed' : 'action.denied', 'agent', { proposalId: proposal.id, tool, failed: policy.checks.filter(c => !c.passed).map(c => c.name) });
     if (policy.allowed && !policy.requiresApproval) {
       const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
@@ -540,6 +567,7 @@ export class SupportHarness {
     const activeRun = await store.activeTurnJob(caseId);
     return {
       activeRun: activeRun ? { id: activeRun.id, status: activeRun.status } : null,
+      requestCatalog: await store.requestCatalog(caseId),
       case: supportCase, customer,
       payments: await store.payments(customer.id, 20),
       messages: await this.visibleMessages(supportCase.businessId, caseId),

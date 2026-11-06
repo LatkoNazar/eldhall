@@ -58,7 +58,8 @@ test('ask: proposal only, honest pending reply; approve does nothing; execute di
   const executed = await h.harness.executeApproved(proposal.id, 'anna', proposal.argsHash);
   assert.equal(executed.proposal.status, 'executed');
   assert.deepEqual(executed.proposal.result, { data: { order_id: 'ORD-1001', status: 'cancelled' } });
-  assert.equal(executed.case.status, 'resolved');
+  assert.equal(executed.case.status, 'open');
+  assert.equal((await h.store.requestCatalog(caseId)).requests[0]!.lifecycle, 'open');
   assert.deepEqual(h.executed.map(row => row.actionId), [proposal.id]);
   assert.equal((await h.store.messages(caseId)).at(-1)!.body, 'Дію «Cancel order» виконано (статус: cancelled).');
   await assert.rejects(h.harness.executeApproved(proposal.id, 'anna', proposal.argsHash), (error: unknown) => error instanceof HarnessError && error.status === 409);

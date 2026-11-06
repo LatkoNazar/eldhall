@@ -24,17 +24,27 @@ The worker republishes pending PostgreSQL rows to BullMQ, so a broker outage or 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/v1/cases?status=open\|awaiting_approval\|escalated\|resolved` | – | `SupportCase[]` sorted by priority, then recency |
-| GET | `/api/v1/cases/:id` | – | `CaseDetail` = `{case, customer, payments, messages, proposals, audit, runs, refunds}` |
+| GET | `/api/v1/cases/:id` | – | `CaseDetail` = `{case, customer, payments, messages, proposals, audit, runs, refunds, activeRun, requestCatalog}` |
 | POST | `/api/v1/proposals/:id/approve` | `{argsHash}` | 200 `{proposal, case}`, proposal `approved`; no business action |
 | POST | `/api/v1/proposals/:id/execute` | `{argsHash}` | 200 executed; 502 `{proposal,case}` failed/unknown; 409 absent/expired approval, different args, or reserved payment |
 | POST | `/api/v1/proposals/:id/reject` | `{reason}` | 200 `{proposal, case}`; 409 already decided |
 | POST | `/api/v1/cases/:id/takeover` | `{ownershipVersion?}` | `{case}` staff ownership; invalidates pending approvals |
 | POST | `/api/v1/cases/:id/resume-bot` | `{ownershipVersion?}` | `{case}` explicit return to bot |
-| POST | `/api/v1/cases/:id/resolve` | `{ownershipVersion?}` | `{case}` resolved, staff ownership |
+| POST | `/api/v1/cases/:id/resolve` | `{ownershipVersion?}` | `{case}` resolved, staff ownership; 409 without partial ownership changes if tracked requests or effects still require attention |
 | POST | `/api/v1/cases/:id/messages` | `{body,ownershipVersion?}` | `{message,case}`; requires current staff ownership |
+| POST | `/api/v1/cases/:id/requests/:requestId/transition` | `{version,revision,transition:fulfill\|cancel\|reopen,reason,proof:{proposalIds,messageIds}}` | `{requestCatalog}`; operator-only, same-case evidence and optimistic versions required; this endpoint never executes a business action |
 | GET | `/api/v1/metrics` | – | `Metrics` (all values measured from stored state) |
 | GET | `/api/v1/capabilities` | – | Actual configured runtime/provider/model/execution/persistence, credential-presence boolean, simulated payment provider |
 | POST | `/api/v1/demo/reset` (demo only) | – | `{status:"reset"}` — re-seeds synthetic data |
+
+`requestCatalog` tracks customer goals separately from proposals. It has a catalog
+`version`, `syncState`, `lastSourceMessageId`, stable request records and bounded
+`history:{events,hasMore}`. Requests reference the shared messages and specific
+proposal revisions; selecting one does not create another conversation. A
+proposal's execution does not automatically fulfill a goal, and completing one
+action cannot resolve a tracked ticket with other open goals. Existing cases
+without classified requests retain their historical actions. See the
+[request catalog contract and safety boundaries](REQUEST_CATALOG.md).
 
 `argsHash` must be copied from the proposal the operator is looking at; it binds the approval to that exact operation.
 Approval expires after 15 minutes. The verified bearer maps to the deployment's `operator:staff` principal; a legacy `operator` body field is ignored. Payment-level reservations prevent separate proposals from dispatching a second refund. An ambiguous provider result becomes `unknown`, stays reserved, and requires manual reconciliation; retry never dispatches again. All refunds in this MVP are explicitly simulated.

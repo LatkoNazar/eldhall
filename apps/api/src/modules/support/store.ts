@@ -1,4 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { requestCheckpointSchema } from './requests/contracts.js';
+import { hasUnrepresentedInput, isAcknowledgement } from './requests/text.js';
+import type { RequestCatalog, RequestCheckpoint, RequestEvent, RequestTarget, RequestTransition } from './requests/contracts.js';
+import { actionAllowed, aggregateRequestStatus, applyCheckpoint, emptyCatalog, linkAction, publicCatalog, transitionRequest } from './requests/engine.js';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AcceptedTurn, AgentRun, AuditEvent, Business, CaseStatus, Customer, KnowledgeSource, Message, MessageRole, Metrics, Payment, Priority, Proposal, ProposalStatus, Refund, SupportCase, SupportSettings, SupportSkill, SupportTurnJob, TurnLease } from './contracts.js';
 import type { SeedData } from './seed.js';
 import { sameClassificationConfig } from '../agent/classification.js';
@@ -16,6 +20,9 @@ export class StaleTurn extends Error {}
 export const AUTO_CLAIMABLE = ['escalate_to_human', 'external_action'];
 export class VersionConflict extends Error {}
 export interface SupportStore {
+  requestCatalog(caseId: string): Promise<RequestCatalog>;
+  requestCheckpoint(lease: TurnLease, sourceMessageId: string, batch: RequestCheckpoint): Promise<RequestCatalog>;
+  requestTransition(caseId: string, requestId: string, change: RequestTransition, actor: string): Promise<RequestCatalog>;
   readonly integrationStore: IntegrationStore;
   markExternalDispatched(id: string): Promise<boolean>;
   finishExternalAction(id: string, status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, message: string | null, actor: string, reconciliation?: boolean): Promise<Proposal>;
@@ -35,6 +42,7 @@ export interface SupportStore {
   getCase(id: string): Promise<SupportCase | null>;
   listCases(status?: CaseStatus): Promise<SupportCase[]>;
   updateCase(id: string, patch: CasePatch): Promise<SupportCase>;
+  resolveCase(id: string, actor: string, expectedVersion?: number): Promise<SupportCase>;
   setOwnership(id: string, ownership: 'bot' | 'staff', actor: string, expectedVersion?: number): Promise<SupportCase>;
   staffMessage(id: string, body: string, expectedVersion?: number): Promise<Message>;
   acquireTurn(caseId: string, runId: string): Promise<TurnLease | null>;
@@ -49,7 +57,7 @@ export interface SupportStore {
   completeTurn(lease: TurnLease, patch: CasePatch, body: string, sourceRefs?: Message['sourceRefs'], context?: TurnContext): Promise<{ case: SupportCase; reply: Message } | null>;
   addMessage(caseId: string, role: MessageRole, body: string): Promise<Message>;
   messages(caseId: string): Promise<Message[]>;
-  createProposal(proposal: NewProposal, lease?: TurnLease): Promise<Proposal>;
+  createProposal(proposal: NewProposal, lease?: TurnLease, requestTargets?: RequestTarget[]): Promise<Proposal>;
   proposal(id: string): Promise<Proposal | null>;
   proposals(caseId: string): Promise<Proposal[]>;
   /** Exact-args approval is a decision only. It performs no business action. */
@@ -79,6 +87,9 @@ export interface SupportStore {
 const now = () => new Date().toISOString();
 const copy = <T>(value: T): T => structuredClone(value);
 export class MemorySupportStore implements SupportStore {
+  private requestHistory = new Map<string, RequestEvent[]>();
+  private requestCatalogs = new Map<string, RequestCatalog>();
+  private requestCheckpoints = new Map<string, {fingerprint:string}>();
   businesses = new Map<string, Business>();
   customers = new Map<string, Customer>();
   paymentRows = new Map<string, Payment>();
@@ -108,11 +119,49 @@ export class MemorySupportStore implements SupportStore {
     this.businesses = new Map(seed.businesses.map(b => [b.id, copy(b)]));
     this.customers = new Map(seed.customers.map(c => [c.id, copy(c)]));
     this.paymentRows = new Map(seed.payments.map(p => [p.id, copy(p)]));
+    this.requestCatalogs.clear(); this.requestCheckpoints.clear(); this.requestHistory.clear();
     this.cases.clear(); this.messageRows = []; this.proposalRows.clear();
     this.refundRows = []; this.auditRows = []; this.runRows = [];
     this.turns.clear(); this.executionPayments.clear(); this.knowledgeRows.clear(); this.knowledgeHistory = []; this.skillRows.clear(); this.settingRows.clear();
     this.turnJobs.clear(); this.clientMessages.clear();
     this.integrationStore.clear(); this.externalExecutions.clear();
+  }
+  private requestView(caseId:string) { const catalog=this.requestCatalogs.get(caseId)??emptyCatalog(); const events=this.requestHistory.get(caseId)??[];
+    const unrepresented=hasUnrepresentedInput(catalog.requests,this.messageRows.filter(message=>message.caseId===caseId&&message.role==='customer'));
+    return publicCatalog({...catalog,...(unrepresented?{syncState:'needs_review' as const}:{}),history:{events:events.slice(-100),hasMore:events.length>100}}); }
+  async requestCatalog(caseId:string) { return this.requestView(caseId); }
+  private saveRequests(caseId:string,catalog:RequestCatalog) {
+    this.requestHistory.set(caseId,[...(this.requestHistory.get(caseId)??[]),...catalog.history.events]);
+    this.requestCatalogs.set(caseId,{...catalog,history:{events:[],hasMore:false}});
+    const supportCase=this.cases.get(caseId);if(supportCase) supportCase.status=this.caseStatus(caseId,supportCase.status);
+  }
+  private invalidateRequestActions(ids: string[]) {
+    for (const id of ids) { const proposal = this.proposalRows.get(id); if (proposal && ['pending','approved'].includes(proposal.status)) {
+      proposal.status = 'invalidated'; proposal.error = 'Request goal changed';
+      this.auditRows.push({id:randomUUID(),caseId:proposal.caseId,type:'action.invalidated',actor:'system:requests',data:{proposalId:id,reason:'request_revision_changed'},createdAt:now()});
+    } }
+  }
+  async requestCheckpoint(lease: TurnLease, sourceMessageId: string, batch: RequestCheckpoint) {
+    if (!this.activeTurn(lease)) throw new StaleTurn('Conversation ownership changed');
+    batch=requestCheckpointSchema.parse(batch);
+    if(lease.jobFence!==undefined&&this.turnJobs.get(lease.runId)?.customerMessageId!==sourceMessageId) throw new StaleTurn('Customer message does not match the leased job');
+    const fingerprint = createHash('sha256').update(JSON.stringify(batch)).digest('hex'); const key=lease.caseId+':'+sourceMessageId;
+    const old=this.requestCheckpoints.get(key);
+    if(old) { if(old.fingerprint!==fingerprint) throw new VersionConflict('Message already has a different request checkpoint'); return this.requestView(lease.caseId); }
+    const changed=applyCheckpoint(this.requestCatalogs.get(lease.caseId)??emptyCatalog(),batch,sourceMessageId,this.messageRows.filter(message=>message.caseId===lease.caseId),'agent:'+lease.runId);
+    this.invalidateRequestActions(changed.invalidated); this.saveRequests(lease.caseId,changed.catalog);
+    const response=this.requestView(lease.caseId); this.requestCheckpoints.set(key,{fingerprint}); return response;
+  }
+  async requestTransition(caseId:string,requestId:string,change:RequestTransition,actor:string) {
+    if(!this.cases.has(caseId)) throw new VersionConflict('Conversation not found');
+    const changed=transitionRequest({...this.requestView(caseId),history:{events:[],hasMore:false}},requestId,change,this.messageRows.filter(message=>message.caseId===caseId),[...this.proposalRows.values()].filter(proposal=>proposal.caseId===caseId),actor);
+    this.invalidateRequestActions(changed.invalidated); this.saveRequests(caseId,changed.catalog); this.cases.get(caseId)!.status=this.caseStatus(caseId,'resolved'); return this.requestView(caseId);
+  }
+  private requestActionAllowed(row:Proposal) {
+    const catalog=this.requestCatalogs.get(row.caseId)??emptyCatalog();
+    const linked=catalog.requests.filter(request=>request.actions.some(link=>link.proposalId===row.id));
+    const unresolved=linked.some(request=>request.actions.some(link=>link.proposalId!==row.id&&['executing','unknown'].includes(this.proposalRows.get(link.proposalId)?.status??'')));
+    return (row.tool==='escalate_to_human'||!unresolved)&&actionAllowed(catalog,row.id,row.tool==='escalate_to_human');
   }
   async seedIfEmpty(seed: SeedData) { if (!this.businesses.size) await this.reset(seed); }
   async recoverInterruptedExecutions() {
@@ -146,9 +195,10 @@ export class MemorySupportStore implements SupportStore {
   async listCases(status?: CaseStatus) { return copy([...this.cases.values()].filter(c => !status || c.status === status).sort((a,b) => a.priority.localeCompare(b.priority) || b.updatedAt.localeCompare(a.updatedAt))); }
   async updateCase(id: string, patch: CasePatch) {
     const row = this.cases.get(id); if (!row) throw new Error('Case not found');
-    Object.assign(row,copy(patch),{updatedAt:now()}); return copy(row);
+    Object.assign(row,copy(patch),{updatedAt:now()}); row.status=this.caseStatus(id,row.status,row.ownership); return copy(row);
   }
-  async setOwnership(id: string, ownership: 'bot'|'staff', actor: string, expectedVersion?: number) {
+  async setOwnership(id: string, ownership: 'bot'|'staff', actor: string, expectedVersion?: number) { return this.ownCase(id,ownership,actor,expectedVersion); }
+  private ownCase(id:string,ownership:'bot'|'staff',actor:string,expectedVersion?:number) {
     const row = this.cases.get(id); if (!row) throw new Error('Case not found');
     if (expectedVersion !== undefined && row.ownershipVersion !== expectedVersion) throw new VersionConflict('Conversation ownership changed');
     row.ownership=ownership; row.ownershipVersion++; row.assignedTo=ownership==='staff'?actor:null; row.updatedAt=now();
@@ -157,6 +207,12 @@ export class MemorySupportStore implements SupportStore {
     // A handoff revokes decisions prepared under the previous ownership.
     for (const proposal of this.proposalRows.values()) if (proposal.caseId===id && ['pending','approved'].includes(proposal.status)) Object.assign(proposal,{status:'rejected',error:'Conversation ownership changed'});
     return copy(row);
+  }
+  private caseStatus(id:string,status:CaseStatus,ownership=this.cases.get(id)!.ownership) { return aggregateRequestStatus(this.requestView(id),status,ownership,[...this.proposalRows.values()].filter(proposal=>proposal.caseId===id)); }
+  async resolveCase(id:string,actor:string,expectedVersion?:number) {
+    if(!this.cases.has(id)) throw new VersionConflict('Conversation not found');
+    if(this.caseStatus(id,'resolved')!=='resolved') throw new VersionConflict('Complete or cancel the tracked requests and reconcile pending actions before resolving this conversation');
+    const row=this.ownCase(id,'staff',actor,expectedVersion);this.cases.get(id)!.status='resolved';return {...row,status:'resolved' as const};
   }
   async staffMessage(id: string, body: string, expectedVersion?: number) {
     const row=this.cases.get(id);
@@ -202,6 +258,7 @@ export class MemorySupportStore implements SupportStore {
     this.messageRows.push(message);
     if (key) this.clientMessages.set(key, message.id);
     supportCase.updatedAt = now();
+    this.reopenForInput(caseId,body);
     if (supportCase.ownership === 'staff') return { case: copy(supportCase), message: copy(message), job: null };
     const job: SupportTurnJob = { id: randomUUID(), caseId, customerId, customerMessageId: message.id, body,
       ownershipVersion: supportCase.ownershipVersion, status: 'queued', attempts: 0, fence: 0, workerId: null,
@@ -257,7 +314,7 @@ export class MemorySupportStore implements SupportStore {
     if(context && (JSON.stringify(this.businesses.get(this.cases.get(lease.caseId)!.businessId)?.policy)!==JSON.stringify(context.policy) || context.skills.some(ref=>{const skill=this.skillRows.get(ref.id);return !skill || !skill.enabled || skill.revision!==ref.revision;}))) return null;
     if (context && !sameClassificationConfig(visibleClassification(this.settingRows.get(this.cases.get(lease.caseId)!.businessId)?.classification), context.classification)) return null;
     const row=this.cases.get(lease.caseId)!;
-    Object.assign(row,copy(patch),{updatedAt:now()});
+    Object.assign(row,copy(patch),{updatedAt:now()}); row.status=this.caseStatus(lease.caseId,row.status,row.ownership);
     if (patch.ownership==='staff') {
       row.ownershipVersion++; row.assignedTo='queue:tier-2';
       for(const proposal of this.proposalRows.values()) if(proposal.caseId===lease.caseId && ['pending','approved'].includes(proposal.status)) Object.assign(proposal,{status:'rejected',error:'Conversation handed to staff'});
@@ -272,17 +329,25 @@ export class MemorySupportStore implements SupportStore {
     }
     return {case:copy(row),reply};
   }
+  private reopenForInput(caseId:string,body:string) {
+    const row=this.cases.get(caseId);if(row?.status==='resolved'&&this.requestCatalogs.get(caseId)?.requests.length&&!isAcknowledgement(body)) {row.status=row.ownership==='staff'?'escalated':'open';row.updatedAt=now();}
+  }
   async addMessage(caseId: string, role: MessageRole, body: string) {
-    const row:Message={id:randomUUID(),caseId,role,body,createdAt:now()}; this.messageRows.push(row); return copy(row);
+    const row:Message={id:randomUUID(),caseId,role,body,createdAt:now()}; this.messageRows.push(row);if(role==='customer')this.reopenForInput(caseId,body);return copy(row);
   }
   async messages(caseId: string) { return copy(this.messageRows.filter(m=>m.caseId===caseId)); }
-  async createProposal(proposal: NewProposal, lease?: TurnLease) {
-    if (lease && !this.activeTurn(lease)) throw new StaleTurn('Conversation ownership changed');
+  async createProposal(proposal: NewProposal, lease?: TurnLease, requestTargets?: RequestTarget[]) {
+    if (lease && (lease.caseId !== proposal.caseId || !this.activeTurn(lease))) throw new StaleTurn('Conversation ownership changed');
+    if (lease && proposal.tool !== 'escalate_to_human' && (!requestTargets?.length || requestTargets.some(target=>!this.requestCatalogs.get(proposal.caseId)?.requests.some(row=>row.id===target.id&&row.sourceMessageIds.includes(this.requestCatalogs.get(proposal.caseId)!.lastSourceMessageId??''))))) throw new VersionConflict('Select the customer requests for this action');
     if(lease?.jobFence!==undefined) {
       const previous=[...this.proposalRows.values()].find(row=>row.turnJobId===lease.runId && row.tool===proposal.tool);
       if(previous) { if(previous.argsHash!==proposal.argsHash) throw new StaleTurn('Recovered action arguments changed; staff review required');return copy(previous); }
     }
     const row:Proposal={...copy(proposal),turnJobId:lease?.jobFence!==undefined?lease.runId:null,id:randomUUID(),decidedBy:null,decidedAt:null,result:null,error:null,createdAt:now()};
+    if (requestTargets?.length) {
+      const catalog=linkAction(this.requestCatalogs.get(row.caseId)??emptyCatalog(),requestTargets,row.id,'agent:'+(lease?.runId??'unknown'),row.tool==='escalate_to_human');
+      this.saveRequests(row.caseId,catalog);
+    }
     this.proposalRows.set(row.id,row); return copy(row);
   }
   async proposal(id: string) { return copy(this.proposalRows.get(id) ?? null); }
@@ -290,12 +355,14 @@ export class MemorySupportStore implements SupportStore {
   async decideProposal(id: string, argsHash: string, decision:'approved'|'rejected', actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.status!=='pending' || row.argsHash!==argsHash) return null;
+    if (decision === 'approved' && !this.requestActionAllowed(row)) return null;
     if (row.tool === 'external_action' && decision === 'approved' && !this.admitExternal(row, false)) return null;
     Object.assign(row,{status:decision,decidedBy:actor,decidedAt:now()}); return copy(row);
   }
   async claimExecution(id:string,argsHash:string,actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.argsHash!==argsHash || row.status!=='approved' || !row.decidedAt || Date.now()-Date.parse(row.decidedAt)>15*60*1000) return null;
+    if (!this.requestActionAllowed(row)) return null;
     if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
     if (row.tool==='refund_payment') {
       const paymentId=String(row.args.payment_id);
@@ -308,6 +375,7 @@ export class MemorySupportStore implements SupportStore {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
     const row=this.proposalRows.get(id);
     if (!row || !AUTO_CLAIMABLE.includes(row.tool) || row.policy.requiresApproval!==false || row.status!=='pending' || row.argsHash!==argsHash) return null;
+    if (!this.requestActionAllowed(row)) return null;
     if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
     if(row.tool==='external_action') row.authorizationOrigin='policy_auto';
     Object.assign(row,{status:to,decidedBy:actor,decidedAt:now()}); return copy(row);
@@ -352,6 +420,7 @@ export class MemorySupportStore implements SupportStore {
     }
     const supportCase = this.cases.get(row.caseId)!;
     Object.assign(supportCase, { status: status === 'executed' ? supportCase.ownership==='staff'?supportCase.status:'resolved' : 'escalated', updatedAt: now() });
+    supportCase.status=this.caseStatus(row.caseId,supportCase.status,supportCase.ownership);
     if (message && (status==='unknown'||(status!=='executed'&&actor!=='agent:auto'))) { supportCase.ownership='staff';supportCase.ownershipVersion++;supportCase.assignedTo=actor;this.turns.delete(row.caseId); }
     this.auditRows.push({id:randomUUID(),caseId:row.caseId,type:reconciliation?'action.reconciled':`action.${status}`,actor,data:{proposalId:id,operationKey:row.args.operationKey,origin:row.authorizationOrigin,reasonCode:error,guard:result?.guard??row.args.guard??null},createdAt:now()});
     return copy(row);

@@ -18,7 +18,7 @@
     "worker": "node dist/worker.js",
     "migrate": "node dist/migrate.js",
     "smoke": "node scripts/smoke.mjs",
-    "test:postgres": "node --import tsx --test tests/postgres-store.integration.ts tests/insights.integration.ts tests/integration-state.integration.ts",
+    "test:postgres": "node --import tsx --test tests/postgres-store.integration.ts tests/insights.integration.ts tests/integration-state.integration.ts tests/customer-requests.integration.ts",
     "test:mcp-openapi": "node --import tsx --test tests/mcp-openapi.integration.ts",
     "test:runtime": "node --import tsx --test tests/runtime.test.ts tests/insights-runtime.test.ts"
   },

@@ -5,7 +5,7 @@ import { schemaComponent, schemaHash, schemaObservationSchema, schemaSourceSchem
 const reference = z.strictObject({
   id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(100), component: schemaComponent,
   profile: z.enum(['starter-public', 'vector-unavailable', 'vector-available-uninstalled', 'vector-installed']), fingerprint: schemaHash,
-  sources: z.array(schemaSourceSchema).min(2).max(8),
+  sources: z.array(schemaSourceSchema).min(schemaSourcePaths.starter.length).max(schemaSourcePaths.support.length),
   evidence: z.strictObject({ sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), runId: z.string().regex(/^[0-9]{1,30}$/), postgresVersionNum: z.number().int().min(170000).max(179999),
     fixtureImageInput: z.string().max(300).regex(/^docker\.io\/(?:library\/postgres|pgvector\/pgvector):[A-Za-z0-9_.-]+@sha256:[a-f0-9]{64}$/) }),
 }).superRefine((value, context) => {

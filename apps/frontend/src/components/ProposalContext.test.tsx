@@ -61,8 +61,9 @@ it('keeps unrelated stored payments out of a delivery case and represents an emp
   expect(within(inspector).queryByText('Unrelated old payment')).not.toBeInTheDocument()
   view.unmount()
   vi.stubGlobal('fetch', vi.fn(async () => response({ ...data, proposals: [] })))
-  render(<CaseWorkspace token="synthetic-operator" cases={[data.case]} search="" actionOnly={false} onChanged={vi.fn()} />)
-  expect(await screen.findByText('Для цього звернення немає зафіксованих дій або бізнес-записів.')).toBeInTheDocument()
+  const empty = render(<CaseWorkspace token="synthetic-operator" cases={[data.case]} search="" actionOnly={false} onChanged={vi.fn()} />)
+  expect(await screen.findByText('Запити клієнта ще не визначено.')).toBeInTheDocument()
+  expect(empty.container.querySelectorAll('[data-proposal-host]')).toHaveLength(0)
 })
 
 it('preserves the same action-card uncertainty latch when business presentation data refreshes', async () => {

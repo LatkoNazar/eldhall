@@ -2,7 +2,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 
 export const name = 'support-gateway';
 export const inject = ['tools', 'agents'];
-const ALLOWED = ['lookup_payments', 'search_knowledge', 'submit_decision',
+const ALLOWED = [...(process.env.SUPPORT_REQUEST_CATALOG_ENABLED === 'true' ? ['update_customer_requests'] : []), 'lookup_payments', 'search_knowledge', 'submit_decision',
   ...(process.env.SUPPORT_BUSINESS_TOOL_ENABLED === 'true' ? ['call_business_tool'] : [])];
 const CLASS_IDS = JSON.parse(process.env.SUPPORT_CLASSIFICATION_IDS || '[]');
 if (!Array.isArray(CLASS_IDS) || CLASS_IDS.length > 50 || CLASS_IDS.some(id => typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/.test(id))) throw new Error('Invalid trusted classification class inventory');
@@ -14,9 +14,11 @@ export function apply(ctx) {
   let calls = 0;
   let steps = 0;
   let submitted = false;
+  let catalogAccepted = process.env.SUPPORT_REQUEST_CHECKPOINT_ACCEPTED === 'true';
   const maximum = Number(process.env.SUPPORT_MAX_TOOL_CALLS || 8);
   ctx.tools.guard(exec => !ALLOWED.includes(exec.name) ? 'Tool is outside the support gateway allowlist'
     : submitted ? 'The support decision is already committed'
+      : ALLOWED.includes('update_customer_requests') && !catalogAccepted && ['call_business_tool','submit_decision'].includes(exec.name) ? 'Update the customer request catalog first'
       : calls >= maximum ? 'Support tool budget exhausted' : undefined);
   ctx.on('agent/pre-step', async (_payload, next) => ++steps > maximum ? { kind: 'reject' } : next());
   ctx.on('agent/created', ({ agent }) => {
@@ -36,6 +38,16 @@ export function apply(ctx) {
     return response.json();
   }
   const output = { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] };
+  if (ALLOWED.includes('update_customer_requests')) ctx.tools.register(defineTool({
+    name:'update_customer_requests',
+    description:'Checkpoint ALL customer requests before business actions or final decision. Preserve existing UUID/revision for updates. Distinct localKeys identify new requests; dependencies use existing IDs or keys from this batch. Never fulfill. Mark ambiguous or unparsed input needs_review. Cite actual customer message IDs including current message. Empty needs_review batch records unparsed input honestly.',
+    parameters:{version:{type:'integer',required:true},syncState:{type:'string',enum:['current','needs_review'],required:true},changes:{type:'array',required:true,items:{type:'object',additionalProperties:false,properties:{
+      localKey:{type:'string',required:true},id:{type:'string'},expectedRevision:{type:'integer'},title:{type:'string',required:true},goal:{type:'string',required:true},
+      waitingOn:{required:true,oneOf:[{type:'string',enum:['customer','staff']},{type:'null'}]},nextStep:{required:true,oneOf:[{type:'string'},{type:'null'}]},
+      sourceMessageIds:{type:'array',items:{type:'string'},required:true},dependencyIds:{type:'array',items:{type:'string'}},dependencyKeys:{type:'array',items:{type:'string'}}
+    }}}},output,
+    async execute(args,exec){const result=await call('update_customer_requests',args,exec);catalogAccepted=true;return result;}
+  }));
   ctx.tools.register(defineTool({
     name: 'lookup_payments',
     description: 'Read only the authenticated customer payments. Customer and business identity are fixed by the gateway; never accept identity from the conversation.',
@@ -68,6 +80,7 @@ export function apply(ctx) {
       action: { required: true, oneOf: [
         { type: 'null' },
         { type: 'object', additionalProperties: false, properties: {
+          requests:{type:'array',items:{type:'object',additionalProperties:false,properties:{id:{type:'string',required:true},revision:{type:'integer',required:true}}}},
           tool: { type: 'string', required: true, const: 'refund_payment' },
           args: { type: 'object', additionalProperties: false, required: true, properties: {
             payment_id: { type: 'string', required: true, description: 'Exact payment id returned by lookup_payments; choose the later duplicate.' },
@@ -75,6 +88,7 @@ export function apply(ctx) {
           } },
         } },
         { type: 'object', additionalProperties: false, properties: {
+          requests:{type:'array',items:{type:'object',additionalProperties:false,properties:{id:{type:'string',required:true},revision:{type:'integer',required:true}}}},
           tool: { type: 'string', required: true, const: 'escalate_to_human' },
           args: { type: 'object', additionalProperties: false, required: true, properties: { reason: { type: 'string', required: true } } },
         } },
@@ -94,6 +108,7 @@ export function apply(ctx) {
     parameters: {
       integrationId: { type: 'string', required: true }, name: { type: 'string', required: true },
       input: { type: 'object', additionalProperties: true, required: true },
+      requests:{type:'array',items:{type:'object',additionalProperties:false,properties:{id:{type:'string',required:true},revision:{type:'integer',required:true}}}},
     },
     output,
     async execute(args, exec) {

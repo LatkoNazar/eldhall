@@ -10,7 +10,7 @@
     "THIRD_PARTY_NOTICES.md": "b8177665eb50145dad3d982c22375c774ac4a4647c850378019039bbfdaa0667"
   },
   "localInputs": {
-    "package.json": "fcc3e4035d155a8815c116eaae11b370f0726dacdc2740ae89b992d9bd976ff0",
+    "package.json": "97d0b0a6158a31bc0f600f6b5064c198f45e62849d053bc7116af99ba093bb26",
     "package-lock.json": "7cdf771c43a671a7284871b2ee041f526ef7739c8c39ae375ed46095f6a5b209"
   },
   "browserComponents": []

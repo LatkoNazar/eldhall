@@ -86,6 +86,17 @@ class SourceArchiveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.archive(self.commit_tree(), name="missing-inspector-demo")
 
+    def test_request_catalog_migration_and_contract_are_retained_and_required(self):
+        _, archive_path = self.archive(name="request-catalog")
+        prefix = "eldhall-source-" + self.commit + "/"
+        with tarfile.open(archive_path) as archive:
+            for path in ("apps/api/migrations/0009_customer_requests.sql", "apps/api/src/modules/support/requests/contracts.ts", "docs/REQUEST_CATALOG.md"):
+                self.assertIn(prefix + path, archive.getnames())
+        self.git("update-index", "--force-remove", "apps/api/migrations/0009_customer_requests.sql")
+        with self.assertRaisesRegex(ValueError, "required product build inputs"):
+            self.archive(self.commit_tree(), name="missing-request-catalog-migration")
+        self.assertFalse((self.root / ".omc/missing-request-catalog-migration").exists())
+
     def test_private_media_links_submodules_and_lfs_never_enter_snapshot(self):
         excluded = {
             "apps/api/.env": b"password=private-test-value\n",

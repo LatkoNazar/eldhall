@@ -1,3 +1,4 @@
+import { requestTargetsSchema, type RequestCatalog, type RequestCheckpoint, type RequestTarget } from '../support/requests/contracts.js';
 import { z } from 'zod';
 import type { Business, Payment } from '../support/contracts.js';
 import { duplicateCandidate } from './policy.js';
@@ -5,6 +6,12 @@ import type { ClassificationConfig } from './classification.js';
 
 // Controlled context: built by the harness from backend state, never from customer-supplied ids.
 export interface AgentContext {
+  currentCustomerMessageId?: string;
+  requestCatalog?: () => RequestCatalog;
+  requestSourceMessages?: {id:string;body:string}[];
+  checkpointRequests?: (batch: RequestCheckpoint) => Promise<RequestCatalog>;
+  ensureRequestCheckpoint?: () => Promise<void>;
+  requestCheckpointAccepted?: () => boolean;
   conversationId: string;
   runId: string;
   runtimeAttempt?: number;
@@ -18,7 +25,7 @@ export interface AgentContext {
   skills: { id: string; name: string; content: string; revision: number }[];
   searchKnowledge: (query: string, signal?: AbortSignal) => Promise<{ id: string; title: string; content: string; version: number }[]>;
   businessTools?: { integrationId: string; name: string; description: string; inputSchema: Record<string, unknown> }[];
-  callBusinessTool?: (integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+  callBusinessTool?: (integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal, requests?: RequestTarget[]) => Promise<unknown>;
   /** Application-owned control state; never infer a pending proposal from business JSON. */
   readonly pendingApproval?: () => { proposalId: string; summary: string } | undefined;
   customer: { name: string; plan: string };
@@ -42,6 +49,7 @@ export const decisionSchema = z.object({
   }),
   reply: z.string().max(1200).describe('Reply to the customer in their language. Never claim an action was completed.'),
   action: z.object({
+    requests: requestTargetsSchema.optional(),
     tool: z.string().describe('refund_payment or escalate_to_human'),
     args: z.record(z.string(), z.unknown()),
   }).nullable().describe('Proposed write action, or null'),
@@ -50,6 +58,7 @@ export type AgentDecision = z.infer<typeof decisionSchema>;
 
 export interface ModelOutput { decision: AgentDecision; steps: number; toolCalls: string[] }
 export interface AgentModel {
+  readonly requestCatalogProtocol?: 'checkpoint-v1';
   readonly provider: string;
   readonly model: string;
   decide(ctx: AgentContext, signal: AbortSignal): Promise<ModelOutput>;

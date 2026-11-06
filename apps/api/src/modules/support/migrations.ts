@@ -8,6 +8,7 @@ export async function migrateSupport(pool:pg.Pool) {
   const knowledge=await readFile(new URL('../../../migrations/0006_knowledge.sql',import.meta.url),'utf8');
   const externalKnowledge=await readFile(new URL('../../../migrations/0007_external_knowledge.sql',import.meta.url),'utf8');
   const integrations=await readFile(new URL('../../../migrations/0008_integrations.sql',import.meta.url),'utf8');
+  const requests=await readFile(new URL('../../../migrations/0009_customer_requests.sql',import.meta.url),'utf8');
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
@@ -19,6 +20,7 @@ export async function migrateSupport(pool:pg.Pool) {
     await client.query(knowledge);
     await client.query(externalKnowledge);
     await client.query(integrations);
+    await client.query(requests);
     await client.query('COMMIT');
   } catch(error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
