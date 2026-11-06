@@ -85,7 +85,7 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
   function closeInspector() { restoreFocusRef.current = selected?.proposal.id ?? ''; setMobileDetail(false); setSelectedId(null) }
   return <div className={`actions-page-grid ${mobileDetail ? 'actions-mobile-open' : ''}`}>
     <div className="actions-main" tabIndex={0} role="region" aria-label={t("core.actions.list")}>
-      <div className="page-heading"><div><h1>{t("core.nav.actions")}</h1><p>{t("core.actions.subtitle")}</p></div><button onClick={refresh}><Icon name="refresh" />{t("core.common.refresh")}</button></div>
+      <h1 className="sr-only">{t("core.nav.actions")}</h1>
       <div className="metrics-grid compact-metrics actions-metrics">
         <Metric icon="clock" label={t("core.actions.awaitingSteps")} value={metrics ? (metrics.proposals.pending ?? 0) + (metrics.proposals.approved ?? 0) : '—'} />
         <Metric icon="spark" label={t("core.actions.running")} value={metrics?.proposals.executing ?? '—'} />
@@ -97,7 +97,10 @@ export function Actions({ token, cases, casesError, metrics, metricsError, searc
       {metricsError && <Notice error>{t("core.actions.metricsStale")} {metricsError}</Notice>}
       {resource.failed > 0 && <Notice error>{t("core.actions.failedPrefix")} {formatNumber(resource.failed, locale)}  {t("core.actions.failedSuffix")} {resource.error} <button onClick={refresh}>{t("core.common.retryRead")}</button></Notice>}
       <section className="card actions-table-card" ref={tableRegion} tabIndex={-1} aria-label={t("core.actions.list")}>
-        <div className="tabs actions-tabs" aria-label={t("core.actions.phases")}>{(['pending', 'running', 'history'] as const).map(value => <button key={value} className={phase === value ? 'active' : ''} aria-pressed={phase === value} onClick={() => changePhase(value)}>{t(phaseLabels[value])} <span>{loaded ? formatNumber(counts[value], locale) : '—'}</span></button>)}</div>
+        <div className="actions-tabs-toolbar">
+          <div className="tabs actions-tabs" aria-label={t("core.actions.phases")}>{(['pending', 'running', 'history'] as const).map(value => <button key={value} className={phase === value ? 'active' : ''} aria-pressed={phase === value} onClick={() => changePhase(value)}>{t(phaseLabels[value])} <span>{loaded ? formatNumber(counts[value], locale) : '—'}</span></button>)}</div>
+          <button onClick={refresh}><Icon name="refresh" />{t("core.common.refresh")}</button>
+        </div>
         {visible.length ? <div className="table-scroll"><table className="actions-table"><caption className="sr-only">{t("core.actions.captionPrefix")} {t(phaseLabels[phase])}{t("core.actions.captionSuffix")}</caption><thead><tr><th scope="col">{t("core.common.customer")}</th><th scope="col">{t("core.actions.proposed")}</th><th scope="col">{t("presentation.contextColumn")}</th><th scope="col">{t("core.common.status")}</th><th scope="col">{t("core.common.time")}</th></tr></thead><tbody>{visible.map(row => <tr key={row.proposal.id} className={row.proposal.id === selected?.proposal.id ? 'selected-row' : ''}>
           <td><button className="action-row-select" data-action-id={row.proposal.id} aria-label={t('core.actions.openLabel', { title: proposalTitle(row.proposal, t), name: row.detail.customer.name, id: row.proposal.id })} aria-pressed={row.proposal.id === selected?.proposal.id} onClick={() => { setSelectedId(row.proposal.id); setMobileDetail(true) }}><Avatar name={row.detail.customer.name} seed={`${row.detail.customer.businessId}:${row.detail.customer.id}`} /><span><strong>{row.detail.customer.name}</strong><small>#{row.proposal.id.slice(0, 8)}</small></span></button></td>
           <td><strong>{proposalTitle(row.proposal, t)}</strong><small>{row.proposal.risk === 'high' ? t("core.action.highRisk") : t("core.action.lowRisk")}{row.stale ? " " + t("core.actions.staleSuffix") + "" : ''}</small></td>

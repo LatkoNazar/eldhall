@@ -47,10 +47,10 @@ function useInsightRuns(businessId: string, token: string) {
   return { ...state, refresh, accept }
 }
 
-export function Insights({ token }: { token: string }) {
+export function Insights({ token, embedded = false }: { token: string; embedded?: boolean }) {
   const { t } = useI18n()
   return <WorkspaceProvider token={token}>{business => <>
-    <div className="page-heading"><div><h1>{t("operations.insights.title")}</h1><p>{t("operations.insights.description")}</p></div></div>
+    {!embedded && <h1 className="sr-only">{t("operations.insights.title")}</h1>}
     <BusinessInsights key={business.id} business={business} token={token} scopeStale={false} />
   </>}</WorkspaceProvider>
 }

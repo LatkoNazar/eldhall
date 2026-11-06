@@ -108,8 +108,12 @@ function AnalyticsWorkspace({ token }: { token: string }) {
     document.getElementById(`analytics-tab-${target.id}`)?.focus()
   }
   return <>
-    <div className="tabs analytics-view-tabs" role="tablist" aria-label={t("core.analytics.views")}>{views.map((item, index) => <button id={`analytics-tab-${item.id}`} key={item.id} role="tab" aria-selected={view === item.id} aria-controls={`analytics-panel-${item.id}`} tabIndex={view === item.id ? 0 : -1} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)} onKeyDown={event => moveTab(event, index)}>{item.label}</button>)}</div>
-    {views.map(item => <section key={item.id} id={`analytics-panel-${item.id}`} role="tabpanel" aria-labelledby={`analytics-tab-${item.id}`} hidden={view !== item.id}>{view === item.id && (item.id === 'insights' ? <Insights token={token} /> : <Analytics token={token} />)}</section>)}
+    <h1 className="sr-only">{t(view === 'metrics' ? "core.analytics.title" : "operations.insights.title")}</h1>
+    <div className="page-toolbar">
+      <div className="tabs analytics-view-tabs" role="tablist" aria-label={t("core.analytics.views")}>{views.map((item, index) => <button id={`analytics-tab-${item.id}`} key={item.id} role="tab" aria-selected={view === item.id} aria-controls={`analytics-panel-${item.id}`} tabIndex={view === item.id ? 0 : -1} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)} onKeyDown={event => moveTab(event, index)}>{item.label}</button>)}</div>
+      {view === 'metrics' && <span className="period-label"><Icon name="clock" />{t("core.analytics.period")}</span>}
+    </div>
+    {views.map(item => <section key={item.id} id={`analytics-panel-${item.id}`} role="tabpanel" aria-labelledby={`analytics-tab-${item.id}`} hidden={view !== item.id}>{view === item.id && (item.id === 'insights' ? <Insights token={token} embedded /> : <Analytics token={token} />)}</section>)}
   </>
 }
 
@@ -121,7 +125,6 @@ function Analytics({ token }: { token: string }) {
   const proposalStates = ['pending', 'approved', 'executing', 'executed', 'failed', 'unknown', 'rejected', 'denied'] as const
   const totalProposals = metrics ? Object.values(metrics.proposals).reduce((sum, count) => sum + count, 0) : 0
   return <>
-    <div className="page-heading"><div><h1>{t("core.analytics.title")}</h1><p>{t("core.analytics.subtitle")}</p></div><span className="period-label"><Icon name="clock" />{t("core.analytics.period")}</span></div>
     {data.error && <ErrorNotice error={data.errorCause}><button onClick={data.refresh}>{t("core.common.refresh")}</button></ErrorNotice>}
     <div className="metrics-grid">
       <Metric icon="check" label={t("core.analytics.resolved")} value={metrics?.byStatus.resolved ?? '—'} hint={t("core.analytics.currentStatus")} />
