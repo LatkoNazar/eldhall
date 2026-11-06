@@ -4,11 +4,14 @@ import { lstatSync, readFileSync } from 'node:fs';
 const app = new URL('../', import.meta.url);
 const directory = new URL(process.argv.includes('--dist') ? 'dist/licenses/' : 'public/licenses/', app);
 const digest = data => createHash('sha256').update(data).digest('hex');
-const read = url => {
+const readBytes = url => {
   const stat = lstatSync(url);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1048576) throw new Error('Invalid legal artifact');
-  return readFileSync(url, 'utf8').replace(/\r\n/g, '\n');
+  return readFileSync(url);
 };
+const read = url => readBytes(url).toString('utf8').replace(/\r\n/g, '\n');
+const fontPaths = ["fonts/google-sans/GoogleSans-Italic-Variable.ttf", "fonts/google-sans/GoogleSans-Variable.ttf", "fonts/google-sans/OFL.txt", "fonts/google-sans/manifest.json"];
+const publicDirectory = new URL(process.argv.includes('--dist') ? 'dist/' : 'public/', app);
 try {
   const manifest = JSON.parse(read(new URL('manifest.json', directory)));
   const allowed = new Set(['LICENSE', 'NOTICE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'BROWSER_NOTICES.txt']);
@@ -21,6 +24,11 @@ try {
   }
   for (const [name, expected] of Object.entries(manifest.localInputs)) {
     if (!['package.json', 'package-lock.json'].includes(name) || digest(read(new URL(name, app))) !== expected) throw new Error('Package metadata drift');
+  }
+  const fonts = manifest.fontAssets ?? {};
+  if (Object.keys(fonts).length !== fontPaths.length || fontPaths.some(name => !Object.hasOwn(fonts, name))) throw new Error('Font inventory drift');
+  for (const name of fontPaths) {
+    if (digest(readBytes(new URL(name, publicDirectory))) !== fonts[name]) throw new Error('Font asset drift');
   }
   console.log('Legal artifacts verified');
 } catch {

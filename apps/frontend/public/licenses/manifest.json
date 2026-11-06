@@ -7,8 +7,8 @@
     "LICENSE": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
     "NOTICE": "b9563c3f3ad6e24f43bacd959defafef87237360b8c15ffaddeb51cb8b866715",
     "LICENSING.md": "147d145bd5741eaa222c686bb9d68cf510baeb766b69338bf1892e72e24727d4",
-    "THIRD_PARTY_NOTICES.md": "b8177665eb50145dad3d982c22375c774ac4a4647c850378019039bbfdaa0667",
-    "BROWSER_NOTICES.txt": "3f0ce5a875d781baadd16d46e84a700e789d9e6b4abff5f042dfa552fb852afb"
+    "THIRD_PARTY_NOTICES.md": "6e2b19589dc16536d5170a2da2bf574a5ec2f9fbc811dd74fff92eb6b14cee26",
+    "BROWSER_NOTICES.txt": "574d7086b604c897f9f36978ad40206dca6b0037216ceda83ef6c5068883cd0a"
   },
   "localInputs": {
     "package.json": "8325c3451c793090f292711c19d3db0c2ea288a4baa11e3a349cc8aa2fd9fdef",
@@ -80,6 +80,18 @@
       "version": "1.7.0",
       "license": "MIT",
       "noticeSha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "name": "Google Sans",
+      "version": "14.000",
+      "license": "OFL-1.1",
+      "noticeSha256": "831b6e041705873c3e6efb18c4c96202bc41c8be42a456d3d26c47abf14816d0"
     }
-  ]
+  ],
+  "fontAssets": {
+    "fonts/google-sans/GoogleSans-Italic-Variable.ttf": "ae259cb983f26df2234538bed2ff91f7af699ef639c0674b5703f527e7d59cda",
+    "fonts/google-sans/GoogleSans-Variable.ttf": "7dd96f5c236defe6e611530762c03e1e2c22e74a83dba92d89269b0b129a699c",
+    "fonts/google-sans/OFL.txt": "831b6e041705873c3e6efb18c4c96202bc41c8be42a456d3d26c47abf14816d0",
+    "fonts/google-sans/manifest.json": "d8ed7e9d7317aa85d34f1d53afb81be11c280bdbe2da9161c08bf3fae8ae2e3e"
+  }
 }

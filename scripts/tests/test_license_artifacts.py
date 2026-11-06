@@ -28,6 +28,7 @@ class LicenseArtifactTests(unittest.TestCase):
         for app, packages in legal.BROWSER_PACKAGES.items():
             for name in packages:
                 paths.extend(f"apps/{app}/node_modules/{name}/{filename}" for filename in ("package.json", legal.BROWSER_LICENSE_FILES.get(name, "LICENSE")))
+        paths.extend(legal.FONT_POLICY.FONT_FILES)
         for relative in paths:
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -97,9 +98,35 @@ class LicenseArtifactTests(unittest.TestCase):
                 self.assertNotEqual(self.invoke(root, app, "--dist").returncode, 0)
                 target = root / f"apps/{app}/dist/licenses"
                 shutil.copytree(root / f"apps/{app}/public/licenses", target)
+                if app == "frontend":
+                    shutil.copytree(root / "apps/frontend/public/fonts", root / "apps/frontend/dist/fonts")
                 self.assertEqual(self.invoke(root, app, "--dist").returncode, 0)
                 (target / "BROWSER_NOTICES.txt").unlink()
                 self.assertNotEqual(self.invoke(root, app, "--dist").returncode, 0)
+
+    def test_font_notices_and_raw_font_hashes_are_required_in_source_and_dist(self):
+        root = self.fixture()
+        notice = legal.read(root, "apps/frontend/public/licenses/BROWSER_NOTICES.txt")
+        upstream = legal.read_binary(root, legal.FONT_POLICY.FONT_ROOT + "OFL.txt")
+        self.assertIn(upstream, notice)
+        self.assertIn(b"Copyright 2025 The Google Sans Project Authors", notice)
+        self.assertIn(b"Copyright 2022 The Google Sans Flex Project Authors", notice)
+        shutil.copytree(root / "apps/frontend/public", root / "apps/frontend/dist")
+        for arguments in ((), ("--dist",)):
+            directory = root / "apps/frontend" / ("dist" if arguments else "public") / "fonts/google-sans"
+            self.assertEqual(self.invoke(root, "frontend", *arguments).returncode, 0)
+            for filename in ("GoogleSans-Variable.ttf", "GoogleSans-Italic-Variable.ttf", "OFL.txt", "manifest.json"):
+                path = directory / filename
+                original = path.read_bytes()
+                path.unlink()
+                self.assertNotEqual(self.invoke(root, "frontend", *arguments).returncode, 0)
+                path.write_bytes(original + b"changed")
+                self.assertNotEqual(self.invoke(root, "frontend", *arguments).returncode, 0)
+                path.write_bytes(original)
+            self.assertEqual(self.invoke(root, "frontend", *arguments).returncode, 0)
+        with self.assertRaises(ValueError):
+            (root / legal.FONT_POLICY.FONT_ROOT / "OFL.txt").unlink()
+            legal.expected_artifacts(root)
 
     def test_git_export_excludes_reference_media_without_deleting_source_files(self):
         source = ROOT / "docs/design-system/references/01-ai-actions.png"

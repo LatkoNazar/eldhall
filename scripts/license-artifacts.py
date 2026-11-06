@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import sys
 import tomllib
@@ -11,6 +12,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FONT_SPEC = importlib.util.spec_from_file_location("eldhall_font_source_policy", ROOT / "scripts/source-archive.py")
+FONT_POLICY = importlib.util.module_from_spec(FONT_SPEC)
+FONT_SPEC.loader.exec_module(FONT_POLICY)
 APACHE_SHA256 = "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
 CONTEXTS = {
     "api": "apps/api/licenses",
@@ -25,11 +29,15 @@ BROWSER_PACKAGES = {
 BROWSER_LICENSE_FILES = {"vite": "LICENSE.md", "@hugeicons/react": "LICENSE.md", "@hugeicons/core-free-icons": "LICENSE.md"}
 
 
-def read(root: Path, relative: str, maximum: int = 1_048_576) -> bytes:
+def read_binary(root: Path, relative: str, maximum: int = 1_048_576) -> bytes:
     path = root / relative
     if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
         raise ValueError(f"Missing, linked or oversized licence input: {relative}")
-    return path.read_bytes().replace(b"\r\n", b"\n")
+    return path.read_bytes()
+
+
+def read(root: Path, relative: str, maximum: int = 1_048_576) -> bytes:
+    return read_binary(root, relative, maximum).replace(b"\r\n", b"\n")
 
 
 def sha(data: bytes) -> str:
@@ -57,6 +65,13 @@ def browser_notices(root: Path, app: str, lock: dict) -> tuple[bytes, list[dict]
             raise ValueError(f"Browser copyright/licence text is missing: {app}/{name}")
         components.append({"name": name, "version": metadata["version"], "license": "MIT", "noticeSha256": sha(text.encode())})
         parts.append(f"\n{'=' * 72}\n{name} {metadata['version']}\n{'=' * 72}\n\n{text.rstrip()}\n")
+    if app == "frontend":
+        font_files = {name: read_binary(root, name) for name in FONT_POLICY.FONT_FILES}
+        font = FONT_POLICY.verify_fonts(font_files)
+        text = font_files[FONT_POLICY.FONT_ROOT + "OFL.txt"].decode("utf-8")
+        components.append({"name": font["family"], "version": font["version"], "license": font["license"], "noticeSha256": sha(text.encode())})
+        copyright_text = "\n".join(sorted({row["copyright"] for row in font["files"] if row["role"] == "font" and isinstance(row.get("copyright"), str)}))
+        parts.append(f"\n{'=' * 72}\nGoogle Sans {font['version']} (font software; OFL-1.1)\n{'=' * 72}\n\n{copyright_text}\n\n{text}")
     return "".join(parts).encode(), components
 
 
@@ -66,11 +81,14 @@ import { lstatSync, readFileSync } from 'node:fs';
 const app = new URL('../', import.meta.url);
 const directory = new URL(process.argv.includes('--dist') ? 'dist/licenses/' : '__LEGAL_DIRECTORY__', app);
 const digest = data => createHash('sha256').update(data).digest('hex');
-const read = url => {
+const readBytes = url => {
   const stat = lstatSync(url);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1048576) throw new Error('Invalid legal artifact');
-  return readFileSync(url, 'utf8').replace(/\\r\\n/g, '\\n');
+  return readFileSync(url);
 };
+const read = url => readBytes(url).toString('utf8').replace(/\\r\\n/g, '\\n');
+const fontPaths = __FONT_PATHS__;
+const publicDirectory = new URL(process.argv.includes('--dist') ? 'dist/' : 'public/', app);
 try {
   const manifest = JSON.parse(read(new URL('manifest.json', directory)));
   const allowed = new Set(['LICENSE', 'NOTICE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'BROWSER_NOTICES.txt']);
@@ -83,6 +101,11 @@ try {
   }
   for (const [name, expected] of Object.entries(manifest.localInputs)) {
     if (!['package.json', 'package-lock.json'].includes(name) || digest(read(new URL(name, app))) !== expected) throw new Error('Package metadata drift');
+  }
+  const fonts = manifest.fontAssets ?? {};
+  if (Object.keys(fonts).length !== fontPaths.length || fontPaths.some(name => !Object.hasOwn(fonts, name))) throw new Error('Font inventory drift');
+  for (const name of fontPaths) {
+    if (digest(readBytes(new URL(name, publicDirectory))) !== fonts[name]) throw new Error('Font asset drift');
   }
   console.log('Legal artifacts verified');
 } catch {
@@ -156,10 +179,11 @@ def expected_artifacts(root: Path) -> dict[str, bytes]:
         manifest = {"format": "eldhall-legal-artifacts-v1", "artifact": app, "projectLicense": "Apache-2.0",
                     "scope": "Project contributions only; see LICENSING.md. Not a complete image SBOM or publication approval.",
                     "files": {name: sha(data) for name, data in files.items()},
-                    "localInputs": {name: sha(data) for name, data in inputs.items()}, "browserComponents": components}
+                    "localInputs": {name: sha(data) for name, data in inputs.items()}, "browserComponents": components,
+                    "fontAssets": {name.removeprefix("apps/frontend/public/"): sha(read_binary(root, name)) for name in sorted(FONT_POLICY.FONT_FILES)} if app == "frontend" else {}}
         result.update({f"{directory}/{name}": data for name, data in files.items()})
         result[f"{directory}/manifest.json"] = encoded(manifest)
-        checker = PY_CHECKER if app == "mcp-openapi" else JS_CHECKER.replace("__LEGAL_DIRECTORY__", "public/licenses/" if app in BROWSER_PACKAGES else "licenses/")
+        checker = PY_CHECKER if app == "mcp-openapi" else JS_CHECKER.replace("__LEGAL_DIRECTORY__", "public/licenses/" if app in BROWSER_PACKAGES else "licenses/").replace("__FONT_PATHS__", json.dumps([name.removeprefix("apps/frontend/public/") for name in sorted(FONT_POLICY.FONT_FILES)] if app == "frontend" else []))
         result[f"apps/{app}/scripts/check-licenses.{'py' if app == 'mcp-openapi' else 'mjs'}"] = checker.encode()
     return result
 

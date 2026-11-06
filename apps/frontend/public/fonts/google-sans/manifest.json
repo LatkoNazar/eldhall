@@ -1,0 +1,43 @@
+{
+  "fontFormat": 1,
+  "family": "Google Sans",
+  "version": "14.000",
+  "license": "OFL-1.1",
+  "upstream": {
+    "repository": "https://github.com/googlefonts/googlesans",
+    "commit": "5c8f512c5fb42a7be099b951a7c097f96209c78e",
+    "release": "https://github.com/googlefonts/googlesans/releases/tag/v14.000",
+    "archive": "https://github.com/googlefonts/googlesans/releases/download/v14.000/GoogleSans-v14.000.zip",
+    "archiveSha256": "d338f0e74f5eabead86a85b87edf4cc50cd6561196dbe173d1db4139e95b3ca7"
+  },
+  "files": [
+    {
+      "path": "GoogleSans-Variable.ttf",
+      "sha256": "7dd96f5c236defe6e611530762c03e1e2c22e74a83dba92d89269b0b129a699c",
+      "size": 595132,
+      "role": "font",
+      "style": "normal",
+      "weightMin": 400,
+      "weightMax": 700,
+      "archiveMember": "build/GoogleSans/android/variable/GoogleSans[GRAD,opsz,wght].ttf",
+      "copyright": "Copyright 2025 The Google Sans Project Authors (github.com/googlefonts/googlesans)"
+    },
+    {
+      "path": "GoogleSans-Italic-Variable.ttf",
+      "sha256": "ae259cb983f26df2234538bed2ff91f7af699ef639c0674b5703f527e7d59cda",
+      "size": 609196,
+      "role": "font",
+      "style": "italic",
+      "weightMin": 400,
+      "weightMax": 700,
+      "archiveMember": "build/GoogleSans/android/variable/GoogleSans-Italic[GRAD,opsz,wght].ttf",
+      "copyright": "Copyright 2025 The Google Sans Project Authors (github.com/googlefonts/googlesans)"
+    },
+    {
+      "path": "OFL.txt",
+      "sha256": "831b6e041705873c3e6efb18c4c96202bc41c8be42a456d3d26c47abf14816d0",
+      "size": 4397,
+      "role": "license"
+    }
+  ]
+}

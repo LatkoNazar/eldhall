@@ -1,12 +1,11 @@
 /*
- * Eldhall Support design-system reference tokens — proposal 0.2.0, 2026-10-31.
- * Documentary handoff only: not imported or wired into an application.
- * Values normalize six supplied raster references; they are not extracted source styles.
- * Active references are the new light set: light navigation, crimson/white CTA,
- * pink selected surfaces. These replace the previous reference direction.
+ * Active Eldhall Support UI tokens, imported by styles.css.
+ * The light navigation, crimson actions and pink selected surfaces retain the
+ * original reference direction; typography uses a readable semantic scale.
+ * Breakpoints change layout density without reducing the minimum text sizes.
  */
 :root {
-  --ds-version: "0.2.0-proposal";
+  --ds-version: "0.3.0";
 
   /* Surfaces and neutral content */
   --ds-color-canvas: #f5f7f9;
@@ -60,19 +59,22 @@
   --ds-color-chart-grid: #dde2e8;
   --ds-color-overlay: rgb(11 13 20 / 44%);
 
-  /* Typography: exact font cannot be identified from raster references */
-  --ds-font-family-sans: ui-sans-serif, system-ui, -apple-system,
+  /* Self-hosted Google Sans, with system fallback; sizes assume the default root. */
+  /* Body/forms 16px, secondary 14px, metadata/code 13px. */
+  --ds-font-family-sans: "Google Sans", ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ds-font-family-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  --ds-font-size-xs: 0.75rem;
+  --ds-font-size-xs: 0.8125rem;
   --ds-font-size-sm: 0.875rem;
   --ds-font-size-md: 1rem;
-  --ds-font-size-lg: 1.25rem;
-  --ds-font-size-xl: 1.5rem;
-  --ds-font-size-page: 2rem;
+  --ds-font-size-lg: 1.125rem;
+  --ds-font-size-xl: 1.25rem;
+  --ds-font-size-page: 1.75rem;
+  --ds-font-size-brand: 1.8125rem;
+  --ds-font-size-brand-compact: 1.5rem;
   --ds-font-size-metric: 2.25rem;
-  --ds-line-height-xs: 1rem;
-  --ds-line-height-sm: 1.25rem;
+  --ds-line-height-xs: 1.25rem;
+  --ds-line-height-sm: 1.375rem;
   --ds-line-height-md: 1.5rem;
   --ds-line-height-lg: 1.75rem;
   --ds-line-height-xl: 2rem;

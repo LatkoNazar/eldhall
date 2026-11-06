@@ -33,6 +33,51 @@ MAX_TOTAL = 64_000_000
 BUILD_CONTEXTS = (("apps/api/Dockerfile", "apps/api"), ("apps/frontend/Dockerfile", ""), ("apps/landing/Dockerfile", ""), ("apps/mcp-openapi/Dockerfile", "apps/mcp-openapi"))
 REQUIRED = {"deploy/base-images.lock.json", "LICENSE", "NOTICE", ".dockerignore", ".gitignore", "apps/api/package.json", "apps/api/package-lock.json", "apps/api/tsconfig.json", "apps/api/tsconfig.build.json", "apps/frontend/package.json", "apps/frontend/package-lock.json", "apps/frontend/index.html", "apps/frontend/scripts/inspector-demo.mjs", "scripts/inspector-demo.mjs", "examples/inspector/scenarios.v1.json", "apps/mcp-openapi/pyproject.toml", "apps/mcp-openapi/uv.lock", "packages/analytics/package.json", "packages/i18n/package.json", "packages/i18n/src/core.ts", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", *(entry[0] for entry in BUILD_CONTEXTS)}
 REQUIRED |= {"apps/api/migrations/0009_customer_requests.sql", "apps/api/src/modules/support/requests/contracts.ts"}
+FONT_ROOT = "apps/frontend/public/fonts/google-sans/"
+FONT_FILES = frozenset(FONT_ROOT + name for name in ("GoogleSans-Variable.ttf", "GoogleSans-Italic-Variable.ttf", "OFL.txt", "manifest.json"))
+REQUIRED |= FONT_FILES
+FONT_HASHES = {
+    "GoogleSans-Variable.ttf": ("7dd96f5c236defe6e611530762c03e1e2c22e74a83dba92d89269b0b129a699c", 595132),
+    "GoogleSans-Italic-Variable.ttf": ("ae259cb983f26df2234538bed2ff91f7af699ef639c0674b5703f527e7d59cda", 609196),
+    "OFL.txt": ("831b6e041705873c3e6efb18c4c96202bc41c8be42a456d3d26c47abf14816d0", 4397),
+}
+
+
+def verify_fonts(files: dict[str, bytes]) -> dict:
+    if not FONT_FILES.issubset(files):
+        raise ValueError("Snapshot lacks the reviewed font assets or licence")
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate font manifest key")
+            result[key] = value
+        return result
+    manifest = json.loads(files[FONT_ROOT + "manifest.json"], object_pairs_hook=unique)
+    if (not isinstance(manifest, dict) or manifest.get("fontFormat") != 1 or manifest.get("family") != "Google Sans"
+            or manifest.get("version") != "14.000" or manifest.get("license") != "OFL-1.1"
+            or not isinstance(manifest.get("upstream"), dict)
+            or manifest["upstream"].get("repository") != "https://github.com/googlefonts/googlesans"
+            or manifest["upstream"].get("commit") != "5c8f512c5fb42a7be099b951a7c097f96209c78e"
+            or manifest["upstream"].get("archiveSha256") != "d338f0e74f5eabead86a85b87edf4cc50cd6561196dbe173d1db4139e95b3ca7"):
+        raise ValueError("Unreviewed font source manifest")
+    entries = manifest.get("files")
+    expected = {"GoogleSans-Variable.ttf": "font", "GoogleSans-Italic-Variable.ttf": "font", "OFL.txt": "license"}
+    if not isinstance(entries, list) or len(entries) != len(expected) or any(not isinstance(row, dict) for row in entries):
+        raise ValueError("Invalid font asset inventory")
+    names = [row.get("path") for row in entries]
+    if any(not isinstance(name, str) for name in names) or len(set(names)) != len(names) or set(names) != set(expected):
+        raise ValueError("Unreviewed font asset path")
+    for row in entries:
+        data = files[FONT_ROOT + row["path"]]
+        if row.get("role") != expected[row["path"]] or (row.get("sha256"), row.get("size")) != FONT_HASHES[row["path"]] or row.get("size") != len(data) or row.get("sha256") != hashlib.sha256(data).hexdigest():
+            raise ValueError("Font asset differs from its reviewed manifest")
+        if row["role"] == "font" and not data.startswith(b"\x00\x01\x00\x00"):
+            raise ValueError("Font asset is not the reviewed TrueType format")
+    if b"SIL OPEN FONT LICENSE Version 1.1" not in files[FONT_ROOT + "OFL.txt"]:
+        raise ValueError("Font licence text is missing")
+    return manifest
+
 
 
 def git(repo: pathlib.Path, *args: str, source: bytes | None = None) -> bytes:
@@ -60,6 +105,8 @@ def exclusion(path: str, mode: str) -> str | None:
     allowed = path in ROOT_FILES or path.startswith(ROOTS) or path.startswith("docs/") and path.removeprefix("docs/") in DOCS or path in ("examples/support.config.json", "examples/support.qdrant.config.json")
     if not allowed:
         return "outside-vetted-roots"
+    if path.startswith(FONT_ROOT):
+        return None if path in FONT_FILES else "unreviewed-font-path"
     if path in ROOT_FILES or pathlib.PurePosixPath(path).name in SPECIAL or pathlib.PurePosixPath(path).suffix in EXTENSIONS:
         return None
     return "non-source-or-media"
@@ -119,6 +166,7 @@ def blobs(repo: pathlib.Path, entries: list[dict]) -> dict[str, bytes]:
 def verify_build_tree(files: dict[str, bytes]) -> None:
     if not REQUIRED.issubset(files):
         raise ValueError("Snapshot lacks required product build inputs")
+    verify_fonts(files)
     for dockerfile, context in BUILD_CONTEXTS:
         for line in files[dockerfile].decode("utf-8").splitlines():
             if not line.upper().startswith("COPY "):
@@ -241,7 +289,7 @@ def prepare(repo: pathlib.Path, commit: str, output: pathlib.Path) -> dict:
         selected.append({**entry, "sha256": hashlib.sha256(data).hexdigest()})
     verify_build_tree(files)
     verify_documentation(files)
-    manifest = {"format": POLICY, "commit": commit, "tree": tree, "files": selected, "excludedCounts": dict(sorted(excluded.items())), "scope": "Vetted source/build/docs subset; no Git history, untracked files, symlinks, submodules, env/private files or media", "selfHash": "SOURCE-MANIFEST.json intentionally excludes itself; archive hash is external", "archive": {"tar": "pax", "gzipLevel": 9, "mtime": 0, "uid": 0, "gid": 0}}
+    manifest = {"format": POLICY, "commit": commit, "tree": tree, "files": selected, "excludedCounts": dict(sorted(excluded.items())), "scope": "Vetted source/build/docs subset; no Git history, untracked files, symlinks, submodules, env/private files or reference media; only reviewed Google Sans font binaries included", "selfHash": "SOURCE-MANIFEST.json intentionally excludes itself; archive hash is external", "archive": {"tar": "pax", "gzipLevel": 9, "mtime": 0, "uid": 0, "gid": 0}}
     manifest_bytes = encode(manifest)
     name = "eldhall-source-" + commit
     archive_buffer = io.BytesIO()

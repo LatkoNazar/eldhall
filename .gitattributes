@@ -27,3 +27,7 @@ demos/reference/youtube export-ignore
 # Preserve complete upstream notice formatting in the shipped browser artifacts.
 apps/frontend/public/licenses/BROWSER_NOTICES.txt -whitespace
 apps/landing/public/licenses/BROWSER_NOTICES.txt -whitespace
+
+# Preserve the exact upstream font bytes and their licence integrity receipts.
+apps/frontend/public/fonts/google-sans/*.ttf binary
+apps/frontend/public/fonts/google-sans/OFL.txt -whitespace

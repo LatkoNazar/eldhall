@@ -32,6 +32,8 @@ class SourceArchiveTests(unittest.TestCase):
         self.write("apps/landing/Dockerfile", b"FROM node:fixture\nCOPY apps/landing/package.json ./\nCOPY packages/i18n /app/packages/i18n\n")
         self.write("apps/landing/package.json", b'{"private":true}\n')
         self.write("apps/mcp-openapi/Dockerfile", b"FROM python:fixture\nCOPY pyproject.toml uv.lock ./\nCOPY src ./src\n")
+        for name in source_archive.FONT_FILES:
+            self.write(name, (SCRIPT.parents[1] / name).read_bytes())
         self.git("add", "--force", "--all")
         self.commit = self.commit_tree()
 
@@ -55,6 +57,40 @@ class SourceArchiveTests(unittest.TestCase):
         directory = self.root / ".omc" / name
         result = source_archive.prepare(self.repo, commit or self.commit, directory)
         return result, directory / result["archive"]
+
+    def test_reviewed_fonts_and_full_licence_survive_exact_git_export_without_broad_media_allowance(self):
+        self.add_entry("100644", "apps/frontend/public/fonts/google-sans/unreviewed.ttf", b"unknown font")
+        self.add_entry("100644", "apps/frontend/public/fonts/elsewhere.woff2", b"unknown font")
+        self.add_entry("100644", "apps/frontend/public/fonts/google-sans/unreviewed.json", b"{}")
+        _, archive_path = self.archive(self.commit_tree(), name="fonts")
+        with tarfile.open(archive_path) as archive:
+            prefix = archive.getnames()[0].split("/", 1)[0] + "/"
+            for name in source_archive.FONT_FILES:
+                self.assertEqual(archive.extractfile(prefix + name).read(), (SCRIPT.parents[1] / name).read_bytes())
+            self.assertFalse(any("unreviewed" in name or "elsewhere.woff2" in name for name in archive.getnames()))
+        for name in ("demos/reference/youtube/font.ttf", "apps/frontend/private/font.ttf", "apps/frontend/public/unknown.ttf"):
+            self.assertIsNotNone(source_archive.exclusion(name, "100644"))
+        self.assertEqual(source_archive.exclusion(source_archive.FONT_ROOT + "GoogleSans-Variable.ttf", "120000"), "symlink")
+
+    def test_missing_changed_or_lfs_font_and_licence_fail_archive_closure(self):
+        for index, name in enumerate(sorted(source_archive.FONT_FILES)):
+            original = self.git("ls-files", "--stage", name).decode().split()[1]
+            self.git("update-index", "--force-remove", name)
+            with self.assertRaises(ValueError):
+                self.archive(self.commit_tree(), name=f"missing-font-{index}")
+            self.git("update-index", "--add", "--cacheinfo", f"100644,{original},{name}")
+        for index, data in enumerate((b"changed-font", b"version https://git-lfs.github.com/spec/v1\noid sha256:" + b"0" * 64 + b"\nsize 10\n")):
+            self.add_entry("100644", source_archive.FONT_ROOT + "GoogleSans-Variable.ttf", data)
+            with self.assertRaises(ValueError):
+                self.archive(self.commit_tree(), name=f"invalid-font-{index}")
+        files = {name: (SCRIPT.parents[1] / name).read_bytes() for name in source_archive.FONT_FILES}
+        manifest = json.loads(files[source_archive.FONT_ROOT + "manifest.json"])
+        manifest["files"][0]["sha256"] = hashlib.sha256(b"changed-font").hexdigest()
+        manifest["files"][0]["size"] = len(b"changed-font")
+        files[source_archive.FONT_ROOT + "manifest.json"] = json.dumps(manifest).encode()
+        files[source_archive.FONT_ROOT + "GoogleSans-Variable.ttf"] = b"changed-font"
+        with self.assertRaises(ValueError):
+            source_archive.verify_fonts(files)
 
     def test_exact_git_commit_ignores_worktree_untracked_files_and_clock(self):
         first, path = self.archive(name="first")
