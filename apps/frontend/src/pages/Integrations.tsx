@@ -17,10 +17,8 @@ const toDraft = (policy: IntegrationPolicy, operations: CatalogOperation[]): Dra
 const effectLabel = { read: "operations.integrations.readEffect", write: "operations.integrations.writeEffect", unknown: "operations.integrations.unknownEffect" } as const
 
 export function Integrations({ token }: { token: string }) {
-  const { t } = useI18n()
   const dirtyRef = useRef(false)
   return <WorkspaceProvider token={token}>{business => <div className="integrations-workspace">
-    <header className="integrations-page-heading"><h1>{t("operations.integrations.title")}</h1><p className="muted">{t("operations.integrations.description")}</p></header>
     <IntegrationList key={business.id} businessId={business.id} token={token} dirtyRef={dirtyRef} />
   </div>}</WorkspaceProvider>
 }
@@ -43,10 +41,11 @@ function IntegrationList({ businessId, token, dirtyRef }: { businessId: string; 
     setSelected(result.integration.integrationId); setCreating(false); setRevision(value => value + 1)
   }
   return <>
-    <div className="integration-navigation">
-      {state.data?.length ? <label className="integration-picker">{t('operations.integrations.integration')}<select disabled={creating} value={active?.integrationId ?? ''} onChange={event => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setSelected(event.target.value) }}>{state.data.map(item => <option key={item.integrationId} value={item.integrationId}>{item.integrationId} · {item.draining ? t('operations.integrations.draining') : item.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</option>)}</select></label> : <span />}
+    <header className="integration-navigation">
+      <h1>{t("operations.integrations.title")}</h1>
+      {state.data?.length ? <label className="integration-picker"><span className="sr-only">{t('operations.integrations.integration')}</span><select disabled={creating} value={active?.integrationId ?? ''} onChange={event => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setSelected(event.target.value) }}>{state.data.map(item => <option key={item.integrationId} value={item.integrationId}>{item.integrationId} · {item.draining ? t('operations.integrations.draining') : item.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</option>)}</select></label> : <span />}
       <button ref={connectButton} className="primary" disabled={creating} onClick={() => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setCreating(true) }}><Icon name="plus" size={18} />{t('onboarding.new')}</button>
-    </div>
+    </header>
     {Boolean(state.error) && <ErrorNotice error={state.error}><button onClick={() => setRevision(value => value + 1)}>{t('operations.integrations.refresh')}</button></ErrorNotice>}
     {creating ? <IntegrationImportWizard businessId={businessId} token={token} onConnected={connected} onCancel={() => { setCreating(false); connectButton.current?.focus() }} />
       : active ? <IntegrationEditor key={active.integrationId} id={active.integrationId} businessId={businessId} token={token} dirtyRef={dirtyRef} onChanged={() => setRevision(value => value + 1)} />
@@ -112,15 +111,13 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id:
   const save = () => void mutate('/policy', { defaultMode: draft.defaultMode, groups: draft.groups, operations: draft.operations }, 'PATCH')
   return <section className="integration-console" aria-label={id}>
     <header className="integration-summary">
-      <div className="integration-summary-name"><h2>{id}</h2><Badge value={integration.enabled ? 'ok' : 'draft'}>{integration.draining ? t('operations.integrations.finishingCalls') : integration.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</Badge></div>
+      <div className="integration-summary-name"><h2 className="sr-only">{id}</h2><Badge value={integration.enabled ? 'ok' : 'draft'}>{integration.draining ? t('operations.integrations.finishingCalls') : integration.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</Badge>{data.catalog.source && <p className="small break-word integration-source-caption"><code>{data.catalog.source.upstreamBaseUrl}</code> · <a href={data.catalog.source.specUrl} target="_blank" rel="noopener noreferrer">OpenAPI</a></p>}</div>
       <div className="integration-primary-actions"><button className="primary" disabled={blocked || !isDirty} onClick={save}>{t('operations.integrations.saveRules')}</button><button disabled={blocked || isDirty || (integration.enabled && integration.activeManifestHash === integration.loadedManifestHash)} onClick={() => void mutate('/activate', { manifestHash: integration.loadedManifestHash, connectionRevision: integration.connectionRevision })}>{t('onboarding.checkActivate')}</button><button className="icon-button" aria-label={t('operations.integrations.reloadPolicy')} disabled={busy || loading} onClick={refresh}><Icon name="refresh" size={18} /></button></div>
     </header>
-    {data.catalog.source && <p className="small break-word integration-source-caption"><code>{data.catalog.source.upstreamBaseUrl}</code> · <a href={data.catalog.source.specUrl} target="_blank" rel="noopener noreferrer">OpenAPI</a></p>}
     {Boolean(error) && <ErrorNotice error={error}>{conflict && <p>{t('operations.integrations.versionConflict')}</p>}<button disabled={busy || loading} onClick={refresh}>{t('operations.integrations.reloadPolicy')}</button></ErrorNotice>}
     {notice && <Notice>{translateMessage(notice)}</Notice>}
     {isDirty && <Notice>{t('operations.integrations.unsavedRules')}</Notice>}
-    <div className="integration-catalog-toolbar"><h3>{t('operations.integrations.operationCatalog')}</h3><label className="search-field"><Icon name="search" size={18} /><input value={search} onChange={event => setSearch(event.target.value)} aria-label={t('operations.integrations.searchOperations')} placeholder={t('operations.integrations.searchPlaceholder')} /></label></div>
-    <p className="integration-mode-hint muted">{t('onboarding.modeHint')}</p>
+    <div className="integration-catalog-toolbar"><h3 className="sr-only">{t('operations.integrations.operationCatalog')}</h3><label className="search-field"><Icon name="search" size={18} /><input value={search} onChange={event => setSearch(event.target.value)} aria-label={t('operations.integrations.searchOperations')} placeholder={t('operations.integrations.searchPlaceholder')} /></label><details className="integration-mode-help"><summary><Icon name="help" size={18} /><span className="sr-only">{t('onboarding.modeHint')}</span></summary><p className="muted">{t('operations.integrations.description')} {t('onboarding.modeHint')}</p></details></div>
     <div className="integration-tool-list" tabIndex={0} aria-label={t('operations.integrations.operationCatalog')}>
       <details className="integration-advanced-policy"><summary>{t('onboarding.advancedPolicy')}</summary>
         <PermissionModeControl value={draft.defaultMode} label={t('operations.integrations.defaultPermission')} disabled={blocked} onChange={mode => setDraft({ ...draft, defaultMode: mode })} />
