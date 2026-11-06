@@ -33,6 +33,7 @@ MAX_TOTAL = 64_000_000
 BUILD_CONTEXTS = (("apps/api/Dockerfile", "apps/api"), ("apps/frontend/Dockerfile", ""), ("apps/landing/Dockerfile", ""), ("apps/mcp-openapi/Dockerfile", "apps/mcp-openapi"))
 REQUIRED = {"deploy/base-images.lock.json", "LICENSE", "NOTICE", ".dockerignore", ".gitignore", "apps/api/package.json", "apps/api/package-lock.json", "apps/api/tsconfig.json", "apps/api/tsconfig.build.json", "apps/frontend/package.json", "apps/frontend/package-lock.json", "apps/frontend/index.html", "apps/frontend/scripts/inspector-demo.mjs", "scripts/inspector-demo.mjs", "examples/inspector/scenarios.v1.json", "apps/mcp-openapi/pyproject.toml", "apps/mcp-openapi/uv.lock", "packages/analytics/package.json", "packages/i18n/package.json", "packages/i18n/src/core.ts", "docs/LICENSING.md", "docs/THIRD_PARTY_NOTICES.md", *(entry[0] for entry in BUILD_CONTEXTS)}
 REQUIRED |= {"apps/api/migrations/0009_customer_requests.sql", "apps/api/src/modules/support/requests/contracts.ts"}
+REQUIRED |= {"apps/api/migrations/0010_integration_imports.sql", "apps/mcp-openapi/src/support_mcp/managed.py", "apps/api/src/integrations/imports-service.ts"}
 FONT_ROOT = "apps/frontend/public/fonts/google-sans/"
 FONT_FILES = frozenset(FONT_ROOT + name for name in ("GoogleSans-Variable.ttf", "GoogleSans-Italic-Variable.ttf", "OFL.txt", "manifest.json"))
 REQUIRED |= FONT_FILES

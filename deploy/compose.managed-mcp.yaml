@@ -1,0 +1,51 @@
+# Optional URL-onboarding adapter. Paths are relative to the first Compose file.
+# docker compose -f compose.yaml -f deploy/compose.managed-mcp.yaml up -d
+services:
+  api:
+    networks: [backend, edge, managed]
+    environment:
+      MANAGED_MCP_URL: http://mcp-managed:8000
+      MANAGED_MCP_TOKEN: ${MANAGED_MCP_TOKEN:?Set a private managed service credential}
+      MANAGED_MCP_ALLOW_INSECURE_HTTP: "true"
+    depends_on:
+      mcp-managed:
+        condition: service_healthy
+  worker:
+    networks: [backend, managed]
+    environment:
+      MANAGED_MCP_URL: http://mcp-managed:8000
+      MANAGED_MCP_TOKEN: ${MANAGED_MCP_TOKEN:?Set a private managed service credential}
+      MANAGED_MCP_ALLOW_INSECURE_HTTP: "true"
+    depends_on:
+      mcp-managed:
+        condition: service_healthy
+  mcp-managed:
+    image: ${MANAGED_MCP_IMAGE:-eldhall-mcp-managed:local}
+    build:
+      context: ./apps/mcp-openapi
+    pull_policy: never
+    command: [support-mcp-managed]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      MANAGED_ALLOWED_HOSTS: mcp-managed,127.0.0.1,localhost
+      MANAGED_MCP_TOKEN: ${MANAGED_MCP_TOKEN:?Set a private managed service credential}
+      MANAGED_UPSTREAM_PROFILES: ${MANAGED_UPSTREAM_PROFILES:-{}}
+    # Optional deployment-owned upstream credentials go only to this service.
+    # Add env_file in a private override when a profile uses tokenEnv.
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [managed]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  managed:

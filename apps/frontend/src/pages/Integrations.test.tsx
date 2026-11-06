@@ -1,5 +1,5 @@
 import { render as renderRaw } from '@testing-library/react'
-import { I18nProvider, useI18n, type Locale } from '../i18n'
+import { I18nProvider, useI18n, translateMessage, type Locale } from '../i18n'
 import { loadAppCatalog } from '../locales/load'
 import { act, render, screen, waitFor, within } from '../test/render'
 import userEvent from '@testing-library/user-event'
@@ -60,6 +60,21 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute('open', '') } })
 })
 
+async function openGroup(user: ReturnType<typeof userEvent.setup>) {
+  const control = await screen.findByText(translateMessage({ key: 'onboarding.advancedPolicy' }, 'uk'), { selector: 'summary' })
+  if (!control.parentElement?.hasAttribute('open')) await user.click(control)
+  return screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+}
+function selectedMode(title: string) {
+  return within(screen.getByRole('group', { name: `Дозвіл операції ${title}` })).getByRole('radio', { checked: true }).getAttribute('value')
+}
+async function openOperation(user: ReturnType<typeof userEvent.setup>, title: string) {
+  await screen.findByRole('group', { name: `Дозвіл операції ${title}` })
+  const control = screen.getAllByRole('button').find(button => button.hasAttribute('aria-expanded') && button.textContent?.includes(title))!
+  if (control.getAttribute('aria-expanded') !== 'true') await user.click(control)
+  return control.closest('article')!
+}
+
 it('waits for operator login before requesting integration data on a direct route', async () => {
   sessionStorage.clear()
   const fetch = mockApi()
@@ -69,7 +84,7 @@ it('waits for operator login before requesting integration data on a direct rout
   await user.type(screen.getByLabelText('Ключ доступу оператора'), 'operator-key')
   await user.click(screen.getByRole('button', { name: /Відкрити робочий простір/ }))
   expect(await screen.findByRole('heading', { name: 'Інтеграції' })).toBeInTheDocument()
-  await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  await openGroup(user)
   expect(fetch.mock.calls.some(([path]) => String(path) === `/api/v1/integrations?businessId=${businessId}`)).toBe(true)
   sessionStorage.clear()
 })
@@ -78,20 +93,22 @@ it('preserves endpoint overrides when changing a group and sends business-scoped
   const fetch = mockApi()
   const user = userEvent.setup()
   render(<Integrations token="operator-key" />)
-  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
-  expect(screen.getByLabelText('Дозвіл операції Перевірити замовлення')).toHaveValue('auto')
+  const group = await openGroup(user)
+  expect(selectedMode('Перевірити замовлення')).toBe('auto')
   group.focus()
   expect(group).toHaveFocus()
   await user.selectOptions(group, 'deny')
-  expect(screen.getByLabelText('Дозвіл операції Перевірити замовлення')).toHaveValue('auto')
+  expect(selectedMode('Перевірити замовлення')).toBe('auto')
   await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
   await screen.findByText('Сервер зберіг зміни. Ефективні дозволи перечитано.')
   const mutation = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!
   expect(mutation[0]).toBe(`/api/v1/integrations/orders/policy?businessId=${businessId}`)
   expect(new Headers(mutation[1]?.headers).get('Authorization')).toBe('Bearer operator-key')
   expect(JSON.parse(String(mutation[1]?.body))).toMatchObject({ version: 1, groups: [{ id: 'orders', mode: 'deny' }, { id: 'billing', mode: 'deny' }], operations: [{ operationKey: 'GET /orders/{order_id}', mode: 'auto' }, { operationKey: 'POST /orders/{order_id}/cancel', mode: 'inherit' }] })
+  const row = await openOperation(user, 'Перевірити замовлення')
+  await user.click(within(row).getByText(translateMessage({ key: 'operations.integrations.exactDefinition' }, 'uk'), { selector: 'summary' }))
   await user.click(screen.getByRole('button', { name: 'Скинути до успадкування Перевірити замовлення' }))
-  expect(screen.getByLabelText('Дозвіл операції Перевірити замовлення')).toHaveValue('inherit')
+  expect(selectedMode('Перевірити замовлення')).toBe('deny')
   expect(screen.getByRole('combobox', { name: 'Дозвіл групи orders' })).toHaveValue('deny')
 })
 
@@ -99,7 +116,9 @@ it('keeps review separate from Auto and submits only an explicitly reviewed exac
   const fetch = mockApi()
   const user = userEvent.setup()
   render(<Integrations token="operator-key" />)
-  await user.selectOptions(await screen.findByLabelText('Дозвіл операції Скасувати замовлення'), 'auto')
+  const modes = await screen.findByRole('group', { name: 'Дозвіл операції Скасувати замовлення' })
+  await user.click(within(modes).getByRole('radio', { name: 'Auto — автоматично' }))
+  await openOperation(user, 'Скасувати замовлення')
   expect(screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })).toBeDisabled()
   await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })).toBeEnabled())
@@ -108,7 +127,8 @@ it('keeps review separate from Auto and submits only an explicitly reviewed exac
   const opener = screen.getByRole('button', { name: 'Переглянути й увімкнути Скасувати замовлення' })
   await user.click(opener)
   const dialog = screen.getByRole('dialog', { name: 'Перегляд: Скасувати замовлення' })
-  expect(within(dialog).getByText(/"operationHash": "cccc/)).toBeInTheDocument()
+  await user.click(within(dialog).getByText(translateMessage({ key: 'onboarding.technical' }, 'uk'), { selector: 'summary' }))
+  expect(within(dialog).getByText(/"operationHash": "cccc/)).toBeVisible()
   expect(within(dialog).getByRole('button', { name: 'Підтвердити review і ввімкнути' })).toBeDisabled()
   await user.click(within(dialog).getByRole('checkbox'))
   await user.click(within(dialog).getByRole('button', { name: 'Підтвердити review і ввімкнути' }))
@@ -123,7 +143,7 @@ it('keeps stale edits locked after 409 until the operator explicitly reloads cur
   const user = userEvent.setup()
   vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(<Integrations token="operator-key" />)
-  await user.selectOptions(await screen.findByRole('combobox', { name: 'Дозвіл групи orders' }), 'deny')
+  await user.selectOptions(await openGroup(user), 'deny')
   await user.click(screen.getByRole('button', { name: 'Зберегти правила' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Конфлікт версій')
   expect(screen.getByRole('combobox', { name: 'Дозвіл групи orders' })).toHaveValue('deny')
@@ -135,11 +155,14 @@ it('keeps stale edits locked after 409 until the operator explicitly reloads cur
 })
 
 it('shows group conflicts, explicit inheritance and disabled reviewed state without guessing effective permissions', async () => {
+  const user = userEvent.setup()
   mockApi({ conflictingGroups: true })
   render(<Integrations token="operator-key" />)
-  expect(await screen.findByText(/Конфлікт груп: billing, orders/)).toBeInTheDocument()
+  await openOperation(user, 'Перевірити замовлення')
+  expect(await screen.findByText(/Конфлікт груп: billing, orders/)).toBeVisible()
   expect(screen.getByText('Deny — заборонено — успадковано від billing, orders')).toBeInTheDocument()
-  expect(screen.getByLabelText('Дозвіл операції Скасувати замовлення')).toHaveValue('inherit')
+  expect(selectedMode('Скасувати замовлення')).toBe('ask')
+  expect(screen.getByText('Успадковане правило')).toBeInTheDocument()
   expect(screen.getByText('Потрібен review поточної версії')).toBeInTheDocument()
 })
 
@@ -149,7 +172,7 @@ it('keeps the bank binding under a foreign business URL and retains dirty-policy
   const user = userEvent.setup()
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(<Integrations token="operator-key" />)
-  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  const group = await openGroup(user)
   expect(screen.queryByLabelText('Бізнес інтеграцій')).not.toBeInTheDocument()
   expect(screen.getByText(/Посилання вказує інший бізнес/)).toBeInTheDocument()
   await user.selectOptions(group, 'deny')
@@ -192,7 +215,7 @@ it('guards dirty policy edits and releases both unload and navigation guards whe
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const user = userEvent.setup()
   const view = render(<Integrations token="operator-key" />)
-  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  const group = await openGroup(user)
   const unloadIsPrevented = () => {
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
@@ -225,7 +248,7 @@ it('switches all five interface languages without losing a dirty policy or repla
   const fetch = mockApi()
   const user = userEvent.setup()
   renderRaw(<I18nProvider initialLocale="uk"><LocaleControls /><Integrations token="operator-key" /></I18nProvider>)
-  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  const group = await openGroup(user)
   await user.selectOptions(group, 'deny')
   const reads = fetch.mock.calls.length
   const headings: Record<Locale, string> = { en: 'Integrations', es: 'Integraciones', uk: 'Інтеграції', de: 'Integrationen', pt: 'Integrações' }

@@ -1,3 +1,4 @@
+import type { ImportDraft, ManagedConnection } from './imports-contracts.js';
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { Manifest } from './manifest.js';
@@ -10,6 +11,8 @@ export interface IntegrationState {
   activeManifestHash: string | null; loadedManifestHash: string; connectionRevision: string;
   connectionHash: string; version: number; policy: IntegrationPolicy; updatedAt: string;
   bootstrapPolicies: Record<string, string>;
+  managedConnection?: ManagedConnection;
+  onboardingPending?: boolean;
 }
 export interface IntegrationSeed {
   businessId: string; manifest: Manifest; policy: IntegrationPolicy;
@@ -17,6 +20,9 @@ export interface IntegrationSeed {
 }
 export interface IntegrationStore {
   bootstrap(seed: IntegrationSeed): Promise<void>;
+  createImport(draft: ImportDraft): Promise<void>;
+  importDraft(businessId:string,id:string): Promise<ImportDraft|null>;
+  registerImport(businessId:string,id:string,version:number,confirmationHash:string,seed:IntegrationSeed,connection:ManagedConnection):Promise<IntegrationState>;
   list(businessId: string): Promise<IntegrationState[]>;
   get(businessId: string, integrationId: string): Promise<IntegrationState | null>;
   manifest(businessId: string, integrationId: string, hash: string): Promise<Manifest | null>;
@@ -29,9 +35,14 @@ const copy = <T>(value: T): T => structuredClone(value);
 const key = (businessId: string, integrationId: string) => `${businessId}/${integrationId}`;
 const auditData = (state:IntegrationState) => ({ manifestHash:state.loadedManifestHash,activeManifestHash:state.activeManifestHash,connectionRevision:state.connectionRevision,policyRevision:state.policy.policyRevision,enabled:state.enabled,draining:state.draining,operations:state.policy.operations });
 
+function assertImportSeed(draft:ImportDraft,businessId:string,id:string,seed:IntegrationSeed,connection:ManagedConnection){
+  if(draft.id!==id||draft.businessId!==businessId||seed.businessId!==businessId||seed.manifest.integrationId!==draft.integrationId||seed.policy.businessId!==businessId||seed.policy.integrationId!==draft.integrationId||connection.importId!==id||seed.manifest.specHash!==draft.prepared.specHash||connection.upstreamBaseUrl!==draft.prepared.upstreamBaseUrl||connection.credentialProfileId!==draft.prepared.credentialProfileId||connection.upstreamTargetFingerprint!==draft.prepared.upstreamTargetFingerprint)throw new IntegrationConflict('Prepared import registration identity differs');
+}
+
 function bootstrapState(old: IntegrationState | null, seed: IntegrationSeed): IntegrationState {
   const seedHash = fingerprint(seed.policy);
   if (old) {
+    if(old.managedConnection)throw new IntegrationConflict('A deployment catalog cannot replace a managed connection');
     const previous = old.bootstrapPolicies[String(seed.policy.policyRevision)];
     if (previous && previous !== seedHash) throw new IntegrationConflict('Same bootstrap policy revision has different content');
     if (seed.connectionRevision === old.connectionRevision && seed.connectionHash !== old.connectionHash) throw new IntegrationConflict('Connection mapping changes require a newer connectionRevision');
@@ -80,8 +91,9 @@ export class MemoryIntegrationStore implements IntegrationStore {
   private rows = new Map<string, IntegrationState>();
   private catalogs = new Map<string, Manifest>();
   private auditRows: IntegrationAudit[] = [];
+  private imports = new Map<string,ImportDraft>();
   constructor(private readonly invalidate: (businessId: string, integrationId: string, reason: string) => void = () => undefined,private readonly inFlight:(businessId:string,integrationId:string)=>boolean=()=>false) {}
-  clear() { this.rows.clear(); this.catalogs.clear(); this.auditRows = []; }
+  clear() { this.rows.clear(); this.catalogs.clear(); this.auditRows = []; this.imports.clear(); }
   peek(businessId: string, integrationId: string) { return this.rows.get(key(businessId, integrationId)) ?? null; }
   async bootstrap(seed: IntegrationSeed) {
     const id = key(seed.businessId, seed.manifest.integrationId);
@@ -94,6 +106,25 @@ export class MemoryIntegrationStore implements IntegrationStore {
       if (old) this.invalidate(seed.businessId, seed.manifest.integrationId, 'catalog_changed');
     }
   }
+  async createImport(draft:ImportDraft){
+    for(const [id,row] of this.imports)if(row.status==='prepared'&&Date.parse(row.expiresAt)<=Date.now())this.imports.delete(id);
+    if([...this.imports.values()].filter(row=>row.businessId===draft.businessId&&row.status==='prepared').length>=20)throw new IntegrationConflict('Too many prepared imports');
+    if(this.imports.has(draft.id))throw new IntegrationConflict('Import already exists');this.imports.set(draft.id,copy(draft));
+  }
+  async importDraft(businessId:string,id:string){const row=this.imports.get(id);return row?.businessId===businessId?copy(row):null;}
+  async registerImport(businessId:string,id:string,version:number,confirmationHash:string,seed:IntegrationSeed,connection:ManagedConnection){
+    const draft=this.imports.get(id);if(!draft||draft.businessId!==businessId)throw new IntegrationConflict('Import not found');
+    assertImportSeed(draft,businessId,id,seed,connection);
+    const old=this.peek(businessId,draft.integrationId);
+    if(draft.status==='confirmed'){if(draft.confirmationHash!==confirmationHash||!old)throw new IntegrationConflict('Import was confirmed with different input');return copy(old);}
+    if(draft.version!==version||Date.parse(draft.expiresAt)<=Date.now())throw new IntegrationConflict('Import expired or version changed');
+    if(old)throw new IntegrationConflict('Integration id already exists');
+    if([...this.rows.values()].filter(row=>row.businessId===businessId).length>=20)throw new IntegrationConflict('Integration catalog limit reached');
+    const next={...bootstrapState(null,seed),policy:{...copy(seed.policy),enabled:false},managedConnection:copy(connection),onboardingPending:true};
+    this.catalogs.set(`${key(businessId,next.integrationId)}/${seed.manifest.manifestHash}`,copy(seed.manifest));this.rows.set(key(businessId,next.integrationId),copy(next));
+    this.imports.set(id,{...draft,status:'confirmed',version:draft.version+1,confirmationHash});
+    this.auditRows.push({id:randomUUID(),businessId,integrationId:next.integrationId,actor:'operator:staff',type:'integration.imported',version:next.version,createdAt:next.updatedAt,data:auditData(next)});return copy(next);
+  }
   async list(businessId: string) { return copy([...this.rows.values()].filter(row => row.businessId === businessId)); }
   async get(businessId: string, integrationId: string) { return copy(this.peek(businessId, integrationId)); }
   async manifest(businessId: string, integrationId: string, hash: string) { return copy(this.catalogs.get(`${key(businessId, integrationId)}/${hash}`) ?? null); }
@@ -101,7 +132,7 @@ export class MemoryIntegrationStore implements IntegrationStore {
     const id = key(businessId, integrationId); const old = this.rows.get(id);
     if (!old || old.version !== version) throw new IntegrationConflict('Integration version changed');
     if(event==='integration.activated'&&this.inFlight(businessId,integrationId)) throw new IntegrationConflict('Resolve in-flight or unknown executions before activation');
-    const next = { ...mutate(copy(old)), version: old.version + 1, updatedAt: new Date().toISOString() };
+    const next = { ...mutate(copy(old)), ...(['integration.disabled','integration.activated'].includes(event)?{onboardingPending:false}:{}), version: old.version + 1, updatedAt: new Date().toISOString() };
     this.rows.set(id, copy(next)); this.invalidate(businessId, integrationId, event);
     this.auditRows.push({ id: randomUUID(), businessId, integrationId, actor, type: event, version: next.version, createdAt: next.updatedAt,data:auditData(next) });
     return copy(next);
@@ -148,6 +179,34 @@ export class PostgresIntegrationStore implements IntegrationStore {
       }
     });
   }
+  async createImport(draft:ImportDraft){
+    await this.transaction(async client=>{
+      await client.query('SELECT id FROM support_businesses WHERE id=$1 FOR UPDATE',[draft.businessId]);
+      await client.query("DELETE FROM support_integration_imports WHERE business_id=$1 AND expires_at<=now() AND document->>'status'='prepared'",[draft.businessId]);
+      if(Number((await client.query("SELECT count(*) AS n FROM support_integration_imports WHERE business_id=$1 AND document->>'status'='prepared'",[draft.businessId])).rows[0]?.n)>=20)throw new IntegrationConflict('Too many prepared imports');
+      await client.query('INSERT INTO support_integration_imports(id,business_id,integration_id,expires_at,document) VALUES($1,$2,$3,$4,$5)',[draft.id,draft.businessId,draft.integrationId,draft.expiresAt,JSON.stringify(draft)]);
+    });
+  }
+  async importDraft(businessId:string,id:string):Promise<ImportDraft|null>{return (await this.pool.query('SELECT document FROM support_integration_imports WHERE business_id=$1 AND id=$2',[businessId,id])).rows[0]?.document??null;}
+  async registerImport(businessId:string,id:string,version:number,confirmationHash:string,seed:IntegrationSeed,connection:ManagedConnection){
+    return this.transaction(async client=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['integration-import-quota:'+businessId]);
+      await lockIntegration(client,businessId,seed.manifest.integrationId);
+      const draft=(await client.query('SELECT document FROM support_integration_imports WHERE business_id=$1 AND id=$2 FOR UPDATE',[businessId,id])).rows[0]?.document as ImportDraft|undefined;
+      if(!draft||draft.integrationId!==seed.manifest.integrationId)throw new IntegrationConflict('Import not found');
+      assertImportSeed(draft,businessId,id,seed,connection);
+      const old=(await client.query('SELECT state FROM support_integrations WHERE business_id=$1 AND integration_id=$2 FOR UPDATE',[businessId,draft.integrationId])).rows[0]?.state as IntegrationState|undefined;
+      if(draft.status==='confirmed'){if(draft.confirmationHash!==confirmationHash||!old)throw new IntegrationConflict('Import was confirmed with different input');return old;}
+      if(draft.version!==version||Date.parse(draft.expiresAt)<=Date.now())throw new IntegrationConflict('Import expired or version changed');
+      if(old)throw new IntegrationConflict('Integration id already exists');
+      if(Number((await client.query('SELECT count(*) n FROM support_integrations WHERE business_id=$1',[businessId])).rows[0]?.n)>=20)throw new IntegrationConflict('Integration catalog limit reached');
+      const next={...bootstrapState(null,seed),policy:{...seed.policy,enabled:false},managedConnection:connection,onboardingPending:true};
+      await client.query('INSERT INTO support_integration_manifests(business_id,integration_id,manifest_hash,manifest) VALUES($1,$2,$3,$4)',[businessId,next.integrationId,seed.manifest.manifestHash,JSON.stringify(seed.manifest)]);
+      await client.query('INSERT INTO support_integrations(business_id,integration_id,state) VALUES($1,$2,$3)',[businessId,next.integrationId,JSON.stringify(next)]);
+      await client.query('UPDATE support_integration_imports SET document=$3 WHERE business_id=$1 AND id=$2',[businessId,id,JSON.stringify({...draft,status:'confirmed',version:draft.version+1,confirmationHash})]);
+      await this.record(client,next,'operator:staff','integration.imported');return next;
+    });
+  }
   async list(businessId: string): Promise<IntegrationState[]> { return (await this.pool.query('SELECT state FROM support_integrations WHERE business_id=$1 ORDER BY integration_id', [businessId])).rows.map(row => row.state as IntegrationState); }
   async get(businessId: string, integrationId: string): Promise<IntegrationState | null> { return (await this.pool.query('SELECT state FROM support_integrations WHERE business_id=$1 AND integration_id=$2', [businessId, integrationId])).rows[0]?.state ?? null; }
   async manifest(businessId: string, integrationId: string, hash: string): Promise<Manifest | null> { return (await this.pool.query('SELECT manifest FROM support_integration_manifests WHERE business_id=$1 AND integration_id=$2 AND manifest_hash=$3', [businessId, integrationId, hash])).rows[0]?.manifest ?? null; }
@@ -157,7 +216,7 @@ export class PostgresIntegrationStore implements IntegrationStore {
       const old = (await client.query('SELECT state FROM support_integrations WHERE business_id=$1 AND integration_id=$2 FOR UPDATE', [businessId, integrationId])).rows[0]?.state as IntegrationState | undefined;
       if (!old || old.version !== version) throw new IntegrationConflict('Integration version changed');
       if(event==='integration.activated'&&(await client.query("SELECT 1 FROM support_external_executions WHERE business_id=$1 AND integration_id=$2 AND status IN ('admitted','dispatched','unknown') LIMIT 1",[businessId,integrationId])).rowCount) throw new IntegrationConflict('Resolve in-flight or unknown executions before activation');
-      const next = { ...mutate(copy(old)), version: old.version + 1, updatedAt: new Date().toISOString() };
+      const next = { ...mutate(copy(old)), ...(['integration.disabled','integration.activated'].includes(event)?{onboardingPending:false}:{}), version: old.version + 1, updatedAt: new Date().toISOString() };
       await client.query('UPDATE support_integrations SET state=$3 WHERE business_id=$1 AND integration_id=$2', [businessId, integrationId, JSON.stringify(next)]);
       await invalidateExternalProposals(client, businessId, integrationId, event);
       await this.record(client, next, actor, event);

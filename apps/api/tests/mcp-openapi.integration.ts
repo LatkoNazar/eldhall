@@ -1,3 +1,8 @@
+import Fastify from 'fastify';
+import {ManagedGatewayClient} from '../src/integrations/managed-client.js';
+import {withManagedIntegrations} from '../src/integrations/managed-runtime.js';
+import {IntegrationImportsService} from '../src/integrations/imports-service.js';
+import {supportRoutes} from '../src/modules/support/routes.js';
 // Real stack: mock Orders upstream (node) <- Python FastMCP sidecar (uv) <- TS catalog integration.
 // Run: npm run test:mcp-openapi  (needs uv; apps/mcp-openapi dependencies resolve on first run).
 import assert from 'node:assert/strict';
@@ -182,4 +187,72 @@ test('live wiring: configured catalog → harness → sidecar: auto read grounds
   assert.equal((await store.messages(opened.id)).at(-1)!.body, 'Дію «Cancel order» виконано (статус: cancelled).');
   // Another customer of the same business cannot reach Olena's order through the same wiring.
   await assert.rejects(integrations.forContext({ businessId: NOVAPAY, customerId: TARAS, assertActive: async () => undefined }).callTool('orders', 'get_order_status', { order_id: 'ORD-1003' }), code('unavailable'));
+});
+
+
+test('public URL onboarding crosses real managed Python into Auto reads, Ask execution and Deny with restart recovery',{timeout:120000},async t=>{
+  const upstreamToken='synthetic-managed-upstream-token',controlToken='synthetic-order-observer';
+  const managedToken='synthetic-managed-mcp-service-token-32',operatorToken='synthetic-managed-operator-token';
+  const document=await readFile(new URL('openapi.json',orders),'utf8');let specAvailable=true;
+  const businessServer=createOrdersApi({token:upstreamToken,customers:{olena:OLENA,taras:TARAS},controlToken}) as Server;
+  const upstreamServer=createServer((request,response)=>{
+    if(request.url==='/openapi.json'){
+      if(request.headers.authorization!==`Bearer ${upstreamToken}`){response.writeHead(401).end();return;}
+      if(!specAvailable){response.writeHead(503).end();return;}
+      response.writeHead(200,{'content-type':'application/json'}).end(document);return;
+    }
+    businessServer.emit('request',request,response);
+  });
+  await new Promise<void>(resolve=>upstreamServer.listen(0,'127.0.0.1',resolve));
+  const upstreamUrl=`http://127.0.0.1:${(upstreamServer.address() as AddressInfo).port}`,managedPort=await freePort(),managerUrl=`http://127.0.0.1:${managedPort}`;
+  let managed:ChildProcess|undefined;const app=Fastify();
+  const stopManaged=async()=>{
+    if(!managed?.pid||managed.exitCode!==null)return;
+    const child=managed;const exited=new Promise<void>(resolve=>child.once('exit',()=>resolve()));
+    if(process.platform==='win32')spawnSync('taskkill',['/pid',String(child.pid),'/T','/F'],{stdio:'ignore'});else process.kill(-child.pid!,'SIGTERM');
+    await exited;
+  };
+  t.after(async()=>{await app.close();await stopManaged();upstreamServer.closeAllConnections();await new Promise<void>(resolve=>upstreamServer.close(()=>resolve()));});
+  const startManaged=async()=>{
+    const env:NodeJS.ProcessEnv={};for(const key of ['PATH','HOME','USERPROFILE','SystemRoot','WINDIR','TEMP','TMP','LOCALAPPDATA'])if(process.env[key])env[key]=process.env[key];
+    Object.assign(env,{HOST:'127.0.0.1',PORT:String(managedPort),MANAGED_ALLOWED_HOSTS:'127.0.0.1,localhost',MANAGED_MCP_TOKEN:managedToken,MANAGED_TEST_UPSTREAM_TOKEN:upstreamToken,MANAGED_UPSTREAM_PROFILES:JSON.stringify({fixture:{name:'Owned synthetic Orders API',principalId:'owned-mcp-fixture',origins:[upstreamUrl],privateOrigins:[upstreamUrl],upstreamBaseUrl:upstreamUrl,tokenEnv:'MANAGED_TEST_UPSTREAM_TOKEN'}})});
+    managed=spawn('uv',['run','--quiet','--project',fileURLToPath(new URL('../../mcp-openapi/',import.meta.url)),'support-mcp-managed'],{env,stdio:['ignore','inherit','inherit'],detached:process.platform!=='win32'});
+    for(let count=0;count<300;count++){
+      if(managed.exitCode!==null)throw Error('Owned managed sidecar exited before readiness');
+      if(await fetch(managerUrl+'/health',{signal:AbortSignal.timeout(1000)}).then(response=>response.ok,()=>false))return;
+      await new Promise(resolve=>setTimeout(resolve,200));
+    }
+    throw Error('Owned managed sidecar did not become ready');
+  };
+  await startManaged();
+  const store=new MemorySupportStore(seedData()),client=new ManagedGatewayClient({url:managerUrl,token:managedToken,allowInsecureHttp:true});
+  const integrations=withManagedIntegrations(createSupportIntegrations(supportConfigSchema.parse({}),{}),store.integrationStore,client);
+  const imports=new IntegrationImportsService(store.integrationStore,client,integrations);
+  const model=new ScriptedModel(async context=>{
+    if(context.message.includes('статус')){const value=await context.callBusinessTool!('url-orders','get_order_status',{order_id:'ORD-1002'}) as {status:string};return {intent:'billing_question',summary:'Observed order state',reasoning:'The scoped business read returned this status',sentiment:{label:'calm',urgency:'low'},reply:`Зафіксований статус: ${value.status}.`,action:null};}
+    await context.callBusinessTool!('url-orders','cancel_order',{order_id:'ORD-1003',reason:'Customer requested cancellation'});return {intent:'other',summary:'Cancellation request',reasoning:'Specialist review required',sentiment:{label:'calm',urgency:'low'},reply:'Order was cancelled!',action:null};
+  });
+  const harness=new SupportHarness({store,model,fallback:new RulesModel(),provider:new SimulatedPaymentProvider(),timeoutMs:15000,integrations});
+  await app.register(supportRoutes,{support:{store,harness,integrations,integrationImports:imports,workspaceBusinessId:NOVAPAY},operatorToken,demoResetEnabled:false});
+  const headers={authorization:`Bearer ${operatorToken}`},query='?businessId='+NOVAPAY;
+  const preview=await app.inject({method:'POST',url:'/api/v1/integration-imports/prepare'+query,headers,payload:{integrationId:'url-orders',specUrl:upstreamUrl+'/openapi.json',credentialProfileId:'fixture'}});
+  assert.equal(preview.statusCode,200,preview.body);const draft=preview.json();assert.equal('spec' in draft,false);assert.ok(draft.operations.every((row:{mode:string;proposedEffect:string})=>row.mode==='deny'&&row.proposedEffect==='unknown'));
+  const operations=manifest.operations.filter(operation=>operation.effect!=='unknown').map(operation=>({operationKey:operation.operationKey,mode:operation.toolName==='get_order_status'?'auto':'ask',review:{effect:operation.effect,scope:operation.scope,outputFields:operation.outputFields,guard:operation.guard,idempotency:operation.idempotency,reconciliation:operation.reconciliation}}));
+  const connected=await app.inject({method:'POST',url:'/api/v1/integration-imports/'+draft.id+'/confirm'+query,headers,payload:{version:draft.version,specHash:draft.specHash,operations}});
+  assert.equal(connected.statusCode,200,connected.body);assert.equal(connected.json().activation,'active');assert.equal(connected.json().runtime,'ready');
+  const catalog=await app.inject({url:'/api/v1/integrations/url-orders/operations'+query,headers});assert.equal(catalog.statusCode,200);assert.equal(catalog.json().operations.length,2);assert.ok(catalog.json().unavailableOperations.length>0);
+  const readCase=await harness.openCase('demo-olena'),read=await harness.runTurn('demo-olena',readCase.id,'Який статус ORD-1002?');assert.equal(read.reply!.body,'Зафіксований статус: shipped.');assert.equal((await store.proposals(readCase.id)).length,0);
+  const clean=await integrations.forContext({businessId:NOVAPAY,customerId:OLENA,assertActive:async()=>undefined}).callTool('url-orders','get_order_status',{order_id:'ORD-1001'});assert.equal('internal_note' in (clean as object),false);
+  let current=(await store.integrationStore.get(NOVAPAY,'url-orders'))!;
+  const denied=await app.inject({method:'PATCH',url:'/api/v1/integrations/url-orders/policy'+query,headers,payload:{version:current.version,operations:[{operationKey:operations[0]!.operationKey,mode:'deny'}]}});assert.equal(denied.statusCode,200);
+  await assert.rejects(integrations.forContext({businessId:NOVAPAY,customerId:OLENA,assertActive:async()=>undefined}).callTool('url-orders','get_order_status',{order_id:'ORD-1001'}),code('denied'));
+  current=(await store.integrationStore.get(NOVAPAY,'url-orders'))!;assert.equal((await app.inject({method:'PATCH',url:'/api/v1/integrations/url-orders/policy'+query,headers,payload:{version:current.version,operations:[{operationKey:operations[0]!.operationKey,mode:'auto'}]}})).statusCode,200);
+  const observed=async()=>fetch(upstreamUrl+'/__test/orders/ORD-1003',{headers:{'x-test-control':controlToken}}).then(response=>response.json()) as Promise<{status:string;writes:number}>;
+  const actionCase=await harness.openCase('demo-olena'),pending=await harness.runTurn('demo-olena',actionCase.id,'Скасуйте моє замовлення ORD-1003');const proposal=(await store.proposals(actionCase.id)).find(row=>row.tool==='external_action')!;
+  assert.equal(proposal.status,'pending');assert.doesNotMatch(pending.reply!.body,/Order was cancelled/);assert.equal((await observed()).writes,0);
+  const approve=await app.inject({method:'POST',url:'/api/v1/proposals/'+proposal.id+'/approve',headers,payload:{argsHash:proposal.argsHash}});assert.equal(approve.statusCode,200,approve.body);assert.equal((await observed()).writes,0);
+  const execute=await app.inject({method:'POST',url:'/api/v1/proposals/'+proposal.id+'/execute',headers,payload:{argsHash:proposal.argsHash}});assert.equal(execute.statusCode,200,execute.body);assert.equal((await observed()).writes,1);assert.equal((await observed()).status,'cancelled');
+  assert.equal((await app.inject({method:'POST',url:'/api/v1/proposals/'+proposal.id+'/execute',headers,payload:{argsHash:proposal.argsHash}})).statusCode,409);assert.equal((await observed()).writes,1);
+  await stopManaged();specAvailable=false;await startManaged();
+  const restored=await integrations.forContext({businessId:NOVAPAY,customerId:OLENA,assertActive:async()=>undefined}).callTool('url-orders','get_order_status',{order_id:'ORD-1003'}) as {status:string};assert.equal(restored.status,'cancelled');assert.equal((await observed()).writes,1);
 });

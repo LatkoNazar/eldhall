@@ -1,3 +1,6 @@
+import {ManagedGatewayClient} from '../../integrations/managed-client.js';
+import {withManagedIntegrations} from '../../integrations/managed-runtime.js';
+import {IntegrationImportsService} from '../../integrations/imports-service.js';
 import type pg from 'pg';
 import { loadEnvironment, type Settings } from '../../core/config.js';
 import { loadSupportConfig } from '../../integrations/config.js';
@@ -41,7 +44,11 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   }
   await store.recoverInterruptedExecutions(settings.supportWorkspaceBusinessId||undefined);
   const config = await loadSupportConfig(settings.supportConfigFile || undefined);
-  const integrations = createSupportIntegrations(config, loadEnvironment(), store.integrationStore);
+  const staticIntegrations = createSupportIntegrations(config, loadEnvironment(), store.integrationStore);
+  const managed=settings.managedMcp?new ManagedGatewayClient(settings.managedMcp):undefined;
+  if(managed&&settings.supportStore==='postgres')await pool.query('SELECT id FROM support_integration_imports LIMIT 0');
+  const integrations=managed?withManagedIntegrations(staticIntegrations,store.integrationStore,managed):staticIntegrations;
+  const integrationImports=managed?new IntegrationImportsService(store.integrationStore,managed,integrations):undefined;
   await bootstrapSupportConfig(store, config);
   if(settings.supportWorkspaceBusinessId&&!await store.business(settings.supportWorkspaceBusinessId))throw new Error('Configured workspace business is unavailable');
   const fallback = new RulesModel();
@@ -59,7 +66,7 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
   configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
   const harness = new SupportHarness({ workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
-  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, integrationImports, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,

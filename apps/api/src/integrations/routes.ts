@@ -6,6 +6,8 @@ import { VersionConflict } from '../modules/support/store.js';
 import type { SupportDependencies } from '../modules/support/routes.js';
 import { IntegrationConflict, effectivePolicy, type IntegrationState } from './state.js';
 import { integrationPolicySchema, resolveWithPolicy } from './permissions.js';
+import { ManagedImportError } from './managed-client.js';
+import { publicDraft,managedConnectionSchema } from './imports-contracts.js';
 import { IntegrationError, projectOutput } from './mcp.js';
 
 const ruleMode=z.enum(['auto','ask','deny','inherit']);
@@ -22,6 +24,7 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
   app.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, operatorToken));
   const guarded=async(reply:FastifyReply,run:()=>Promise<unknown>)=>{
     try{return await run();}catch(error){
+      if(error instanceof ManagedImportError)return reply.code(error.status).send({code:error.code,detail:error.message});
       if(error instanceof z.ZodError) return reply.code(422).send({detail:error.issues.map(issue=>issue.message).join('; ')});
       if(error instanceof IntegrationConflict||error instanceof VersionConflict) return reply.code(409).send({detail:error.message});
       if(error instanceof HarnessError) return reply.code(error.status).send({detail:error.message});
@@ -42,12 +45,18 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     const manifest=await registry.manifest(state.businessId,state.integrationId,manifestHash);
     if(!manifest) throw new HarnessError(404,'Manifest not found');return manifest;
   };
+  const imports=()=>{if(!support.integrationImports)throw new ManagedImportError(503,'managed_not_configured','Managed OpenAPI onboarding is not configured');return support.integrationImports;};
+  app.get('/api/v1/integration-imports/capabilities',(request,reply)=>guarded(reply,async()=>{await business(request.query);return support.integrationImports?imports().capabilities():{enabled:false,credentialProfiles:[],guardDefinitions:[],maxSpecBytes:5_000_000};}));
+  app.post('/api/v1/integration-imports/prepare',(request,reply)=>guarded(reply,async()=>imports().prepare(await business(request.query),request.body)));
+  app.get('/api/v1/integration-imports/:id',(request,reply)=>guarded(reply,async()=>{const businessId=await business(request.query);const {id}=z.strictObject({id:z.uuid()}).parse(request.params);return publicDraft(await imports().draft(businessId,id));}));
+  app.post('/api/v1/integration-imports/:id/confirm',{bodyLimit:4_000_000},(request,reply)=>guarded(reply,async()=>{const businessId=await business(request.query);const {id}=z.strictObject({id:z.uuid()}).parse(request.params);const result=await imports().confirm(businessId,id,request.body);return {integration:integrationSummary(result.state),policy:result.state.policy,runtime:result.runtime,activation:result.activation};}));
   app.get('/api/v1/integrations',(request,reply)=>guarded(reply,async()=>({integrations:(await registry.list(await business(request.query))).map(integrationSummary)})));
   app.get('/api/v1/integrations/:id/policy',(request,reply)=>guarded(reply,async()=>response(await selected(request.query,request.params))));
   app.get('/api/v1/integrations/:id/audit',(request,reply)=>guarded(reply,async()=>{const state=await selected(request.query,request.params);return {events:await registry.events(state.businessId,state.integrationId)};}));
   app.get('/api/v1/integrations/:id/operations',(request,reply)=>guarded(reply,async()=>{
     const state=await selected(request.query,request.params);const manifest=await loaded(state);
-    return {integration:integrationSummary(state),groups:state.policy.groups,operations:manifest.operations.map(operation=>{
+    const managed=state.managedConnection?managedConnectionSchema.parse(state.managedConnection):undefined;
+    return {integration:integrationSummary(state),groups:state.policy.groups,...(managed?{source:{specUrl:managed.sourceUrl,upstreamBaseUrl:managed.upstreamBaseUrl,credentialProfileId:managed.credentialProfileId}}:{}),unavailableOperations:managed?.inventory.filter(candidate=>!manifest.operations.some(operation=>operation.operationKey===candidate.operationKey))??[],operations:manifest.operations.map(operation=>{
       const rule=state.policy.operations.find(row=>row.operationKey===operation.operationKey);
       return {...operation,enabled:rule?.enabled??false,reviewedOperationHash:rule?.reviewedOperationHash??null,mode:rule?.mode??'inherit',
         effective:resolveWithPolicy({businessId:state.businessId,integrationId:state.integrationId,manifestHash:manifest.manifestHash,operation},effectivePolicy(state))};

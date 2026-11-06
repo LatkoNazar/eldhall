@@ -122,10 +122,13 @@ class OperationTool(Tool):
     upstream: Any  # httpx.AsyncClient; pydantic cannot validate it
     deadline: float = 4.0  # total seconds for the upstream call; httpx timeouts are per phase
     catalog: dict[str, dict]
+    bound_business_id: str | None = None
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
         op = self.operation
         try:
+            if self.bound_business_id is not None and (not isinstance(arguments.get(RESERVED), dict) or arguments[RESERVED].get("businessId") != self.bound_business_id):
+                raise Rejected("business_scope_mismatch")
             request = build_request(op, arguments)
         except Rejected as error:
             return _error(error.code, effect=False)
@@ -206,7 +209,7 @@ def _connection_settings(revision: str, principal: str) -> None:
 
 
 def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float = 4.0,
-                  connection_revision: str = "1", principal_id: str = "default") -> FastMCP:
+                  connection_revision: str = "1", principal_id: str = "default", bound_business_id: str | None = None) -> FastMCP:
     verify(manifest)
     _connection_settings(connection_revision, principal_id)
     target_fingerprint = fingerprint({"baseUrl": str(httpx.URL(upstream.base_url)).rstrip("/"), "principalId": principal_id})
@@ -221,6 +224,7 @@ def create_server(manifest: dict, upstream: httpx.AsyncClient, deadline: float =
         mcp.add_tool(OperationTool(
             name=op["toolName"], description=op["description"], parameters=schema, operation=op, upstream=upstream, deadline=deadline,
             catalog={item["operationKey"]: item for item in manifest["operations"]},
+            bound_business_id=bound_business_id,
             annotations=ToolAnnotations(read_only_hint=read, destructive_hint=not read, idempotent_hint=read or bool(op["idempotency"]), open_world_hint=True),
         ))
     catalog = {op["toolName"]: op["operationHash"] for op in manifest["operations"] if op["effect"] in ("read", "write")}

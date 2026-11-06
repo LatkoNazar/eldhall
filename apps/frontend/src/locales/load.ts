@@ -4,29 +4,30 @@ import operationsEn from './operations/en.ts'
 import presentationEn from './presentation/en.ts'
 import requestsEn from './requests/en.ts'
 import bankingEn from './banking/en.ts'
+import integrationsEn from './integrations/en.ts'
 
-export type AppMessageKey = keyof typeof coreEn | keyof typeof operationsEn | keyof typeof presentationEn | keyof typeof requestsEn | keyof typeof bankingEn
+export type AppMessageKey = keyof typeof coreEn | keyof typeof operationsEn | keyof typeof presentationEn | keyof typeof requestsEn | keyof typeof bankingEn | keyof typeof integrationsEn
 export type AppCatalog = Record<AppMessageKey, string>
-export const englishCatalog: AppCatalog = { ...coreEn, ...operationsEn, ...presentationEn, ...requestsEn, ...bankingEn }
+export const englishCatalog: AppCatalog = { ...coreEn, ...operationsEn, ...presentationEn, ...requestsEn, ...bankingEn, ...integrationsEn }
 
 const loaded = new Map<Locale, AppCatalog>([['en', englishCatalog]])
 const pending = new Map<Locale, Promise<AppCatalog>>()
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<AppCatalog>> = {
   es: async () => {
-    const [core, operations, presentation, requests, banking] = await Promise.all([import('./core/es.ts'), import('./operations/es.ts'), import('./presentation/es.ts'), import('./requests/es.ts'), import('./banking/es.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default }
+    const [core, operations, presentation, requests, banking, integrations] = await Promise.all([import('./core/es.ts'), import('./operations/es.ts'), import('./presentation/es.ts'), import('./requests/es.ts'), import('./banking/es.ts'), import('./integrations/es.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default, ...integrations.default }
   },
   uk: async () => {
-    const [core, operations, presentation, requests, banking] = await Promise.all([import('./core/uk.ts'), import('./operations/uk.ts'), import('./presentation/uk.ts'), import('./requests/uk.ts'), import('./banking/uk.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default }
+    const [core, operations, presentation, requests, banking, integrations] = await Promise.all([import('./core/uk.ts'), import('./operations/uk.ts'), import('./presentation/uk.ts'), import('./requests/uk.ts'), import('./banking/uk.ts'), import('./integrations/uk.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default, ...integrations.default }
   },
   de: async () => {
-    const [core, operations, presentation, requests, banking] = await Promise.all([import('./core/de.ts'), import('./operations/de.ts'), import('./presentation/de.ts'), import('./requests/de.ts'), import('./banking/de.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default }
+    const [core, operations, presentation, requests, banking, integrations] = await Promise.all([import('./core/de.ts'), import('./operations/de.ts'), import('./presentation/de.ts'), import('./requests/de.ts'), import('./banking/de.ts'), import('./integrations/de.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default, ...integrations.default }
   },
   pt: async () => {
-    const [core, operations, presentation, requests, banking] = await Promise.all([import('./core/pt.ts'), import('./operations/pt.ts'), import('./presentation/pt.ts'), import('./requests/pt.ts'), import('./banking/pt.ts')])
-    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default }
+    const [core, operations, presentation, requests, banking, integrations] = await Promise.all([import('./core/pt.ts'), import('./operations/pt.ts'), import('./presentation/pt.ts'), import('./requests/pt.ts'), import('./banking/pt.ts'), import('./integrations/pt.ts')])
+    return { ...core.default, ...operations.default, ...presentation.default, ...requests.default, ...banking.default, ...integrations.default }
   },
 }
 

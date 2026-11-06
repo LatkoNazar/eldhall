@@ -17,6 +17,7 @@ dev = ["ruff==0.17.3"]
 [project.scripts]
 support-mcp-import = "support_mcp.import_openapi:main"
 support-mcp-server = "support_mcp.server:main"
+support-mcp-managed = "support_mcp.managed:main"
 
 [build-system]
 requires = ["hatchling==1.32.4"]

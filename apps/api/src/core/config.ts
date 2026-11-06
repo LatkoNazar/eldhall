@@ -1,3 +1,4 @@
+import { getManagedSupportOptions,type ManagedSupportOptions } from '../integrations/managed-client.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -40,6 +41,7 @@ export interface Settings {
   maxRuntimeToolCalls: number;
   supportConfigFile: string;
   supportWorkspaceBusinessId?: string;
+  managedMcp?: ManagedSupportOptions;
   supportExecution: 'inline' | 'worker';
   classificationProvider: 'agent' | 'openrouter';
   classificationModel: string;
@@ -146,6 +148,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     llmBaseUrl: value('LLM_BASE_URL', ''),
     maxRuntimeToolCalls: integer('MAX_RUNTIME_TOOL_CALLS', '8', 32),
     supportConfigFile: value('SUPPORT_CONFIG_FILE', ''),
+    managedMcp:getManagedSupportOptions(env),
     supportWorkspaceBusinessId: value('SUPPORT_WORKSPACE_BUSINESS_ID', '').trim(),
     supportExecution: value('SUPPORT_EXECUTION', supportStore === 'memory' ? 'inline' : 'worker') as Settings['supportExecution'],
     classificationProvider: value('CLASSIFICATION_PROVIDER', 'agent') as Settings['classificationProvider'],

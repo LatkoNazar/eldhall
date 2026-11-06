@@ -10,7 +10,7 @@
     "THIRD_PARTY_NOTICES.md": "6e2b19589dc16536d5170a2da2bf574a5ec2f9fbc811dd74fff92eb6b14cee26"
   },
   "localInputs": {
-    "pyproject.toml": "9f33ef96c21a3fb15794209f05f31668db54639a8005f09ef0df22981c205ee5",
+    "pyproject.toml": "898ab2f5911d670de790253c2049d3b3b9eb96418923b0cb03c07364285e4d14",
     "uv.lock": "2624e1d0dc2ad523bd47dd9aa3971cc037aa329c89a4c1cb66a4a4b535d1da0e"
   },
   "browserComponents": [],

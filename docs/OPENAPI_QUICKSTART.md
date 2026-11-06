@@ -4,6 +4,36 @@ The TypeScript API and worker enforce permissions and execute the durable suppor
 
 ## 1. Import local artifacts
 
+### Connect from the operator interface
+
+An optional managed adapter lets staff connect an API from **Integrations → Connect backend** without editing the support configuration or restarting API/worker processes. Deploy it once with the private overlay:
+
+```sh
+docker compose --env-file /etc/eldhall/support.env \
+  -f compose.yaml -f deploy/compose.managed-mcp.yaml up -d --build
+```
+
+Set `MANAGED_MCP_TOKEN` to a new private service credential of at least 24 random characters. API, worker and adapter share that credential; it is separate from the operator key and is never sent to the browser. Without this optional configuration the existing static connectors continue to work; URL onboarding reports unavailable. Run the normal migration chain first, including `0010_integration_imports.sql`.
+
+Paste a **direct OpenAPI 3.0/3.1 JSON URL**, such as `https://api.example.com/openapi.json`, rather than a Swagger HTML page. The target defaults to that URL's origin and can be explicitly set to an API base path. OpenAPI `servers` does not silently select the target. Preview the operations, explicitly classify each supported operation as read or write, confirm trusted customer/business bindings and allowed output fields, and choose **Deny / Ask / Auto**. Every operation starts at Deny; HTTP methods and model confidence grant no access. Unsupported schemas stay visible and blocked. The same three choices remain available in compact operation rows after connection; existing inherited rules are available in advanced settings.
+
+Confirm saves a disabled connection, installs the reviewed immutable manifest, verifies its exact identity, then activates it using a version check. A failed adapter check leaves the saved connection disabled and retryable. “Connected” verifies the adapter/catalog, not all upstream credentials or business permissions: the upstream still authorizes every real call. Ask creates a durable proposal and needs separate approval/execution; Auto remains subject to guards and trusted scope. Policy edits can invalidate pending actions.
+
+Prepared snapshots expire after 30 minutes and persist in PostgreSQL with the connection, permissions and audit. The adapter cache is disposable: API and worker re-install the exact saved definition after an adapter restart. No database credential is passed to the adapter. New URL connections currently send the authenticated support customer/business UUIDs; an upstream using different identities needs the existing deployment-owned static `customerIdMap`/`upstreamBusinessId` configuration rather than IDs supplied by a customer or model.
+
+Public HTTPS APIs can use the `none` credential profile. Protected APIs use deployment-owned Bearer profiles; arbitrary API-key headers, OAuth flows and OpenAPI `securitySchemes` are not automatically converted into credentials. For example, configure only the adapter:
+
+```dotenv
+MANAGED_UPSTREAM_PROFILES={"orders":{"name":"Orders API","principalId":"orders-service","origins":["https://api.example.com"],"upstreamBaseUrl":"https://api.example.com/v1","tokenEnv":"ORDERS_API_TOKEN"}}
+ORDERS_API_TOKEN=YOUR_PRIVATE_UPSTREAM_CREDENTIAL
+```
+
+Pass that environment file only to `mcp-managed` using an additional private Compose override. Profiles expose names and configuration status, never secret values. A fixed `upstreamBaseUrl` cannot be overridden in the UI. The profile Bearer credential is sent to the spec URL only when its origin matches the selected upstream; protected cross-origin specifications need a local/static import in this first version. Credential rotation for the same upstream principal preserves the target fingerprint; changing that identity requires a new reviewed connection.
+
+Private HTTP endpoints require an exact deployment-owned literal-IP exception: add the same origin to `origins` and `privateOrigins`, for example `http://127.0.0.1:8101` for a native local lab. Container loopback refers to the container itself. Ordinary URL input cannot enable private-network access. Requests reject redirects, compressed responses, remote/cyclic references and oversized documents; DNS resolution is validated and socket addresses are pinned for every upstream call. Metadata/link-local and multicast destinations remain blocked even with a private exception.
+
+The lower-level static artifact workflow follows. Its CLI accepts local files only; the managed service is the explicit URL workflow above.
+
 Use Python 3.12+, `uv` and the committed lockfile. Keep private business specifications and review overlays outside the public example directory.
 
 ```sh
@@ -15,7 +45,7 @@ uv run --locked --project apps/mcp-openapi support-mcp-import \
   --report /etc/eldhall/orders/review-report.json
 ```
 
-Create the output directory first. The review overlay explicitly chooses effect, trusted scope placement, output fields, registered guard and idempotency mapping. Importing does not activate operations. Read the report: unsupported operations are unavailable, and an `unknown` effect cannot execute. Use `--previous` for a catalog diff. Remote refs and arbitrary spec URLs are unsupported; `servers` never selects the trusted upstream.
+Create the output directory first. The review overlay explicitly chooses effect, trusted scope placement, output fields, registered guard and idempotency mapping. Importing does not activate operations. Read the report: unsupported operations are unavailable, and an `unknown` effect cannot execute. Use `--previous` for a catalog diff. The CLI does not fetch spec URLs and remote refs are unsupported; `servers` never selects the trusted upstream.
 
 The [manifest contract](integrations-manifest.md) defines the supported schema subset, fingerprints and bounds. `FastMCP.from_openapi()` mechanically compiles the reviewed candidate inventory without network I/O; runtime tools are bounded wrappers of that inventory rather than an unrestricted mirror of the spec.
 

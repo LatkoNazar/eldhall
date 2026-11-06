@@ -13,12 +13,14 @@ import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
 import { importFromFile, importFromUrl, KnowledgeImportError, knowledgeRuntime } from '../knowledge/runtime.js';
+import type { IntegrationImportsService } from '../../integrations/imports-service.js';
 import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { integrationRoutes } from '../../integrations/routes.js';
 
 export interface SupportDependencies {
   harness: SupportHarness; store: SupportStore; workspaceBusinessId?: string;
   integrations?: BusinessIntegrations;
+  integrationImports?: IntegrationImportsService;
   execution?: 'inline' | 'worker';
   capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
     classification?: { provider: string; model: string; credentialsConfigured: boolean } };
