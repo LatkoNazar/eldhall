@@ -1,0 +1,213 @@
+{
+  "registryFormat": 1,
+  "observerProfile": "eldhall-pg17-public-v2",
+  "status": "reviewed",
+  "entries": [
+    {
+      "id": "starter-025fb39b19ecd1fc77ea056ab256f73dfba785f39dcc31e56603eb22cfe6c690",
+      "component": "starter",
+      "profile": "starter-public",
+      "fingerprint": "025fb39b19ecd1fc77ea056ab256f73dfba785f39dcc31e56603eb22cfe6c690",
+      "sources": [
+        {
+          "path": "apps/api/migrations/0001_jobs.sql",
+          "sha256": "710b43190a3b8e9e4c0bb6be7ad06af1317e9d8d4902daa6103a5bc8c00c0343"
+        },
+        {
+          "path": "apps/api/src/core/migrations.ts",
+          "sha256": "1d6f0f3d4a410bb069243c827d8f0b7ff3cb49c5bc8ae1e2dc9d5a5b2dac2de1"
+        }
+      ],
+      "evidence": {
+        "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+        "runId": "42269708395",
+        "postgresVersionNum": 170011,
+        "fixtureImageInput": "docker.io/library/postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
+      }
+    },
+    {
+      "id": "support-2f9023710316001f9005d8362be73f24f23ed5ebd01845974e49360ffc30c726",
+      "component": "support",
+      "profile": "vector-unavailable",
+      "fingerprint": "2f9023710316001f9005d8362be73f24f23ed5ebd01845974e49360ffc30c726",
+      "sources": [
+        {
+          "path": "apps/api/migrations/0002_support.sql",
+          "sha256": "84b07ea872469302a0b542a95d79f41926be0fe114480cabc87589bf3f77850f"
+        },
+        {
+          "path": "apps/api/migrations/0003_support_turns.sql",
+          "sha256": "abc80f8371889e756824b010b8d905c0c842bddc28e2977187a8d34769e92304"
+        },
+        {
+          "path": "apps/api/migrations/0004_classification.sql",
+          "sha256": "f9280fa976e828283ccf28b8f690b42cbe7cfabbb14608bcddd22b0aa6c3efc4"
+        },
+        {
+          "path": "apps/api/migrations/0005_insights.sql",
+          "sha256": "774d0fd6c4b0a502805a70684cc9983b865e0925191db81e81012bb0c666925f"
+        },
+        {
+          "path": "apps/api/migrations/0006_knowledge.sql",
+          "sha256": "4a4a49345e2a366327924750d59278d21ca63fe27e58ea58f2ff4bf67f0c4d40"
+        },
+        {
+          "path": "apps/api/migrations/0007_external_knowledge.sql",
+          "sha256": "ddb00e99519a2581c0da377f8d2e43d03599c7d6fa492843884eabb5162a450a"
+        },
+        {
+          "path": "apps/api/migrations/0008_integrations.sql",
+          "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
+        },
+        {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
+          "path": "apps/api/migrations/0010_integration_imports.sql",
+          "sha256": "d0e1cfe4a269b27149250987a04f259c2517c86fa1adc8f3d8e8e4bc3db242c2"
+        },
+        {
+          "path": "apps/api/src/modules/support/migrations.ts",
+          "sha256": "5262cd0e2bf6875a2e9aa48d2115aeed9015c3380a275c794bf791eb956f23ad"
+        }
+      ],
+      "evidence": {
+        "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+        "runId": "42269708395",
+        "postgresVersionNum": 170011,
+        "fixtureImageInput": "docker.io/library/postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
+      }
+    },
+    {
+      "id": "starter-573d8d42c255111c5dabc33b7694c808a6cc8431abee59ac39f96ec939d919f3",
+      "component": "starter",
+      "profile": "starter-public",
+      "fingerprint": "573d8d42c255111c5dabc33b7694c808a6cc8431abee59ac39f96ec939d919f3",
+      "sources": [
+        {
+          "path": "apps/api/migrations/0001_jobs.sql",
+          "sha256": "710b43190a3b8e9e4c0bb6be7ad06af1317e9d8d4902daa6103a5bc8c00c0343"
+        },
+        {
+          "path": "apps/api/src/core/migrations.ts",
+          "sha256": "1d6f0f3d4a410bb069243c827d8f0b7ff3cb49c5bc8ae1e2dc9d5a5b2dac2de1"
+        }
+      ],
+      "evidence": {
+        "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+        "runId": "42269708395",
+        "postgresVersionNum": 170006,
+        "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
+      }
+    },
+    {
+      "id": "support-284d33a5f769c3cfd3c13ceab73c23607698e5bef079b374139eb8f13958dbd5",
+      "component": "support",
+      "profile": "vector-installed",
+      "fingerprint": "284d33a5f769c3cfd3c13ceab73c23607698e5bef079b374139eb8f13958dbd5",
+      "sources": [
+        {
+          "path": "apps/api/migrations/0002_support.sql",
+          "sha256": "84b07ea872469302a0b542a95d79f41926be0fe114480cabc87589bf3f77850f"
+        },
+        {
+          "path": "apps/api/migrations/0003_support_turns.sql",
+          "sha256": "abc80f8371889e756824b010b8d905c0c842bddc28e2977187a8d34769e92304"
+        },
+        {
+          "path": "apps/api/migrations/0004_classification.sql",
+          "sha256": "f9280fa976e828283ccf28b8f690b42cbe7cfabbb14608bcddd22b0aa6c3efc4"
+        },
+        {
+          "path": "apps/api/migrations/0005_insights.sql",
+          "sha256": "774d0fd6c4b0a502805a70684cc9983b865e0925191db81e81012bb0c666925f"
+        },
+        {
+          "path": "apps/api/migrations/0006_knowledge.sql",
+          "sha256": "4a4a49345e2a366327924750d59278d21ca63fe27e58ea58f2ff4bf67f0c4d40"
+        },
+        {
+          "path": "apps/api/migrations/0007_external_knowledge.sql",
+          "sha256": "ddb00e99519a2581c0da377f8d2e43d03599c7d6fa492843884eabb5162a450a"
+        },
+        {
+          "path": "apps/api/migrations/0008_integrations.sql",
+          "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
+        },
+        {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
+          "path": "apps/api/migrations/0010_integration_imports.sql",
+          "sha256": "d0e1cfe4a269b27149250987a04f259c2517c86fa1adc8f3d8e8e4bc3db242c2"
+        },
+        {
+          "path": "apps/api/src/modules/support/migrations.ts",
+          "sha256": "5262cd0e2bf6875a2e9aa48d2115aeed9015c3380a275c794bf791eb956f23ad"
+        }
+      ],
+      "evidence": {
+        "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+        "runId": "42269708395",
+        "postgresVersionNum": 170006,
+        "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
+      }
+    },
+    {
+      "id": "support-e967a5e46a56c70e6abebb18f30cbdc7f2afd69878fbd2fe3ec9f4e7e3e73c94",
+      "component": "support",
+      "profile": "vector-available-uninstalled",
+      "fingerprint": "e967a5e46a56c70e6abebb18f30cbdc7f2afd69878fbd2fe3ec9f4e7e3e73c94",
+      "sources": [
+        {
+          "path": "apps/api/migrations/0002_support.sql",
+          "sha256": "84b07ea872469302a0b542a95d79f41926be0fe114480cabc87589bf3f77850f"
+        },
+        {
+          "path": "apps/api/migrations/0003_support_turns.sql",
+          "sha256": "abc80f8371889e756824b010b8d905c0c842bddc28e2977187a8d34769e92304"
+        },
+        {
+          "path": "apps/api/migrations/0004_classification.sql",
+          "sha256": "f9280fa976e828283ccf28b8f690b42cbe7cfabbb14608bcddd22b0aa6c3efc4"
+        },
+        {
+          "path": "apps/api/migrations/0005_insights.sql",
+          "sha256": "774d0fd6c4b0a502805a70684cc9983b865e0925191db81e81012bb0c666925f"
+        },
+        {
+          "path": "apps/api/migrations/0006_knowledge.sql",
+          "sha256": "4a4a49345e2a366327924750d59278d21ca63fe27e58ea58f2ff4bf67f0c4d40"
+        },
+        {
+          "path": "apps/api/migrations/0007_external_knowledge.sql",
+          "sha256": "ddb00e99519a2581c0da377f8d2e43d03599c7d6fa492843884eabb5162a450a"
+        },
+        {
+          "path": "apps/api/migrations/0008_integrations.sql",
+          "sha256": "1245a3244e8d75fa00c430424282cd83414e6958e2a93fb72ba1df97a39d442e"
+        },
+        {
+          "path": "apps/api/migrations/0009_customer_requests.sql",
+          "sha256": "5a49e40a72f194263051b35926c4c5d302f8e4fd9c5e27598b78b1bf52f4544f"
+        },
+        {
+          "path": "apps/api/migrations/0010_integration_imports.sql",
+          "sha256": "d0e1cfe4a269b27149250987a04f259c2517c86fa1adc8f3d8e8e4bc3db242c2"
+        },
+        {
+          "path": "apps/api/src/modules/support/migrations.ts",
+          "sha256": "5262cd0e2bf6875a2e9aa48d2115aeed9015c3380a275c794bf791eb956f23ad"
+        }
+      ],
+      "evidence": {
+        "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+        "runId": "42269708395",
+        "postgresVersionNum": 170006,
+        "fixtureImageInput": "docker.io/pgvector/pgvector:0.8.0-pg17@sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87"
+      }
+    }
+  ]
+}

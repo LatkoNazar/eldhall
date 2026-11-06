@@ -133,6 +133,17 @@ class SourceArchiveTests(unittest.TestCase):
             self.archive(self.commit_tree(), name="missing-request-catalog-migration")
         self.assertFalse((self.root / ".omc/missing-request-catalog-migration").exists())
 
+    def test_managed_import_and_current_schema_evidence_are_required_for_source_closure(self):
+        _, archive_path = self.archive(name="managed-import")
+        prefix = "eldhall-source-" + self.commit + "/"
+        with tarfile.open(archive_path) as archive:
+            for path in ("apps/api/migrations/0010_integration_imports.sql", "apps/mcp-openapi/src/support_mcp/managed.py", "schemas/postgres-schema-references.v2.json", "schemas/postgres-schema-references.v2.receipt.json"):
+                self.assertIn(prefix + path, archive.getnames())
+        self.git("update-index", "--force-remove", "schemas/postgres-schema-references.v2.receipt.json")
+        with self.assertRaisesRegex(ValueError, "required product build inputs"):
+            self.archive(self.commit_tree(), name="missing-managed-schema-evidence")
+        self.assertFalse((self.root / ".omc/missing-managed-schema-evidence").exists())
+
     def test_private_media_links_submodules_and_lfs_never_enter_snapshot(self):
         excluded = {
             "apps/api/.env": b"password=private-test-value\n",

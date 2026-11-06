@@ -1,0 +1,42 @@
+{
+  "receiptFormat": 1,
+  "observerProfile": "eldhall-pg17-public-v2",
+  "status": "reviewed-reference-derivation",
+  "reviewBasis": "independent-source-and-private-ci-candidate-review",
+  "registrySha256": "beb82555983583440bbeb10a8333600db77795a21a08aaf361361ce53d34f841",
+  "candidate": {
+    "sha256": "5e089d3a7e6d38186918389b7053d70b9778e41e15392d139732ed81a46e4f2c",
+    "artifactId": "13529500213",
+    "artifactZipSha256": "3ff89de33170ea92bdd3cca2cca9857363a7bd939ccec136e8a77251dfc950e3",
+    "sourceCommit": "ca5d232aeca1faa9cc27418032540a4ed873c1d6",
+    "testedTree": "30a41086706fe94929d0332554e93f446dd74d3d",
+    "runId": "42269708395",
+    "runAttempt": 1,
+    "integrationJobId": "128070794225",
+    "schemaTests": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "observerSources": [
+    {
+      "path": "apps/api/src/release/schema-state.ts",
+      "sha256": "a0964e008bca39d4ca4b02a595bfde7f753b43c183220745e6c534e9780af429"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-contracts.ts",
+      "sha256": "561bf9d090aa6c69409a00ad2f546355e983b35eb75f827f177869a53e279b9e"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-sql.ts",
+      "sha256": "41e4833d4b32f7b37f3e05e4c004ce8bf17e7d5ee2b14bc414129e9570211375"
+    },
+    {
+      "path": "apps/api/src/release/schema-state-registry.ts",
+      "sha256": "68368429306ae5589dbb157879597479c2e96be9f8bad762741df55ee99f8a0d"
+    }
+  ],
+  "fixtureIdentity": "declared-ci-service-input-not-server-attestation",
+  "scope": "selected-record-diagnostic-only-no-epoch-or-mutation-authority"
+}

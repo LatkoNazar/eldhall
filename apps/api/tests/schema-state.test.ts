@@ -178,11 +178,12 @@ test('checked-in reviewed references preserve empirical candidate identity and r
   assert.throws(() => verifyPinnedSchemaArtifacts(registryText, JSON.stringify(changedReceipt), sources), /original unreviewed candidate bytes/);
 });
 
-test('historical v1 reference files stay byte-exact without granting current-profile compatibility', async () => {
+test('historical v1 reference files retain exact canonical Git bytes without current-profile compatibility', async () => {
   const registryText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.json'), 'utf8');
-  const receiptText = await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.receipt.json'), 'utf8');
+  // Compare Git's LF text across platforms without rewriting historical files.
+  const receiptText = (await readFile(resolve(fixtureRoot, 'schemas/postgres-schema-references.v1.receipt.json'), 'utf8')).replace(/\r\n/g, '\n');
   assert.equal(hash(registryText), '89204eeb35af89ff4d3f9d89ff54dd1397cfbb56b36c8ebce7c9b241429e8364');
-  assert.equal(hash(receiptText), 'dba8d02a469e18356cc7f702af7048e688491ed6fc0174b661ec9398f4e97e68');
+  assert.equal(hash(receiptText), '59a6c486aa2cb3656e3076beb4efa7f4b27c48e93b096bd0617275c71a1a6904');
   const registry = parseInstallationJson(registryText) as { observerProfile: string; entries: unknown[] };
   const receipt = receiptSchema.extend({ observerProfile: z.literal('eldhall-pg17-public-v1') }).parse(parseInstallationJson(receiptText));
   assert.equal(hash(registryText), receipt.registrySha256);
