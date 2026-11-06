@@ -197,6 +197,8 @@ export class SupportHarness {
     let requestCatalog = await store.requestCatalog(caseId);
     let checkpointAccepted = requestCatalog.lastSourceMessageId === sourceMessage.id;
     let knowledgeRead = false;
+    let businessRead = false;
+    let returnedBusinessRead = false;
     let selectedRequests: RequestTarget[] = [];
     const checkpoint = async (batch: import('../support/requests/contracts.js').RequestCheckpoint) => {
       await assertActive();
@@ -295,6 +297,7 @@ export class SupportHarness {
       return result;
     };
     const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose,
+      rememberRead:()=>{returnedBusinessRead=true;},
       rememberPolicy:(integrationId,manifestHash,connectionRevision,policyRevision)=>observedPolicies.set(integrationId,{manifestHash,connectionRevision,policyRevision}),
     });
     ctx.businessTools = integrations?.listTools ? await integrations.listTools() : integrations?.tools ?? [];
@@ -304,7 +307,10 @@ export class SupportHarness {
       await assertActive();
       if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before business tools');
       selectedRequests = requests ? requestTargetsSchema.parse(requests) : fallbackTargets(requestCatalog, 'external_action');
-      const result = await integrations.callTool(integrationId, name, input, signal);collectStrings(result, evidence);return result;
+      returnedBusinessRead=false;
+      const result = await integrations.callTool(integrationId, name, input, signal);
+      businessRead ||= returnedBusinessRead;
+      collectStrings(result, evidence);return result;
     }).catch(error => { if (error instanceof ApprovalPendingToolError) return { status: 'denied', reasonCode: 'turn_awaiting_approval' };throw error; }) : undefined;
 
     const { decision, source, model, classification } = await this.decide(caseId, ctx, terminal);
@@ -339,7 +345,7 @@ export class SupportHarness {
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
     await assertExternal();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence, knowledgeRead), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),settingsVersion:settings.version,classification:settings.classification,externalSourceRefs:[...externalRefs.values()],completionActionId:externalAction?.proposal.id,integrationRefs:[...observedPolicies].map(([integrationId,ref])=>({integrationId,...ref}))});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence, knowledgeRead || businessRead), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),settingsVersion:settings.version,classification:settings.classification,externalSourceRefs:[...externalRefs.values()],completionActionId:externalAction?.proposal.id,integrationRefs:[...observedPolicies].map(([integrationId,ref])=>({integrationId,...ref}))});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -552,7 +558,7 @@ export class SupportHarness {
     return {proposal:done,case:(await store.getCase(proposal.caseId))!};
   }
 
-  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = [], knowledgeRead = false): string {
+  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = [], groundedRead = false): string {
     const uk = /[а-яіїєґ]/i.test(body);
     const lead = analysis.tone === 'neutral' ? '' : uk ? 'Мені дуже шкода, що так сталося — розумію, як це неприємно. ' : "I'm really sorry about this — I understand how frustrating it is. ";
     // External outcomes come only from the recorded proposal state, never from model prose.
@@ -576,7 +582,7 @@ export class SupportHarness {
     if (!proposal && decision.intent === 'cancel_subscription') {
       return lead + (uk ? 'Я не можу скасувати підписку автоматично. Спеціаліст розгляне ваш запит і відповість тут.' : 'I cannot cancel the subscription automatically. A specialist will review your request and reply here.');
     }
-    if (!proposal && decision.intent === 'billing_question' && !(knowledgeRead && decision.reply.trim() && !ungroundedClaim(decision.reply, evidence))) {
+    if (!proposal && decision.intent === 'billing_question' && !(groundedRead && decision.reply.trim() && !ungroundedClaim(decision.reply, evidence))) {
       return lead + (uk ? 'Дякую за питання щодо оплати. Підкажіть дату та суму списання — я перевірю, а за потреби підключу спеціаліста.' : 'Thanks for your billing question. Please tell me the date and amount of the charge so I can check it; a specialist will join if needed.');
     }
     if (!decision.reply || ungroundedClaim(decision.reply, evidence)) {

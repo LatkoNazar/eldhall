@@ -24,6 +24,8 @@ export interface BusinessIntegrationContext {
   businessId: string; customerId: string; assertActive: () => Promise<void>;
   caseId?: string; ownershipVersion?: number;
   markDispatched?: () => Promise<void>;
+  /** Transport-owned proof of a successful scoped read with nonempty projected facts; never call for proposals or writes. */
+  rememberRead?: () => void;
   rememberPolicy?: (integrationId: string, manifestHash: string, connectionRevision: string, policyRevision: number) => void;
   /** Supplied by the harness during a turn: records the action durably (and runs it for `auto`). */
   propose?: (request: ExternalActionRequest) => Promise<BusinessToolResult>;
@@ -64,6 +66,14 @@ export function projectOutput(value: unknown, fields: string[], maxBytes: number
   const output = Array.isArray(value) ? value.map(project) : project(value);
   if (Buffer.byteLength(JSON.stringify(output)) > maxBytes) throw new IntegrationError('invalid_output', 'MCP output exceeds configured limit');
   return output;
+}
+
+/** Empty/missing projected data is not factual grounding; zero and false are valid facts. */
+export function rememberReadResult(context: BusinessIntegrationContext, result: unknown): void {
+  const rows = Array.isArray(result) ? result : [result];
+  const present = (value: unknown) => value !== null && value !== undefined && value !== '';
+  if (rows.some(row => row && typeof row === 'object' && !Array.isArray(row) &&
+    Object.values(row).some(value => Array.isArray(value) ? value.some(present) : present(value)))) context.rememberRead?.();
 }
 
 /** The SDK's auth/discovery/redirect paths may never introduce a second network target. */
@@ -196,7 +206,9 @@ export function createBusinessIntegrations(config: SupportConfig, env: NodeJS.Pr
           if (Buffer.byteLength(JSON.stringify(input)) > 16_384) throw new Error('Input too large');
           validateToolInput(tool.inputSchema, input);
         } catch { throw new IntegrationError('invalid_input', 'Business tool input does not match configured schema'); }
-        return invoke(integration, tool, context, structuredClone(input), credentials.get(integration.id), signal);
+        const result = await invoke(integration, tool, context, structuredClone(input), credentials.get(integration.id), signal);
+        rememberReadResult(context, result);
+        return result;
       },
     };
   } };

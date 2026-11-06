@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { manifestSchema, type Manifest } from './manifest.js';
 import { INTERNAL_SERVICE_ORIGIN, type SupportConfig } from './config.js';
-import { combineIntegrations, createBusinessIntegrations, IntegrationError, projectOutput, toolData, withMcpClient, type ActionOutcome, type BusinessIntegrations, type BusinessTool } from './mcp.js';
+import { combineIntegrations, createBusinessIntegrations, IntegrationError, projectOutput, rememberReadResult, toolData, withMcpClient, type ActionOutcome, type BusinessIntegrations, type BusinessTool } from './mcp.js';
 import { fingerprint, integrationPolicySchema, resolvePermission, resolveWithPolicy, type PermissionDecision } from './permissions.js';
 import { validateToolInput } from './schema.js';
 import { effectivePolicy, type IntegrationStore } from './state.js';
@@ -130,7 +130,9 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
           const result = await dispatch(operation, clean, {}, async () => undefined, decision.policyRevision!, signal);
           if (result.isError) throw new IntegrationError('unavailable', 'Business tool returned an error');
           if(config.registry) context.rememberPolicy?.(manifest.integrationId,manifest.manifestHash,config.connectionRevision??'1',decision.policyRevision!);
-          return projectOutput(toolData(result), operation.outputFields, maxOutputBytes);
+          const data = projectOutput(toolData(result), operation.outputFields, maxOutputBytes);
+          rememberReadResult(context, data);
+          return data;
         }
         // Approval or a write needs the durable ledger; without it, fail closed.
         if (!context.propose) throw new IntegrationError('denied', 'Business action requires the support ledger');

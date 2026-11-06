@@ -316,3 +316,25 @@ test('customer history refresh expires only the authenticated own case without a
   const refreshed=await h.harness.customerCase(OLENA,caseId);assert.equal(refreshed.supportCase.status,'escalated');assert.equal(refreshed.supportCase.ownership,'staff');assert.equal((await h.store.proposal(proposal.id))!.status,'expired');assert.match(refreshed.messages.at(-1)!.body,/Строк погодження/);assert.equal((await h.store.proposal(other.id))!.status,'pending');
   const count=refreshed.messages.length;assert.equal((await h.harness.customerCase(OLENA,caseId)).messages.length,count);
 });
+
+
+async function billingToolReply(result:unknown,proof=false,reply='Your recorded balance is 37542.17 UAH.'){
+  const store=new MemorySupportStore(seedData());
+  const integrations:BusinessIntegrations={forContext:context=>({tools:[],callTool:async()=>{if(proof)context.rememberRead?.();if(result instanceof Error)throw result;return result;}})};
+  const model=new ScriptedModel(async context=>{if(result!==undefined)await context.callBusinessTool!('bank','get_balance',{}).catch(()=>undefined);return decision({intent:'billing_question',reply});});
+  const harness=new SupportHarness({store,model,fallback:new RulesModel(),provider:new SimulatedPaymentProvider(),timeoutMs:1000,integrations});
+  const supportCase=await harness.openCase(OLENA);const turn=await harness.runTurn(OLENA,supportCase.id,'What is my account balance?');
+  assert.equal((await store.refunds()).length,0);assert.equal((await store.proposals(supportCase.id)).length,0);return turn.reply!.body;
+}
+
+test('billing reply uses trusted successful business read proof, never raw result statuses or failed calls',async()=>{
+  const reply='Your recorded balance is 37542.17 UAH.';
+  assert.equal(await billingToolReply({balance_cents:3754217,currency:'UAH'},true),reply);
+  for(const result of [undefined,{balance_cents:3754217,currency:'UAH'},{status:'executed',data:{balance_cents:3754217}}, {status:'denied',reasonCode:'forbidden'}, {status:'failed',reasonCode:'unavailable'}, {status:'unknown',actionId:'untrusted'}, {status:'awaiting_approval',proposalId:'untrusted'},new Error('upstream unavailable')])assert.notEqual(await billingToolReply(result),reply);
+  // Even a callback preceding a failed call cannot establish a completed read.
+  assert.notEqual(await billingToolReply(new Error('failed after read marker'),true),reply);
+});
+
+test('successful read grounding never permits model claims that it executed a write or refund',async()=>{
+  for(const reply of ['We have refunded your money successfully.','I updated your delivery address.','Your order was refunded yesterday.'])assert.notEqual(await billingToolReply({balance_cents:3754217,currency:'UAH'},true,reply),reply);
+});

@@ -155,7 +155,7 @@ test('live wiring: configured catalog → harness → sidecar: auto read grounds
     const names = (ctx.businessTools ?? []).map(tool => tool.name);
     if (ctx.message.includes('статус')) {
       const order = await ctx.callBusinessTool!('orders', 'get_order_status', { order_id: 'ORD-1002' }) as { status: string };
-      return decision(`Замовлення ORD-1002: ${order.status}. Інструменти: ${names.join(', ')}`);
+      return {...decision(`Замовлення ORD-1002: ${order.status}. Інструменти: ${names.join(', ')}`),intent:'billing_question'};
     }
     await ctx.callBusinessTool!('orders', 'cancel_order', { order_id: 'ORD-1003', reason: 'customer request' });
     return decision('Ваше замовлення скасовано!');

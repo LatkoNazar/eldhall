@@ -74,12 +74,13 @@ const code = (expected: IntegrationError['code']) => (error: unknown) => error i
 
 test('real SDK HTTP initialize/list/call binds session identity and projects reviewed fields', async t => {
   const f = await fixture(); t.after(f.close);
-  let leaseChecks = 0;
-  const scoped = f.registry().forContext({ ...context, assertActive: async () => { leaseChecks++; } });
+  let leaseChecks = 0, reads = 0;
+  const scoped = f.registry().forContext({ ...context, rememberRead: () => { reads++; }, assertActive: async () => { leaseChecks++; } });
   assert.deepEqual(scoped.tools.map(tool => [tool.integrationId, tool.name]), [['orders', 'get_order_status']]);
   const result = await scoped.callTool('orders', 'get_order_status', { order_id: 'own-order' });
   assert.deepEqual(result, { order_id: 'own-order', status: 'dispatched' });
   assert.equal(leaseChecks, 3);
+  assert.equal(reads, 1);
   assert.deepEqual(f.calls[0]?.args, { order_id: 'own-order', business_id: businessId, customer_id: customerId });
   assert.ok(f.methods.includes('initialize'));
   assert.ok(f.methods.includes('tools/list'));
@@ -161,4 +162,18 @@ test('HTTP redirects never contact a second target and credentials are required 
   assert.throws(() => createBusinessIntegrations(f.config, {}), /environment reference/);
   await assert.rejects(f.registry().forContext(context).callTool('orders', 'get_order_status', { order_id: 'own-order' }), code('unavailable'));
   assert.equal(f.calls.length, 0);
+});
+
+
+test('only successful nonempty projected reads report transport grounding, including zero values',async t=>{
+  for(const [output,expected] of [[{},0],[{status:null},0],[{status:''},0],[{status:[]},0],[{status:0},1],[{status:false},1]] as const){
+    const f=await fixture({output});t.after(f.close);let reads=0;
+    await f.registry().forContext({...context,rememberRead:()=>{reads++;}}).callTool('orders','get_order_status',{order_id:'own-order'});assert.equal(reads,expected);
+  }
+  for(const options of [{destructive:true},{output:{status:'x'.repeat(9000)}},{text:'not-json'}]){
+    const f=await fixture(options);t.after(f.close);let reads=0;
+    await assert.rejects(f.registry().forContext({...context,rememberRead:()=>{reads++;}}).callTool('orders','get_order_status',{order_id:'own-order'}));assert.equal(reads,0);
+  }
+  const f=await fixture();t.after(f.close);let reads=0;
+  await assert.rejects(f.registry().forContext({...context,rememberRead:()=>{reads++;}}).callTool('orders','get_order_status',{order_id:'someone-elses-order'}));assert.equal(reads,0);
 });
