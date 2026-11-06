@@ -56,6 +56,7 @@
 .integration-tool-details { border-top: 1px solid var(--ds-color-border); padding: 14px; overflow-wrap: anywhere; }
 .integration-tool-details[hidden] { display: none !important; }
 .integration-tool-details > p, .integration-effective { font-size: var(--ds-font-size-sm); }
+.integration-effective { margin: 0 0 12px; }
 .integration-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .integration-group { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ds-color-border); }
 .integration-group > div { flex: 1; min-width: 0; }

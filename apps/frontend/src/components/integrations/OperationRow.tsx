@@ -12,7 +12,7 @@ export function OperationRow({ operationKey, method, path, title, status, contro
         <Icon name="arrow" size={16} /><span className={`http-method http-${method.toLowerCase()}`}>{method}</span>
         <span className="integration-tool-name"><code>{path}</code><span>{title}</span></span>
       </button>
-      <div className="integration-tool-state">{status}</div>{controls}
+      {status && <div className="integration-tool-state">{status}</div>}{controls}
     </div>
     <div className="integration-tool-details" id={id} hidden={!expanded}>{children}</div>
   </article>
