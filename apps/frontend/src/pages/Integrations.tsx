@@ -1,7 +1,7 @@
 import { WorkspaceProvider } from '../components/WorkspaceProvider'
 import { useI18n, formatDateTime, type UiMessage } from '../i18n'
 import { ErrorNotice } from '../components/ErrorNotice'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Badge, Empty, Icon, Notice } from '../components/ui'
 import { ApiError, request } from '../lib/api'
 import { decisionLabel, inheritedMode, integrationPath, loadIntegration, loadIntegrations, modeLabel } from '../lib/integrations-api'
@@ -29,7 +29,7 @@ function IntegrationList({ businessId, token, dirtyRef }: { businessId: string; 
   const [selected, setSelected] = useState(() => new URLSearchParams(window.location.search).get('integrationId') ?? '')
   const [revision, setRevision] = useState(0)
   const [creating, setCreating] = useState(false)
-  const connectButton = useRef<HTMLButtonElement>(null)
+  const restoreConnectFocus = useRef(false)
   useEffect(() => {
     const controller = new AbortController()
     void loadIntegrations(businessId, token, controller.signal).then(data => { if (!controller.signal.aborted) setState({ data: data.integrations, error: null }) }).catch(cause => { if (!controller.signal.aborted) setState(previous => ({ ...previous, error: cause })) })
@@ -40,20 +40,19 @@ function IntegrationList({ businessId, token, dirtyRef }: { businessId: string; 
     setState(previous => ({ data: [...(previous.data ?? []).filter(item => item.integrationId !== result.integration.integrationId), result.integration], error: null }))
     setSelected(result.integration.integrationId); setCreating(false); setRevision(value => value + 1)
   }
+  const picker = state.data?.length ? <label className="integration-picker"><span className="sr-only">{t('operations.integrations.integration')}</span><select disabled={creating} value={active?.integrationId ?? ''} onChange={event => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setSelected(event.target.value) }}>{state.data.map(item => <option key={item.integrationId} value={item.integrationId}>{item.integrationId} · {item.draining ? t('operations.integrations.draining') : item.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</option>)}</select></label> : null
+  const connect = <button ref={button => { if (button && restoreConnectFocus.current && !creating) { restoreConnectFocus.current = false; button.focus() } }} className="primary" disabled={creating} onClick={() => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setCreating(true) }}><Icon name="plus" size={18} />{t('onboarding.new')}</button>
   return <>
-    <header className="integration-navigation">
-      <h1>{t("operations.integrations.title")}</h1>
-      {state.data?.length ? <label className="integration-picker"><span className="sr-only">{t('operations.integrations.integration')}</span><select disabled={creating} value={active?.integrationId ?? ''} onChange={event => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setSelected(event.target.value) }}>{state.data.map(item => <option key={item.integrationId} value={item.integrationId}>{item.integrationId} · {item.draining ? t('operations.integrations.draining') : item.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</option>)}</select></label> : <span />}
-      <button ref={connectButton} className="primary" disabled={creating} onClick={() => { if (!dirtyRef.current || window.confirm(t('operations.integrations.discardPrompt'))) setCreating(true) }}><Icon name="plus" size={18} />{t('onboarding.new')}</button>
-    </header>
+    <h1 className="sr-only">{t("operations.integrations.title")}</h1>
+    {(creating || !active) && <header className="integration-navigation">{picker}{connect}</header>}
     {Boolean(state.error) && <ErrorNotice error={state.error}><button onClick={() => setRevision(value => value + 1)}>{t('operations.integrations.refresh')}</button></ErrorNotice>}
-    {creating ? <IntegrationImportWizard businessId={businessId} token={token} onConnected={connected} onCancel={() => { setCreating(false); connectButton.current?.focus() }} />
-      : active ? <IntegrationEditor key={active.integrationId} id={active.integrationId} businessId={businessId} token={token} dirtyRef={dirtyRef} onChanged={() => setRevision(value => value + 1)} />
+    {creating ? <IntegrationImportWizard businessId={businessId} token={token} onConnected={connected} onCancel={() => { restoreConnectFocus.current = true; setCreating(false) }} />
+      : active ? <IntegrationEditor key={active.integrationId} picker={picker} connect={connect} id={active.integrationId} businessId={businessId} token={token} dirtyRef={dirtyRef} onChanged={() => setRevision(value => value + 1)} />
         : !state.error && <div className="card"><Empty icon="settings" title={state.data ? t('operations.integrations.noCatalogs') : t('operations.integrations.loading')}>{t('onboarding.description')}</Empty></div>}
   </>
 }
 
-function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id: string; businessId: string; token: string; dirtyRef: { current: boolean }; onChanged: () => void }) {
+function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged, picker, connect }: { id: string; businessId: string; token: string; dirtyRef: { current: boolean }; onChanged: () => void; picker: ReactNode; connect: ReactNode }) {
   const { t, locale, translateMessage } = useI18n()
   const [data, setData] = useState<{ catalog: IntegrationCatalog; policy: IntegrationPolicyResponse } | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -113,7 +112,7 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id:
     } finally { setBusy(false) }
   }
   function refresh() { if (!isDirty || window.confirm(t("operations.integrations.reloadPrompt"))) { setReviewing(null); setLoading(true); void load() } }
-  if (!data || !draft) return <>{Boolean(error) && <ErrorNotice error={error}> <button onClick={refresh}>{t("operations.integrations.reloadPolicy")}</button></ErrorNotice>}<div className="card"><Empty title={loading ? t("operations.integrations.loadingCatalog") : t("operations.integrations.catalogUnavailable")} /></div></>
+  if (!data || !draft) return <section className="integration-console" aria-label={id}><header className="integration-summary"><h2 className="sr-only">{id}</h2>{picker}<div className="integration-primary-actions" />{connect}</header>{Boolean(error) && <ErrorNotice error={error}> <button onClick={refresh}>{t("operations.integrations.reloadPolicy")}</button></ErrorNotice>}<div className="card"><Empty title={loading ? t("operations.integrations.loadingCatalog") : t("operations.integrations.catalogUnavailable")} /></div></section>
   const integration = data.policy.integration
   const operations = data.catalog.operations.filter(operation => `${operation.title} ${operation.operationKey} ${operation.tags.join(' ')}`.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)))
   const tags = [...new Set(data.catalog.operations.flatMap(operation => operation.tags))].sort()
@@ -121,8 +120,9 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id:
   const save = () => void mutate('/policy', { defaultMode: draft.defaultMode, groups: draft.groups, operations: draft.operations }, 'PATCH')
   return <section className="integration-console" aria-label={id}>
     <header className="integration-summary">
-      <div className="integration-summary-name"><h2 className="sr-only">{id}</h2><Badge value={integration.enabled ? 'ok' : 'draft'}>{integration.draining ? t('operations.integrations.finishingCalls') : integration.enabled ? t('operations.integrations.active') : t('operations.integrations.disabled')}</Badge>{data.catalog.source && <p className="small break-word integration-source-caption"><code>{data.catalog.source.upstreamBaseUrl}</code> · <a href={data.catalog.source.specUrl} target="_blank" rel="noopener noreferrer">OpenAPI</a></p>}</div>
+      <h2 className="sr-only">{id}</h2>{picker}
       <div className="integration-primary-actions"><button className="primary" disabled={blocked || !isDirty} onClick={save}>{t('operations.integrations.saveRules')}</button><button disabled={blocked || isDirty || (integration.enabled && integration.activeManifestHash === integration.loadedManifestHash)} onClick={() => void mutate('/activate', { manifestHash: integration.loadedManifestHash, connectionRevision: integration.connectionRevision })}>{t('onboarding.checkActivate')}</button><button className="icon-button" aria-label={t('operations.integrations.reloadPolicy')} disabled={busy || loading} onClick={refresh}><Icon name="refresh" size={18} /></button><details ref={actionsMenu} className="integration-actions-menu" onKeyDown={event => { if (event.key === 'Escape' && actionsMenu.current?.open) { event.preventDefault(); actionsMenu.current.open = false; actionsMenu.current.querySelector('summary')?.focus() } }}><summary aria-label={t('onboarding.actionsMenu')}><Icon name="settings" size={18} /></summary><div className="integration-actions-dropdown"><button type="button" onClick={() => { if (actionsMenu.current) actionsMenu.current.open = false; setAdvanced(true) }}><Icon name="settings" size={18} />{t('onboarding.advancedSettings')}</button><button type="button" disabled={blocked || isDirty || !integration.enabled} onClick={() => { if (actionsMenu.current) actionsMenu.current.open = false; void mutate('/disable', { draining: false }) }}>{t('operations.integrations.disable')}</button></div></details></div>
+      {connect}
     </header>
     {Boolean(error) && <ErrorNotice error={error}>{conflict && <p>{t('operations.integrations.versionConflict')}</p>}<button disabled={busy || loading} onClick={refresh}>{t('operations.integrations.reloadPolicy')}</button></ErrorNotice>}
     {notice && <Notice>{translateMessage(notice)}</Notice>}
@@ -132,7 +132,7 @@ function IntegrationEditor({ id, businessId, token, dirtyRef, onChanged }: { id:
         <p className="field-hint">{t('operations.integrations.precedenceHint')}</p>
         {draft.groups.map((group, index) => <div className="integration-group" key={group.id}><div><strong>{group.id}</strong><small>{'tag' in group.selector ? t('operations.integrations.exactTag', { tag: group.selector.tag }) : t('operations.integrations.operationList', { operations: group.selector.operationKeys.join(', ') })}</small></div><label><span className="sr-only">{t('operations.integrations.groupPermission')} {group.id}</span><select disabled={blocked} value={group.mode} onChange={event => setDraft({ ...draft, groups: draft.groups.map((item, at) => at === index ? { ...item, mode: event.target.value as RuleMode } : item) })}>{(['inherit', 'deny', 'ask', 'auto'] as const).map(mode => <option key={mode} value={mode}>{modeLabel(mode, t)}</option>)}</select></label><button type="button" disabled={blocked} onClick={() => setDraft({ ...draft, groups: draft.groups.filter(item => item.id !== group.id) })} aria-label={t('operations.integrations.removeGroup', { group: group.id })}>{t('operations.integrations.remove')}</button></div>)}
         {tags.length > 0 && <div className="integration-new-group"><label>{t('operations.integrations.newGroupKey')}<input value={newGroupId} onChange={event => setNewGroupId(event.target.value)} maxLength={64} disabled={blocked} /></label><label>{t('operations.integrations.exactGroupTag')}<select value={tag} onChange={event => setTag(event.target.value)} disabled={blocked}><option value="">{t('operations.integrations.selectTag')}</option>{tags.map(value => <option key={value}>{value}</option>)}</select></label><button type="button" disabled={blocked || !tag || !/^[a-zA-Z0-9_.-]{1,64}$/.test(newGroupId) || draft.groups.some(group => group.id === newGroupId)} onClick={() => { setDraft({ ...draft, groups: [...draft.groups, { id: newGroupId, selector: { tag }, mode: 'ask' }] }); setNewGroupId(''); setTag('') }}>{t('operations.integrations.addGroupRule')}</button></div>}
-        <details><summary>{t('onboarding.technical')}</summary><p className="small muted">{t('operations.integrations.adminScope')}</p><dl className="facts"><dt>{t('operations.integrations.editVersion')}</dt><dd>{integration.version}</dd><dt>{t('operations.integrations.policyRevision')}</dt><dd>{integration.policyRevision}</dd><dt>{t('operations.integrations.connectionRevision')}</dt><dd>{integration.connectionRevision}</dd><dt>{t('operations.integrations.loadedManifest')}</dt><dd><code>{integration.loadedManifestHash}</code></dd><dt>{t('operations.integrations.activeManifest')}</dt><dd><code>{integration.activeManifestHash ?? t('operations.integrations.notActivated')}</code></dd><dt>{t('operations.common.updated')}</dt><dd>{formatDateTime(integration.updatedAt, locale)}</dd></dl></details>
+        <details><summary>{t('onboarding.technical')}</summary>{data.catalog.source && <p className="small break-word integration-source-caption"><code>{data.catalog.source.upstreamBaseUrl}</code> · <a href={data.catalog.source.specUrl} target="_blank" rel="noopener noreferrer">OpenAPI</a></p>}<p className="small muted">{t('operations.integrations.adminScope')}</p><dl className="facts"><dt>{t('operations.integrations.editVersion')}</dt><dd>{integration.version}</dd><dt>{t('operations.integrations.policyRevision')}</dt><dd>{integration.policyRevision}</dd><dt>{t('operations.integrations.connectionRevision')}</dt><dd>{integration.connectionRevision}</dd><dt>{t('operations.integrations.loadedManifest')}</dt><dd><code>{integration.loadedManifestHash}</code></dd><dt>{t('operations.integrations.activeManifest')}</dt><dd><code>{integration.activeManifestHash ?? t('operations.integrations.notActivated')}</code></dd><dt>{t('operations.common.updated')}</dt><dd>{formatDateTime(integration.updatedAt, locale)}</dd></dl></details>
       </section>
     <div className="integration-tools-panel" hidden={advanced}>
     <div className="integration-catalog-toolbar"><h3 className="sr-only">{t('operations.integrations.operationCatalog')}</h3><label className="search-field"><Icon name="search" size={18} /><input value={search} onChange={event => setSearch(event.target.value)} aria-label={t('operations.integrations.searchOperations')} placeholder={t('operations.integrations.searchPlaceholder')} /></label><details className="integration-mode-help"><summary><Icon name="help" size={18} /><span className="sr-only">{t('onboarding.modeHint')}</span></summary><p className="muted">{t('operations.integrations.description')} {t('onboarding.modeHint')}</p></details></div>
