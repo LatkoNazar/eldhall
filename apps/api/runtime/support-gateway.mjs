@@ -34,15 +34,19 @@ export function apply(ctx) {
       headers: { authorization: `Bearer ${capability}`, 'content-type': 'application/json' },
       body: JSON.stringify({ tool, args, callId: exec.callId }),
     });
-    if (!response.ok) throw new Error(`Support gateway rejected ${tool} (${response.status})`);
+    if (!response.ok) {
+      const problem=await response.json().catch(()=>null);
+      const detail=typeof problem?.error==='string'?problem.error.slice(0,300):'Request denied';
+      throw new Error(`Support gateway rejected ${tool} (${response.status}): ${detail}`);
+    }
     return response.json();
   }
   const output = { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] };
   if (ALLOWED.includes('update_customer_requests')) ctx.tools.register(defineTool({
     name:'update_customer_requests',
-    description:'Checkpoint ALL customer requests before business actions or final decision. Preserve existing UUID/revision for updates. Distinct localKeys identify new requests; dependencies use existing IDs or keys from this batch. Never fulfill. Mark ambiguous or unparsed input needs_review. Cite actual customer message IDs including current message. Empty needs_review batch records unparsed input honestly.',
-    parameters:{version:{type:'integer',required:true},syncState:{type:'string',enum:['current','needs_review'],required:true},changes:{type:'array',required:true,items:{type:'object',additionalProperties:false,properties:{
-      localKey:{type:'string',required:true},id:{type:'string'},expectedRevision:{type:'integer'},title:{type:'string',required:true},goal:{type:'string',required:true},
+    description:'Checkpoint ALL customer requests before business actions or final decision. version is the CURRENT requestCatalog.version from application context (0 for an empty catalog), NOT the next version. For NEW requests OMIT id and expectedRevision: the server allocates UUIDs. For an update use only existing canonical UUID and current revision. After success use the RETURNED UUID/revision in action.requests. Distinct localKeys identify new requests; dependencies use existing IDs or batch keys. Never fulfill. Mark ambiguous/unparsed input needs_review. Cite actual customer sourceMessageIds including currentCustomerMessageId. Empty needs_review batch records unparsed input honestly.',
+    parameters:{version:{type:'integer',required:true,description:'CURRENT requestCatalog.version from application context; 0 for an empty catalog. Do not increment it yourself.'},syncState:{type:'string',enum:['current','needs_review'],required:true},changes:{type:'array',required:true,items:{type:'object',additionalProperties:false,properties:{
+      localKey:{type:'string',required:true},id:{type:'string',description:'Existing server UUID only. OMIT for a new request; never invent an ID.'},expectedRevision:{type:'integer',description:'Existing current revision only. OMIT for a new request.'},title:{type:'string',required:true},goal:{type:'string',required:true},
       waitingOn:{required:true,oneOf:[{type:'string',enum:['customer','staff']},{type:'null'}]},nextStep:{required:true,oneOf:[{type:'string'},{type:'null'}]},
       sourceMessageIds:{type:'array',items:{type:'string'},required:true},dependencyIds:{type:'array',items:{type:'string'}},dependencyKeys:{type:'array',items:{type:'string'}}
     }}}},output,
@@ -62,7 +66,7 @@ export function apply(ctx) {
   }));
   ctx.tools.register(defineTool({
     name: 'submit_decision',
-    description: 'Submit the final support analysis and optional proposed action. This never executes refunds. Call exactly once to finish the turn.',
+    description: 'Submit the final support analysis and optional proposed action. For an answer, explanation, fee question, or clarification with no supported action, action MUST be literal null: {intent:"billing_question",...,reply:"The published fee is 0 UAH.",action:null}. Never use tool other, none, answer, or an empty action object. This never executes refunds. With a request catalog a refund MUST link canonical request UUID/revision INSIDE action.requests: action:{tool:"refund_payment",args:{payment_id:"...",amount_cents:10000},requests:[{id:"canonical-request-uuid",revision:1}]}. Do not put requests at the top level or inside action.args. Use the IDs returned by update_customer_requests, regardless of request title. Call once successfully to finish; repair rejected validation calls.',
     parameters: {
       ...(CLASS_IDS.length ? { classification: { type: 'object', required: true, additionalProperties: false, properties: {
         classId: { type: 'string', required: true, enum: CLASS_IDS },
@@ -77,10 +81,10 @@ export function apply(ctx) {
         urgency: { type: 'string', required: true, enum: ['low', 'medium', 'high'] },
       } },
       reply: { type: 'string', required: true },
-      action: { required: true, oneOf: [
+      action: { required: true, description: 'For answer-only replies use literal null, not an object. Only supported action objects are refund_payment and escalate_to_human. Never invent tool other or none.', oneOf: [
         { type: 'null' },
         { type: 'object', additionalProperties: false, properties: {
-          requests:{type:'array',items:{type:'object',additionalProperties:false,properties:{id:{type:'string',required:true},revision:{type:'integer',required:true}}}},
+          requests:{type:'array',...(ALLOWED.includes('update_customer_requests')?{required:true}:{}),description:'Required canonical links for this refund. This field is INSIDE action, alongside tool and args. Use exact current IDs/revisions returned by update_customer_requests.',items:{type:'object',additionalProperties:false,properties:{id:{type:'string',required:true},revision:{type:'integer',required:true}}}},
           tool: { type: 'string', required: true, const: 'refund_payment' },
           args: { type: 'object', additionalProperties: false, required: true, properties: {
             payment_id: { type: 'string', required: true, description: 'Exact payment id returned by lookup_payments; choose the later duplicate.' },

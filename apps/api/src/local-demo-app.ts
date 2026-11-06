@@ -36,6 +36,7 @@ class DemoJobStore implements JobStore {
 /** Explicit local fixture only. Never load .env or pass ambient settings here. */
 export async function createLocalDemoApp() {
   const settings = settingsFrom({
+    SUPPORT_WORKSPACE_BUSINESS_ID:'00000000-0000-4000-8000-000000000001',
     ENVIRONMENT: 'development', OPERATOR_TOKEN: '1111', API_TOKEN: '1111',
     ALLOWED_HOSTS: '["127.0.0.1","localhost"]', CORS_ORIGINS: '[]',
     SUPPORT_STORE: 'memory', SUPPORT_EXECUTION: 'inline', DEMO_RESET_ENABLED: 'true',
@@ -45,12 +46,12 @@ export async function createLocalDemoApp() {
   const store = new MemorySupportStore(); await store.reset(seedData());
   const model = new RulesModel(), knowledge = new KnowledgeRetriever();
   configureKnowledge({ retriever: knowledge, external: undefined, urlAllowlist: [], fetcher: async () => { throw new KnowledgeImportError(403, 'URL imports are disabled in the local demo'); } });
-  const harness = new SupportHarness({ store, model, fallback: model, provider: new SimulatedPaymentProvider(), knowledge, timeoutMs: 1000 });
+  const harness = new SupportHarness({ workspaceBusinessId:settings.supportWorkspaceBusinessId,store, model, fallback: model, provider: new SimulatedPaymentProvider(), knowledge, timeoutMs: 1000 });
   const jobs = new DemoJobStore();
   return createApp(settings, {
     store: jobs, dispatch: async id => { await executeJob(jobs, id); },
     checks: { memory: () => store.listCases() },
-    support: { store, harness, execution: 'inline', capabilities: {
+    support: { workspaceBusinessId:settings.supportWorkspaceBusinessId,store, harness, execution: 'inline', capabilities: {
       execution: 'inline', runtime: 'rules', provider: model.provider, model: model.model,
       persistence: 'memory', paymentProvider: 'simulated', credentialsConfigured: true,
       knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,

@@ -27,7 +27,7 @@ export async function startSupportWorker(settings: Settings, support: SupportDep
   });
   let closing = false;
   let relay: Promise<void> | undefined;
-  const maintain = createSupportMaintenance(support.store);
+  const maintain = createSupportMaintenance({recoverInterruptedExecutions:()=>support.store.recoverInterruptedExecutions(support.workspaceBusinessId)});
   const publish = () => {
     if (closing || relay) return relay;
     // Sweep expiry/recovery before opening a Redis connection: a broker outage
@@ -39,7 +39,7 @@ export async function startSupportWorker(settings: Settings, support: SupportDep
         streams: { events: { maxLen: 1000 } },
       });
       queue.on('error', () => console.warn('Support queue publisher unavailable'));
-      try { await publishPendingTurns(support.store, async id => { await queue.add('support-turn', { runId: id }, { jobId: id }); }); }
+      try { await publishPendingTurns(support.store, async id => { await queue.add('support-turn', { runId: id }, { jobId: id }); },support.workspaceBusinessId); }
       finally { await queue.close(); }
     })).then(() => undefined)
       .catch(() => { console.warn('Support outbox publish unavailable; persisted turns will be retried'); })

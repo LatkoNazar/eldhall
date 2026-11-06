@@ -124,6 +124,13 @@ test('imports do not listen and actual API binds only loopback with authenticate
 test('business filtering scopes case detail and metrics without cross-business fallback', async t => {
   const { get } = await api(t)
   const { businesses } = await (await get('/api/v1/businesses')).json()
+  const workspace = await (await get('/api/v1/workspace')).json()
+  assert.equal(workspace.business.id, businesses[0].id)
+  assert.equal(workspace.business.slug, 'inspector-gallery')
+  assert.deepEqual(Object.keys(workspace.business).sort(), ['currency', 'id', 'name', 'slug'])
+  const guards = await (await get('/api/v1/guards')).json()
+  assert.deepEqual(guards.rules, [])
+  assert.equal(guards.definitions.length, 3)
   const cases = await (await get(`/api/v1/cases?businessId=${businesses[1].id}`)).json()
   assert.equal(cases.length, 1)
   assert.equal(cases[0].businessId, businesses[1].id)

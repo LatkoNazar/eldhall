@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '../test/render'
+import { act, render, screen, waitFor, within } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import App from '../App'
@@ -20,6 +20,7 @@ function completed(): InsightRun {
 function serve(handler: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return response({ business: { id: businessId, name: 'Synthetic Store', slug: 'fixture-bank', currency: 'UAH' } })
     if (path === '/api/v1/operator/session') return response({ authenticated: true })
     const value = handler(path, init)
     if (value) return value
@@ -99,24 +100,29 @@ it('hides revoked-source findings after preflight and dispatches no draft reques
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
 })
 
-it('clears the previous business and ignores its delayed read after switching scope', async () => {
+it('aborts and ignores a delayed read after leaving the bound-bank view', async () => {
   let delayed = false
   let release!: () => void
+  let signal: AbortSignal | null | undefined
   const oldRead = new Promise<Response>(resolve => { release = () => resolve(response({ runs: [completed()] })) })
-  serve(path => {
-    if (path === `/api/v1/insights/runs?businessId=${businessId}`) return delayed ? oldRead : response({ runs: [completed()] })
-    if (path === `/api/v1/insights/runs?businessId=${foreignId}`) return response({ runs: [{ ...completed(), businessId: foreignId, findings: [] }] })
+  const fetch = serve((path, init) => {
+    if (path === '/api/v1/insights/runs?businessId=' + businessId) {
+      if (delayed) { signal = init?.signal; return oldRead }
+      return response({ runs: [completed()] })
+    }
   })
   const user = userEvent.setup()
-  render(<Insights token="test-operator" />)
+  const view = render(<Insights token="test-operator" />)
   expect(await screen.findByRole('article', { name: 'Пояснити відновлення доступу' })).toBeInTheDocument()
+  expect(screen.queryByRole('combobox', { name: 'Бізнес для аналізу' })).not.toBeInTheDocument()
   delayed = true
   await user.click(screen.getByRole('button', { name: 'Оновити' }))
-  await user.selectOptions(screen.getByRole('combobox', { name: 'Бізнес для аналізу' }), foreignId)
+  await waitFor(() => expect(signal).toBeDefined())
+  view.unmount()
+  expect(signal!.aborted).toBe(true)
+  await act(async () => { release() })
   expect(screen.queryByRole('article', { name: 'Пояснити відновлення доступу' })).not.toBeInTheDocument()
-  release()
-  expect(await screen.findByRole('heading', { name: 'У цій вибірці немає пропозицій' })).toBeInTheDocument()
-  expect(screen.queryByRole('article', { name: 'Пояснити відновлення доступу' })).not.toBeInTheDocument()
+  expect(fetch.mock.calls.some(([path]) => String(path).includes('businessId=' + foreignId))).toBe(false)
 })
 
 it('renders failed analysis honestly without fabricated findings', async () => {

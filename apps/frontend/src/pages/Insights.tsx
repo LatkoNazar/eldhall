@@ -1,3 +1,4 @@
+import { WorkspaceProvider } from '../components/WorkspaceProvider'
 import { useI18n, formatDateTime, formatNumber } from '../i18n'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { AppLink } from '../components/AppLink'
@@ -6,7 +7,6 @@ import { Badge, Empty, Icon, Notice } from '../components/ui'
 import { ApiError, UiError } from '../lib/api'
 import { createInsightDraft, getInsightRun, listInsightRuns, startInsightRun } from '../lib/insights-api'
 import type { InsightDraft, InsightFinding, InsightRun } from '../lib/insights-api'
-import { useResource } from '../lib/useResource'
 
 interface Business { id: string; name: string; currency: string }
 const active = (run: InsightRun) => run.status === 'queued' || run.status === 'running'
@@ -49,15 +49,10 @@ function useInsightRuns(businessId: string, token: string) {
 
 export function Insights({ token }: { token: string }) {
   const { t } = useI18n()
-  const resource = useResource<{ businesses: Business[] }>('/businesses', token)
-  const [selected, setSelected] = useState(() => new URLSearchParams(window.location.search).get('businessId') ?? '')
-  const businesses = resource.data?.businesses ?? []
-  const business = businesses.find(item => item.id === selected) ?? businesses[0]
-  return <>
+  return <WorkspaceProvider token={token}>{business => <>
     <div className="page-heading"><div><h1>{t("operations.insights.title")}</h1><p>{t("operations.insights.description")}</p></div></div>
-    {Boolean(resource.error) && <ErrorNotice error={resource.errorCause}> <button onClick={resource.refresh}>{t("operations.common.refreshBusinesses")}</button></ErrorNotice>}
-    {business ? <><div className="business-scope"><label htmlFor="insights-business">{t("operations.insights.business")}</label><select id="insights-business" value={business.id} onChange={event => setSelected(event.target.value)}>{businesses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span className="muted small">{t("operations.insights.scope")}</span></div><BusinessInsights key={business.id} business={business} token={token} scopeStale={!!resource.error} /></> : <section className="card"><Empty icon="book" title={resource.loading ? t("operations.common.loadingBusinesses") : t("operations.common.noBusiness")} /></section>}
-  </>
+    <BusinessInsights key={business.id} business={business} token={token} scopeStale={false} />
+  </>}</WorkspaceProvider>
 }
 
 function BusinessInsights({ business, token, scopeStale }: { business: Business; token: string; scopeStale: boolean }) {

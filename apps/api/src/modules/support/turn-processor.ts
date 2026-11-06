@@ -18,15 +18,15 @@ export function createSupportMaintenance(store: Pick<SupportStore, 'recoverInter
 }
 
 /** PostgreSQL is authoritative; BullMQ delivery may be repeated or reconstructed. */
-export async function publishPendingTurns(store: SupportStore, publish: (id: string) => Promise<void>): Promise<number> {
-  const jobs = await store.pendingTurnJobs(50);
+export async function publishPendingTurns(store: SupportStore, publish: (id: string) => Promise<void>,businessId?:string): Promise<number> {
+  const jobs = await store.pendingTurnJobs(50,businessId);
   for (const job of jobs) await publish(job.id);
   return jobs.length;
 }
 
 export async function processSupportTurn(id: string, workerId: string, store: SupportStore, harness: SupportHarness): Promise<void> {
   if (!/^[a-f0-9-]{36}$/i.test(id)) return;
-  const claimed = await store.claimTurnJob(id, workerId);
+  const claimed = await store.claimTurnJob(id, workerId,harness.workspaceBusinessId);
   if (!claimed) return;
   let heartbeat: Promise<void> | undefined;
   const timer = setInterval(() => {

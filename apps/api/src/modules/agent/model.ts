@@ -1,3 +1,4 @@
+import type { NewActivity } from '../support/activity.js';
 import { requestTargetsSchema, type RequestCatalog, type RequestCheckpoint, type RequestTarget } from '../support/requests/contracts.js';
 import { z } from 'zod';
 import type { Business, Payment } from '../support/contracts.js';
@@ -6,6 +7,8 @@ import type { ClassificationConfig } from './classification.js';
 
 // Controlled context: built by the harness from backend state, never from customer-supplied ids.
 export interface AgentContext {
+  activityRunId?:string;
+  recordActivity?: (event:NewActivity)=>Promise<void>;
   currentCustomerMessageId?: string;
   requestCatalog?: () => RequestCatalog;
   requestSourceMessages?: {id:string;body:string}[];

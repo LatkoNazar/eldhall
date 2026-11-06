@@ -22,14 +22,15 @@ export function validateFindings(input: InsightInput, output: unknown): InsightF
 }
 
 export class InsightsService {
-  constructor(readonly repository: InsightsRepository, readonly model: InsightModel | undefined, readonly timeoutMs: number) {}
+  constructor(readonly repository: InsightsRepository, readonly model: InsightModel | undefined, readonly timeoutMs: number,readonly workspaceBusinessId?:string) {}
   async create(businessId: string, limit: number, requestId?: string) {
+    if(this.workspaceBusinessId&&businessId!==this.workspaceBusinessId)throw new InsightError(404,'Business not found');
     if (!this.model) throw new InsightError(503, 'AI Insights requires a configured DSH model');
     return this.repository.create(businessId, limit, requestId, this.model.provider, this.model.model);
   }
   async processOne(owner: string, parentSignal: AbortSignal): Promise<boolean> {
     if (!this.model || parentSignal.aborted) return false;
-    const lease = await this.repository.claim(owner);
+    const lease = await this.repository.claim(owner,this.workspaceBusinessId);
     if (!lease) return false;
     const controller = new AbortController();
     const cancel = () => controller.abort(parentSignal.reason);

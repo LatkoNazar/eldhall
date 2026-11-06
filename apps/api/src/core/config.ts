@@ -39,6 +39,7 @@ export interface Settings {
   llmBaseUrl: string;
   maxRuntimeToolCalls: number;
   supportConfigFile: string;
+  supportWorkspaceBusinessId?: string;
   supportExecution: 'inline' | 'worker';
   classificationProvider: 'agent' | 'openrouter';
   classificationModel: string;
@@ -145,6 +146,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     llmBaseUrl: value('LLM_BASE_URL', ''),
     maxRuntimeToolCalls: integer('MAX_RUNTIME_TOOL_CALLS', '8', 32),
     supportConfigFile: value('SUPPORT_CONFIG_FILE', ''),
+    supportWorkspaceBusinessId: value('SUPPORT_WORKSPACE_BUSINESS_ID', '').trim(),
     supportExecution: value('SUPPORT_EXECUTION', supportStore === 'memory' ? 'inline' : 'worker') as Settings['supportExecution'],
     classificationProvider: value('CLASSIFICATION_PROVIDER', 'agent') as Settings['classificationProvider'],
     classificationModel: value('CLASSIFICATION_MODEL', '').trim(),
@@ -156,6 +158,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv): Settings {
     knowledgeUrlAllowlist: array('KB_URL_ALLOWLIST', '[]'),
   };
   if (!['memory', 'postgres'].includes(settings.supportStore)) throw new Error('SUPPORT_STORE must be memory or postgres');
+  if (settings.supportWorkspaceBusinessId && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(settings.supportWorkspaceBusinessId)) throw new Error('SUPPORT_WORKSPACE_BUSINESS_ID must be a UUID');
   if (!['openai', 'google', 'anthropic', 'local', 'rules'].includes(settings.llmProvider)) throw new Error('LLM_PROVIDER must be openai, google, anthropic, local or rules');
   if (!['dsh', 'rules'].includes(settings.agentRuntime)) throw new Error('AGENT_RUNTIME must be dsh or rules');
   if (!['inline', 'worker'].includes(settings.supportExecution)) throw new Error('SUPPORT_EXECUTION must be inline or worker');

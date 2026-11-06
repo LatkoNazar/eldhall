@@ -869,3 +869,21 @@ td { padding: 14px 15px; border-top: 1px solid var(--ds-color-border); vertical-
 }
 
 @media (max-height: 420px) { .request-inspector-header { max-height: 50%; min-height: 0; overflow: auto; } }
+
+.workspace-identity { margin: 0 12px 12px; color: var(--ds-color-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.workspace-unavailable { max-width: 36rem; margin: auto; }
+.guards-section > h2 { display: flex; gap: 8px; align-items: center; }
+.guard-rule { min-width: 0; padding: 14px; margin-block: 16px; border: 1px solid var(--ds-color-border); border-radius: 10px; }
+.guard-rule legend { max-width: 100%; overflow-wrap: anywhere; }
+.guard-rule .check-option { margin-block: 12px; }
+.skill-item textarea { width: 100%; }
+.agent-activity, .request-ticket-context { overflow-wrap: anywhere; margin-block: 14px; }
+.agent-activity > summary { display: flex; gap: 8px; align-items: center; }
+.activity-events { margin-top: 14px; }
+.activity-event-heading { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.activity-facts > div { display: contents; }
+.activity-events h4 { margin-block: 8px 4px; }
+.activity-events small, .agent-activity li > small { display: block; }
+@media (max-width: 767px) {
+  .workspace-identity { flex: 1; min-width: 0; margin: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

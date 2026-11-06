@@ -1,3 +1,5 @@
+import { guardDefinitions, guardRulesSchema } from './guards.js';
+import { businessVisible, publicBusiness, scopedMetrics } from './workspace.js';
 import { requestTransitionSchema } from './requests/contracts.js';
 import { RequestValidationError } from './requests/engine.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -15,7 +17,7 @@ import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { integrationRoutes } from '../../integrations/routes.js';
 
 export interface SupportDependencies {
-  harness: SupportHarness; store: SupportStore;
+  harness: SupportHarness; store: SupportStore; workspaceBusinessId?: string;
   integrations?: BusinessIntegrations;
   execution?: 'inline' | 'worker';
   capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
@@ -45,6 +47,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
   await app.register(async chat => {
     const session = (headers: Record<string, unknown>) => typeof headers['x-customer-session'] === 'string' ? headers['x-customer-session'] : undefined;
     const hit = fixedWindowLimiter();
+    chat.addHook('onRequest', async (request,reply)=>{if(!support.workspaceBusinessId||request.routeOptions.url?.endsWith('/personas'))return;const customer=await store.customerBySession(session(request.headers)??'');if(!customer||customer.businessId!==support.workspaceBusinessId)return reply.code(401).send({detail:'Unknown customer session'});});
     chat.addHook('onRequest', async (request, reply) => {
       if (request.method !== 'POST') return;
       const now = Date.now();
@@ -74,7 +77,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     if (demoResetEnabled) {
       chat.get('/personas', async () => {
-        const customers = (await Promise.all(seedData().customers.map(c => store.customer(c.id)))).filter(c => c !== null);
+        const customers = (await Promise.all(seedData().customers.map(c => store.customer(c.id)))).filter(c => c !== null).filter(c=>businessVisible(support.workspaceBusinessId,c.businessId));
         return Promise.all(customers.map(async c => ({ name: c.name, plan: c.plan, sessionToken: c.sessionToken, businessName: (await store.business(c.businessId))?.name ?? '' })));
       });
     }
@@ -83,9 +86,22 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
   // Operator console: bearer OPERATOR_TOKEN.
   await app.register(async operator => {
     operator.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, operatorToken));
+    operator.addHook('preHandler',async(request,reply)=>{
+      const binding=support.workspaceBusinessId;if(!binding)return;
+      const query=request.query as Record<string,unknown>;const body=request.body as Record<string,unknown>|undefined;const params=request.params as Record<string,string>;const path=request.routeOptions.url??'';
+      if(query?.businessId&&query.businessId!==binding||body?.businessId&&body.businessId!==binding)return reply.code(404).send({detail:'Business not found'});
+      if(path.includes('/cases/:id')){const row=params.id?await store.getCase(params.id):null;if(!row||row.businessId!==binding)return reply.code(404).send({detail:'Case not found'});}
+      if(path.includes('/proposals/:id')){const proposal=params.id?await store.proposal(params.id):null;const row=proposal?await store.getCase(proposal.caseId):null;if(!row||row.businessId!==binding)return reply.code(404).send({detail:'Proposal not found'});}
+      if((path.endsWith('/businesses')&&request.method==='POST')||path.endsWith('/demo/reset'))return reply.code(409).send({detail:'This deployment has a fixed workspace'});
+    });
+    operator.get('/workspace',(request,reply)=>guard(reply,async()=>{
+      const businesses=(await store.businessesList()).filter(row=>businessVisible(support.workspaceBusinessId,row.id));
+      if(businesses.length!==1)return reply.code(409).send({detail:'Configure an explicit workspace business',code:'workspace_ambiguous'});
+      return {business:publicBusiness(businesses[0]!)};
+    }));
     operator.get<{ Querystring: { status?: CaseStatus } }>('/cases', {
       schema: { querystring: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
-    }, request => store.listCases(request.query.status));
+    }, async request => (await store.listCases(request.query.status)).filter(row=>businessVisible(support.workspaceBusinessId,row.businessId)));
     operator.get<{ Params: { id: string } }>('/cases/:id', { schema: { params: uuidParams } }, (request, reply) => guard(reply, () => harness.detail(request.params.id)));
     operator.post<{ Params: { id: string; requestId: string } }>('/cases/:id/requests/:requestId/transition', (request, reply) => guard(reply, async () => {
       const params=z.strictObject({id:z.uuid(),requestId:z.uuid()}).parse(request.params);
@@ -126,7 +142,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       await store.audit(request.params.id, 'staff.replied', 'operator:staff');
       return { message, case: await store.getCase(request.params.id) };
     }));
-    operator.get('/businesses', async () => ({ businesses: (await store.businessesList()).map(({ id, slug, name, currency }) => ({ id, slug, name, currency })) }));
+    operator.get('/businesses', async () => ({ businesses: (await store.businessesList()).filter(row=>businessVisible(support.workspaceBusinessId,row.id)).map(({ id, slug, name, currency }) => ({ id, slug, name, currency })) }));
     operator.post('/businesses', (request, reply) => guard(reply, async () => {
       const body = z.strictObject({ name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/), currency: z.string().regex(/^[A-Z]{3}$/), policy: z.strictObject({ refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3) }).default({ refundLimitCents: 50000, duplicateWindowMinutes: 10, enabledTools: ['lookup_payments', 'refund_payment', 'escalate_to_human'] }) }).parse(request.body);
       return reply.code(201).send(await store.createBusiness({ ...body, id: randomUUID() }));
@@ -140,7 +156,8 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     const scope = async (query: unknown) => {
       const { businessId } = z.strictObject({ businessId: z.uuid().optional() }).parse(query);
-      const business = businessId ? await store.business(businessId) : (await store.businessesList())[0];
+      if(businessId&&!businessVisible(support.workspaceBusinessId,businessId))throw new HarnessError(404,'Business not found');
+      const business = businessId ? await store.business(businessId) : support.workspaceBusinessId ? await store.business(support.workspaceBusinessId) : (await store.businessesList())[0];
       if (!business) throw new HarnessError(404, 'Business not found');
       return business.id;
     };
@@ -224,13 +241,20 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       const body = z.strictObject({ name: z.string().regex(/^custom\/[a-z0-9][a-z0-9-]{0,63}$/), content: z.string().trim().min(1).max(30000), enabled: z.boolean().default(true) }).parse(request.body);
       return reply.code(201).send(await store.saveSkill({ ...body, id: randomUUID(), businessId: await scope(request.query), revision: 1, updatedAt: new Date().toISOString() }));
     }));
+    operator.patch<{Params:{id:string}}>('/skills/:id',(request,reply)=>guard(reply,async()=>{
+      const businessId=await scope(request.query);const id=z.uuid().parse(request.params.id);const body=z.strictObject({revision:z.number().int().positive(),content:z.string().trim().min(1).max(30000),enabled:z.boolean()}).parse(request.body);
+      const old=(await store.skills(businessId)).find(row=>row.id===id);if(!old)throw new HarnessError(404,'Skill not found');
+      return store.saveSkill({...old,...body,revision:body.revision+1,updatedAt:new Date().toISOString()},body.revision);
+    }));
+    operator.get('/guards',(request,reply)=>guard(reply,async()=>{const settings=await store.settings(await scope(request.query));return {version:settings.version,revision:settings.guardRevision??0,rules:settings.guards??[],definitions:guardDefinitions};}));
+    operator.put('/guards',(request,reply)=>guard(reply,async()=>{const businessId=await scope(request.query);const body=z.strictObject({version:z.number().int().positive(),rules:guardRulesSchema}).parse(request.body);const old=await store.settings(businessId);const saved=await store.saveSettings({...old,version:body.version+1,guards:body.rules,guardRevision:(old.guardRevision??0)+1},body.version);return {version:saved.version,revision:saved.guardRevision??0,rules:saved.guards??[],definitions:guardDefinitions};}));
     operator.get('/settings', (request, reply) => guard(reply, async () => store.settings(await scope(request.query))));
     operator.patch('/settings', (request, reply) => guard(reply, async () => {
       const body = z.strictObject({ version: z.number().int().positive(), language: z.enum(['uk', 'en']), tone: z.enum(['neutral', 'empathetic', 'de-escalating']), requireApproval: z.literal(true), refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3), classification: classificationConfigSchema.nullable().optional() }).parse(request.body);
       return store.saveSettings({ ...body, businessId: await scope(request.query), version: body.version + 1 }, body.version);
     }));
-    operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
-    operator.get('/metrics', () => store.metrics());
+    operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c=>businessVisible(support.workspaceBusinessId,c.businessId)).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
+    operator.get('/metrics', () => support.workspaceBusinessId?scopedMetrics(store,support.workspaceBusinessId):store.metrics());
     operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', approvals: 'separate-execution' });
     if (demoResetEnabled) {
       operator.post('/demo/reset', async () => { await store.reset(seedData()); return { status: 'reset' }; });

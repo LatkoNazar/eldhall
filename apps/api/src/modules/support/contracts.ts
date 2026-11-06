@@ -1,4 +1,6 @@
 import type { RequestCatalog } from './requests/contracts.js';
+import type { GuardRule } from './guards.js';
+import type { AgentActivity } from './activity.js';
 export type { RequestCatalog, CustomerRequest, RequestEvent, RequestTarget } from './requests/contracts.js';
 import type { ClassificationConfig, TicketClassification } from '../agent/classification.js';
 import type { ExternalKnowledgeRef } from '../knowledge/qdrant.js';
@@ -14,6 +16,8 @@ export type ProposalStatus = 'pending' | 'approved' | 'executing' | 'executed' |
 export type Risk = 'low' | 'high';
 
 export interface Policy {
+  guards?: GuardRule[];
+  guardRevision?: number;
   refundLimitCents: number;
   duplicateWindowMinutes: number;
   enabledTools: string[];
@@ -73,6 +77,8 @@ export interface KnowledgeSource {
 }
 export interface SupportSkill { id: string; businessId: string; name: string; content: string; revision: number; enabled: boolean; updatedAt: string }
 export interface SupportSettings {
+  guards?: GuardRule[];
+  guardRevision?: number;
   businessId: string; version: number; language: string; tone: 'neutral' | 'empathetic' | 'de-escalating';
   requireApproval: true; refundLimitCents: number; duplicateWindowMinutes: number; enabledTools: string[];
   classification?: ClassificationConfig | null;
@@ -101,6 +107,7 @@ export interface AgentRun {
 }
 
 export interface CaseDetail {
+  agentActivity: AgentActivity;
   requestCatalog: RequestCatalog;
   activeRun?: { id: string; status: SupportTurnJob['status'] } | null;
   case: SupportCase; customer: Omit<Customer, 'sessionToken'>; payments: Payment[];

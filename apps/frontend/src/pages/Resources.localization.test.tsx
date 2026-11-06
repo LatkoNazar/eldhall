@@ -1,3 +1,4 @@
+import { guardFixture } from '../test/banking-fixtures'
 import { render, screen, waitFor } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
@@ -18,11 +19,12 @@ it('keeps dirty settings and the two-language agent contract across all five UI 
   let settings = { businessId, version: 1, language: 'uk', tone: 'neutral', requireApproval: true, refundLimitCents: 50000, duplicateWindowMinutes: 10, enabledTools: ['lookup_payments', 'refund_payment', 'escalate_to_human'], classification: null }
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
-    if (path === '/api/v1/businesses') return response({ businesses: [{ id: businessId, name: 'Synthetic business', currency: 'UAH', slug: 'synthetic' }] })
+    if (path === '/api/v1/workspace') return response({ business: { id: businessId, name: 'Synthetic business', currency: 'UAH', slug: 'synthetic' } })
     if (path.startsWith('/api/v1/settings?')) {
       if (init?.method === 'PATCH') settings = { ...settings, ...JSON.parse(String(init.body)), version: settings.version + 1 }
       return response(settings)
     }
+    if (path.startsWith('/api/v1/guards?')) return response(guardFixture())
     if (path.startsWith('/api/v1/skills?')) return response({ skills: [], preset: 'support-v1' })
     if (path === '/api/v1/capabilities') return response({ runtime: 'rules', provider: 'rules', model: 'keyword-rules-v1', persistence: 'memory', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', maxToolCalls: 8 })
     throw new Error('Unexpected fixture endpoint')

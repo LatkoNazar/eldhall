@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "purpose": "Synthetic local banking sandbox only; public persona tokens; never production onboarding",
+  "businessId": "b1000000-0000-4000-8000-000000000001",
+  "customers": [
+    {
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Олена · повторне списання",
+      "email": "olena@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-olena"
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Тарас · одне списання",
+      "email": "taras@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-taras"
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Ірина · понад ліміт",
+      "email": "iryna@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-iryna"
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Марта · перевірка skill",
+      "email": "marta@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-marta"
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Андрій · перевірка guard",
+      "email": "andrii@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-andrii"
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "businessId": "b1000000-0000-4000-8000-000000000001",
+      "name": "Софія · довідкові запити",
+      "email": "sofia@bank.example.test",
+      "plan": "Sandbox",
+      "sessionToken": "bank-sandbox-sofia"
+    }
+  ],
+  "payments": [
+    {
+      "id": "b3000000-0000-4000-8000-000000000010",
+      "customerId": "b2000000-0000-4000-8000-000000000001",
+      "amountCents": 25000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-01",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:01:00.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000011",
+      "customerId": "b2000000-0000-4000-8000-000000000001",
+      "amountCents": 25000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-01",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:01:40.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000020",
+      "customerId": "b2000000-0000-4000-8000-000000000002",
+      "amountCents": 18000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-02",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:02:00.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000030",
+      "customerId": "b2000000-0000-4000-8000-000000000003",
+      "amountCents": 250000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-03",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:03:00.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000031",
+      "customerId": "b2000000-0000-4000-8000-000000000003",
+      "amountCents": 250000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-03",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:03:40.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000040",
+      "customerId": "b2000000-0000-4000-8000-000000000004",
+      "amountCents": 30000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-04",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:04:00.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000041",
+      "customerId": "b2000000-0000-4000-8000-000000000004",
+      "amountCents": 30000,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-04",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:04:40.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000050",
+      "customerId": "b2000000-0000-4000-8000-000000000005",
+      "amountCents": 9900,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-05",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:05:00.000Z"
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000051",
+      "customerId": "b2000000-0000-4000-8000-000000000005",
+      "amountCents": 9900,
+      "currency": "UAH",
+      "merchantRef": "BANK-SANDBOX-PURCHASE-05",
+      "description": "Синтетична покупка · перевірка банківського агента",
+      "status": "captured",
+      "createdAt": "2026-11-06T08:05:40.000Z"
+    }
+  ]
+}

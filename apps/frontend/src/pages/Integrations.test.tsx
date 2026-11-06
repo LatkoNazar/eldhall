@@ -28,6 +28,7 @@ function mockApi(options: { conflict?: boolean; conflictingGroups?: boolean } = 
   if (options.conflictingGroups) currentOperations[0]!.effective = { mode: 'deny', source: 'group', matchedRuleIds: ['billing', 'orders'], policyRevision: 1, reasonCode: 'group_conflict_strictest' }
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return response({ business: { id: businessId, name: 'First Store', slug: 'fixture-bank', currency: 'UAH' } })
     if (path === '/api/v1/operator/session') return response({ authenticated: true })
     if (path === '/api/v1/cases') return response([])
     if (path === '/api/v1/metrics') return response({ cases: 0, byStatus: { open: 0, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 0 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null })
@@ -142,18 +143,21 @@ it('shows group conflicts, explicit inheritance and disabled reviewed state with
   expect(screen.getByText('Потрібен review поточної версії')).toBeInTheDocument()
 })
 
-it('discards only with permission when switching business and reads the new business catalog', async () => {
+it('keeps the bank binding under a foreign business URL and retains dirty-policy navigation guards', async () => {
+  history.replaceState({}, '', '/operator/integrations?businessId=' + otherBusiness)
   const fetch = mockApi()
   const user = userEvent.setup()
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(<Integrations token="operator-key" />)
-  await user.selectOptions(await screen.findByRole('combobox', { name: 'Дозвіл групи orders' }), 'deny')
-  await user.selectOptions(screen.getByLabelText('Бізнес інтеграцій'), otherBusiness)
-  expect(screen.getByLabelText('Бізнес інтеграцій')).toHaveValue(businessId)
-  confirm.mockReturnValue(true)
-  await user.selectOptions(screen.getByLabelText('Бізнес інтеграцій'), otherBusiness)
-  await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
-  expect(fetch.mock.calls.some(([path]) => String(path) === `/api/v1/integrations/orders/operations?businessId=${otherBusiness}`)).toBe(true)
+  const group = await screen.findByRole('combobox', { name: 'Дозвіл групи orders' })
+  expect(screen.queryByLabelText('Бізнес інтеграцій')).not.toBeInTheDocument()
+  expect(screen.getByText(/Посилання вказує інший бізнес/)).toBeInTheDocument()
+  await user.selectOptions(group, 'deny')
+  act(() => { expect(navigate('/operator/knowledge')).toBe(false) })
+  expect(confirm).toHaveBeenCalledOnce()
+  expect(group).toHaveValue('deny')
+  expect(fetch.mock.calls.some(([path]) => String(path).includes('businessId=' + otherBusiness))).toBe(false)
+  expect(fetch.mock.calls.some(([path]) => String(path) === '/api/v1/integrations/orders/operations?businessId=' + businessId)).toBe(true)
 })
 
 it('blocks editing when separately read catalog and policy versions do not match', async () => {

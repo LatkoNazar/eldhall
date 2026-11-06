@@ -65,8 +65,8 @@ export class PostgresTurnJobs {
     });
   }
 
-  async pending(limit = 50): Promise<SupportTurnJob[]> {
-    const result = await this.pool.query("SELECT * FROM support_turn_jobs WHERE (status='queued' AND available_at<=now()) OR (status='running' AND lease_expires_at<=now()) ORDER BY created_at LIMIT $1", [limit]);
+  async pending(limit = 50,businessId?:string): Promise<SupportTurnJob[]> {
+    const result = await this.pool.query("SELECT j.* FROM support_turn_jobs j JOIN support_cases c ON c.id=j.case_id WHERE ((j.status='queued' AND j.available_at<=now()) OR (j.status='running' AND j.lease_expires_at<=now())) AND ($2::uuid IS NULL OR c.business_id=$2) ORDER BY j.created_at LIMIT $1", [limit,businessId??null]);
     return result.rows.map(value => row<SupportTurnJob>(value));
   }
 
@@ -75,11 +75,12 @@ export class PostgresTurnJobs {
     return result.rows[0] ? row<SupportTurnJob>(result.rows[0]) : null;
   }
 
-  async claim(id: string, workerId: string): Promise<{ job: SupportTurnJob; lease: TurnLease } | null> {
+  async claim(id: string, workerId: string,businessId?:string): Promise<{ job: SupportTurnJob; lease: TurnLease } | null> {
     return this.transaction(async client => {
       const found = await client.query('SELECT case_id FROM support_turn_jobs WHERE id=$1', [id]);
       if (!found.rows[0]) return null;
-      const cases = await client.query('SELECT * FROM support_cases WHERE id=$1 FOR UPDATE', [found.rows[0].case_id]);
+      const cases = await client.query('SELECT * FROM support_cases WHERE id=$1 AND ($2::uuid IS NULL OR business_id=$2) FOR UPDATE', [found.rows[0].case_id,businessId??null]);
+      if(!cases.rows[0])return null;
       const eligible = await client.query("SELECT * FROM support_turn_jobs WHERE id=$1 AND available_at<=now() AND (status='queued' OR (status='running' AND lease_expires_at<=now())) FOR UPDATE", [id]);
       if (!eligible.rows[0]) return null;
       const supportCase = cases.rows[0];

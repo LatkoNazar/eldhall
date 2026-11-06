@@ -112,7 +112,7 @@ test('category confidence never authorizes an action and classifier edits fence 
   await started;
   const current = await store.settings(slowCase.businessId);
   await store.saveSettings({ ...current, version: current.version + 1, classification: { ...taxonomy(), revision: 2 } }, current.version);
-  release(); await assert.rejects(pending, /Classification taxonomy changed/);
+  release(); await assert.rejects(pending, /Settings changed/);
   assert.equal((await store.getCase(slowCase.id))?.analysis, null);
   assert.equal((await store.messages(slowCase.id)).some(message => message.role === 'assistant'), false);
 });

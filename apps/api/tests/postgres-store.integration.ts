@@ -15,6 +15,9 @@ import { ScriptedModel } from '../src/modules/agent/model.js';
 import { bootstrapSupportConfig } from '../src/integrations/bootstrap.js';
 import { supportConfigSchema } from '../src/integrations/config.js';
 import type { BusinessIntegrations } from '../src/integrations/mcp.js';
+import { VersionConflict } from '../src/modules/support/store.js';
+import type { GuardRule } from '../src/modules/support/guards.js';
+import { InsightsRepository } from '../src/modules/insights/repository.js';
 
 test('real PostgreSQL support persistence, claims, recovery and source revocation', {timeout:60000}, async t=>{
   const connection={host:process.env.TEST_POSTGRES_HOST??process.env.POSTGRES_HOST??'127.0.0.1',port:Number(process.env.TEST_POSTGRES_PORT??process.env.POSTGRES_PORT??5432),database:process.env.TEST_POSTGRES_DB??process.env.POSTGRES_DB??'app',user:process.env.TEST_POSTGRES_USER??process.env.POSTGRES_USER??'app',password:process.env.TEST_POSTGRES_PASSWORD??process.env.POSTGRES_PASSWORD??'development-only',connectionTimeoutMillis:3000};
@@ -172,6 +175,121 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       assert.equal((await restarted.messages(c.id)).filter(message=>message.role==='assistant').length,1);
       assert.equal((await restarted.proposals(c.id)).length,1);
       assert.equal(await restarted.activeTurnJob(c.id),null);
+    });
+    await t.test('concurrent skill CAS has one winner and completion fences exact enabled skills and settings', async () => {
+      await store.reset(seedData());
+      const customer = seedData().customers[0]!;
+      const skill = await store.saveSkill({ id: randomUUID(), businessId: customer.businessId, name: 'custom/pg-procedure', content: 'Original procedure.', revision: 1, enabled: true, updatedAt: new Date().toISOString() });
+      const disabled = await store.saveSkill({ ...skill, id: randomUUID(), name: 'custom/pg-newly-enabled', content: 'Initially disabled procedure.', enabled: false });
+      const competing = await Promise.allSettled(['First reviewed procedure.', 'Second reviewed procedure.'].map(content => new PostgresSupportStore(pool!).saveSkill({ ...skill, content, revision: 2 }, 1)));
+      const winner = competing.find(result => result.status === 'fulfilled');
+      const loser = competing.find(result => result.status === 'rejected');
+      assert.equal(competing.filter(result => result.status === 'fulfilled').length, 1);
+      assert.ok(winner?.status === 'fulfilled'); assert.ok(loser?.status === 'rejected');
+      assert.ok(loser.reason instanceof VersionConflict);
+      const restarted = new PostgresSupportStore(pool!);
+      assert.deepEqual((await restarted.skills(customer.businessId)).find(row => row.id === skill.id), winner.value);
+      const c = await restarted.createCase(customer.businessId, customer.id);
+      const lease = (await restarted.acquireTurn(c.id, randomUUID()))!;
+      const snapshot = async () => ({ policy: (await restarted.business(customer.businessId))!.policy, settingsVersion: (await restarted.settings(customer.businessId)).version, classification: (await restarted.settings(customer.businessId)).classification, skills: (await restarted.skills(customer.businessId)).filter(row => row.enabled).map(({ id, revision }) => ({ id, revision })) });
+      const current = await snapshot();
+      assert.equal(await restarted.completeTurn(lease, {}, 'Stale skill response', [], { ...current, skills: [{ id: skill.id, revision: 1 }] }), null);
+      await restarted.saveSkill({ ...disabled, enabled: true, revision: 2 }, 1);
+      assert.equal(await restarted.completeTurn(lease, {}, 'Missing newly enabled instructions', [], current), null);
+      const beforeSettingsChange = await snapshot();
+      const settings = await restarted.settings(customer.businessId);
+      await restarted.saveSettings({ ...settings, language: 'en', version: settings.version + 1 }, settings.version);
+      assert.deepEqual((await restarted.business(customer.businessId))!.policy, beforeSettingsChange.policy);
+      assert.equal(await restarted.completeTurn(lease, {}, 'Stale response preferences', [], beforeSettingsChange), null);
+      assert.equal((await restarted.messages(c.id)).length, 0);
+      const completed = await restarted.completeTurn(lease, {}, 'Current instructions and preferences', [], await snapshot());
+      assert.equal(completed?.reply.body, 'Current instructions and preferences');
+      assert.equal((await restarted.messages(c.id)).length, 1);
+      await restarted.releaseTurn(lease);
+    });
+    await t.test('the current stored guard blocks an old approved refund until restored and dispatches exactly once', async () => {
+      await store.reset(seedData());
+      let dispatches = 0;
+      const businessId = seedData().customers[0]!.businessId;
+      const refundProvider = { refund: async () => { dispatches++; return { providerRef: 'SIM-PG-CURRENT-GUARD', simulated: true as const }; } };
+      const h = new SupportHarness({ store, model: new RulesModel(), fallback: new RulesModel(), provider: refundProvider, workspaceBusinessId: businessId, timeoutMs: 1000 });
+      const c = await h.openCase('demo-olena');
+      const proposal = (await h.runTurn('demo-olena', c.id, 'charged twice')).proposal!;
+      await h.approve(proposal.id, 'staff', proposal.argsHash);
+      assert.equal((await store.proposal(proposal.id))?.policy.allowed, true);
+      const deny: GuardRule = { id: randomUUID(), name: 'Temporary refund restriction', definitionVersion: 1, enabled: true, kind: 'deny_action', target: { tool: 'refund_payment' }, reason: 'Operator review of refund procedure is in progress.' };
+      const settings = await store.settings(businessId);
+      await store.saveSettings({ ...settings, guards: [deny], guardRevision: 1, version: settings.version + 1 }, settings.version);
+      const restarted = new PostgresSupportStore(pool!);
+      const restartedHarness = new SupportHarness({ store: restarted, model: new RulesModel(), fallback: new RulesModel(), provider: refundProvider, workspaceBusinessId: businessId, timeoutMs: 1000 });
+      assert.equal((await restarted.settings(businessId)).guardRevision, 1);
+      await assert.rejects(restartedHarness.executeApproved(proposal.id, 'staff', proposal.argsHash), { status: 409 });
+      assert.equal((await restarted.proposal(proposal.id))?.status, 'approved');
+      assert.equal(dispatches, 0); assert.equal((await restarted.refunds()).length, 0);
+      assert.ok((await restarted.auditEvents(c.id)).some(event => event.type === 'guard.evaluated' && event.data.guardRevision === 1 && event.data.allowed === false));
+      const blockedSettings = await restarted.settings(businessId);
+      await restarted.saveSettings({ ...blockedSettings, guards: [{ ...deny, enabled: false }], guardRevision: 2, version: blockedSettings.version + 1 }, blockedSettings.version);
+      const executions = await Promise.allSettled([restartedHarness.executeApproved(proposal.id, 'staff', proposal.argsHash), restartedHarness.executeApproved(proposal.id, 'staff', proposal.argsHash)]);
+      assert.equal(executions.filter(result => result.status === 'fulfilled').length, 1);
+      await assert.rejects(restartedHarness.executeApproved(proposal.id, 'staff', proposal.argsHash), { status: 409 });
+      assert.equal(dispatches, 1);
+      assert.equal((await restarted.refunds()).length, 1);
+      assert.equal((await restarted.refunds())[0]?.amountCents, 49900);
+      assert.equal((await restarted.proposal(proposal.id))?.status, 'executed');
+      assert.equal((await restarted.settings(businessId)).requireApproval, true);
+    });
+    await t.test('scoped pending, claims and recovery leave eligible foreign support and Insights rows byte-equivalent', async () => {
+      await store.reset(seedData());
+      const [ownBusiness, foreignBusiness] = seedData().businesses;
+      assert.ok(ownBusiness && foreignBusiness);
+      const ownCase = await harness.openCase('demo-olena'), foreignCase = await harness.openCase('demo-marta');
+      const own = await harness.enqueueTurn('demo-olena', ownCase.id, 'Hello from the bound workspace');
+      const foreign = await harness.enqueueTurn('demo-marta', foreignCase.id, 'Foreign queued customer request');
+      assert.ok(own.job && foreign.job);
+      assert.ok(await store.claimTurnJob(foreign.job.id, 'foreign-worker', foreignBusiness.id));
+      await pool!.query("UPDATE support_turn_jobs SET attempts=3,lease_expires_at=now()-interval '1 second' WHERE id=$1", [foreign.job.id]);
+      const interruptedProposal = async (caseId: string, customerId: string) => {
+        const payment = seedData().payments.find(row => row.customerId === customerId)!;
+        const args = { payment_id: payment.id, amount_cents: payment.amountCents };
+        return store.createProposal({ caseId, tool: 'refund_payment', args, argsHash: argsHash(caseId, 'refund_payment', args), risk: 'high', status: 'executing', policy: { allowed: true, requiresApproval: true, checks: [] } });
+      };
+      const ownProposal = await interruptedProposal(ownCase.id, ownCase.customerId), foreignProposal = await interruptedProposal(foreignCase.id, foreignCase.customerId);
+      await pool!.query("UPDATE support_proposals SET decided_at=now()-interval '181 seconds' WHERE id=ANY($1::uuid[])", [[ownProposal.id, foreignProposal.id]]);
+      const insights = new InsightsRepository(pool!);
+      const foreignInsight = await insights.create(foreignBusiness.id, 5, randomUUID(), 'fixture', 'no-model-call');
+      const ownInsight = await insights.create(ownBusiness.id, 5, randomUUID(), 'fixture', 'no-model-call');
+      await pool!.query("UPDATE support_insight_runs SET status='running',attempts=3,lease_owner='foreign-worker',lease_expires_at=now()-interval '1 second' WHERE id=$1", [foreignInsight.id]);
+      const foreignState = async () => ({
+        job: (await pool!.query('SELECT to_jsonb(j) AS row FROM support_turn_jobs j WHERE id=$1', [foreign.job!.id])).rows,
+        supportCase: (await pool!.query('SELECT to_jsonb(c) AS row FROM support_cases c WHERE id=$1', [foreignCase.id])).rows,
+        proposal: (await pool!.query('SELECT to_jsonb(p) AS row FROM support_proposals p WHERE id=$1', [foreignProposal.id])).rows,
+        messages: (await pool!.query('SELECT to_jsonb(m) AS row FROM support_messages m WHERE case_id=$1 ORDER BY id', [foreignCase.id])).rows,
+        audit: (await pool!.query('SELECT to_jsonb(a) AS row FROM support_audit_events a WHERE case_id=$1 ORDER BY id', [foreignCase.id])).rows,
+        insight: (await pool!.query('SELECT to_jsonb(i) AS row FROM support_insight_runs i WHERE id=$1', [foreignInsight.id])).rows,
+      });
+      const before = await foreignState();
+      assert.deepEqual((await store.pendingTurnJobs(50, foreignBusiness.id)).map(job => job.id), [foreign.job.id]);
+      assert.deepEqual((await store.pendingTurnJobs(50, ownBusiness.id)).map(job => job.id), [own.job.id]);
+      assert.equal(await store.claimTurnJob(foreign.job.id, 'bound-worker', ownBusiness.id), null);
+      const published: string[] = [];
+      assert.equal(await publishPendingTurns(store, async id => { published.push(id); }, ownBusiness.id), 1);
+      assert.deepEqual(published, [own.job.id]);
+      let modelCalls = 0;
+      const rules = new RulesModel();
+      const scoped = new SupportHarness({ store, provider, workspaceBusinessId: ownBusiness.id, model: { provider: 'rules', model: 'scoped-pg-fixture', decide: async ctx => { modelCalls++; assert.equal(ctx.businessId, ownBusiness.id); return rules.decide(ctx); } }, fallback: rules, timeoutMs: 1000 });
+      await processSupportTurn(foreign.job.id, 'bound-worker', store, scoped);
+      assert.equal(modelCalls, 0);
+      await store.recoverInterruptedExecutions(ownBusiness.id);
+      assert.equal((await store.proposal(ownProposal.id))?.status, 'unknown');
+      assert.equal((await store.proposal(foreignProposal.id))?.status, 'executing');
+      await processSupportTurn(own.job.id, 'bound-worker', store, scoped);
+      assert.equal(modelCalls, 1);
+      assert.equal((await pool!.query('SELECT status FROM support_turn_jobs WHERE id=$1', [own.job.id])).rows[0]?.status, 'completed');
+      const insightClaim = await insights.claim('bound-insight-worker', ownBusiness.id);
+      assert.equal(insightClaim?.id, ownInsight.id);
+      assert.equal(insightClaim?.businessId, ownBusiness.id);
+      assert.equal(await insights.claim('bound-insight-worker', ownBusiness.id), null);
+      assert.deepEqual(await foreignState(), before);
     });
     await t.test('classification survives a store restart and atomic completion rejects a concurrent taxonomy change', async () => {
       await store.reset(seedData());

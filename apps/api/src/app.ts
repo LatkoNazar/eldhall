@@ -103,8 +103,8 @@ export async function createApp(settings: Settings, dependencies: AppDependencie
     });
   }, { prefix: '/api/v1/jobs' });
   if (dependencies.support) {
-    await app.register(supportRoutes, { support: dependencies.support, operatorToken: settings.operatorToken, demoResetEnabled: settings.demoResetEnabled });
+    await app.register(supportRoutes, { support: {...dependencies.support,workspaceBusinessId:(dependencies.support.workspaceBusinessId??settings.supportWorkspaceBusinessId)||undefined}, operatorToken: settings.operatorToken, demoResetEnabled: settings.demoResetEnabled });
   }
-  if (dependencies.insights) await app.register(insightsRoutes, { prefix: '/api/v1/insights', insights: dependencies.insights, operatorToken: settings.operatorToken });
+  if (dependencies.insights) await app.register(insightsRoutes, { prefix: '/api/v1/insights', insights: dependencies.insights, operatorToken: settings.operatorToken, workspaceBusinessId: dependencies.support?.workspaceBusinessId??settings.supportWorkspaceBusinessId });
   return app;
 }

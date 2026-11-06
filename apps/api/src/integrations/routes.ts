@@ -31,6 +31,7 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
   };
   const business=async(query:unknown)=>{
     const {businessId}=z.strictObject({businessId:z.uuid()}).parse(query);
+    if(support.workspaceBusinessId&&businessId!==support.workspaceBusinessId)throw new HarnessError(404,'Business not found');
     if(!await support.store.business(businessId)) throw new HarnessError(404,'Business not found');return businessId;
   };
   const selected=async(query:unknown,params:unknown)=>{
@@ -95,8 +96,9 @@ export async function integrationRoutes(app:FastifyInstance,{support,operatorTok
     const {id}=z.strictObject({id:z.uuid()}).parse(request.params);
     const body=z.strictObject({status:z.enum(['executed','failed']),reason:z.string().trim().min(3).max(500),providerRef:z.string().min(1).max(200).optional(),result:z.record(z.string(),z.unknown()).optional()}).parse(request.body);
     const proposal=await support.store.proposal(id);if(!proposal||proposal.tool!=='external_action') throw new HarnessError(404,'External action not found');
-    if(proposal.status!=='unknown') throw new IntegrationConflict('Only an unknown execution can be reconciled');
     const supportCase=(await support.store.getCase(proposal.caseId))!;
+    if(support.workspaceBusinessId&&supportCase.businessId!==support.workspaceBusinessId)throw new HarnessError(404,'External action not found');
+    if(proposal.status!=='unknown') throw new IntegrationConflict('Only an unknown execution can be reconciled');
     const manifest=await registry.manifest(supportCase.businessId,String(proposal.args.integrationId),String(proposal.args.manifestHash));
     const operation=manifest?.operations.find(op=>op.operationKey===proposal.args.operationKey);
     if(!operation) throw new IntegrationConflict('Recorded catalog is unavailable');

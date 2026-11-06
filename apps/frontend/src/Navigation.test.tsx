@@ -17,6 +17,7 @@ function unloadIsPrevented() {
 function mockApi() {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return response({ business: { id: 'business-1', name: 'First business', slug: 'first-bank', currency: 'UAH' } })
     if (path === '/api/v1/operator/session') return response({ authenticated: true })
     if (path === '/api/v1/cases') return response([ticket('case-a'), ticket('case-b')])
     if (path === '/api/v1/metrics') return response({ cases: 2, byStatus: { open: 2, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 2 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null })
@@ -77,7 +78,7 @@ it('clears stale route search and reacts immediately to a same-path case deep li
   expect(screen.getByRole('textbox', { name: /Пошук звернень/ })).toHaveValue('')
 })
 
-it('updates same-path document and business selection instead of retaining initializer-only state', async () => {
+it('updates same-path document selection while foreign URL business ids cannot retarget the workspace', async () => {
   mockApi()
   render(<App />)
   act(() => { navigate('/operator/knowledge?businessId=business-1&documentId=doc-a') })
@@ -85,8 +86,9 @@ it('updates same-path document and business selection instead of retaining initi
   act(() => { navigate('/operator/knowledge?businessId=business-1&documentId=doc-b') })
   expect(await screen.findByLabelText('Вміст')).toHaveValue('Content doc-b')
   act(() => { navigate('/operator/knowledge?businessId=business-2&documentId=doc-c') })
-  expect(await screen.findByLabelText('Вміст')).toHaveValue('Content doc-c')
-  expect(screen.getByLabelText('Бізнес')).toHaveValue('business-2')
+  expect(await screen.findByLabelText('Вміст')).toHaveValue('Content doc-a')
+  expect(screen.queryByLabelText('Бізнес')).not.toBeInTheDocument()
+  expect(screen.getByText(/Посилання вказує інший бізнес/)).toBeInTheDocument()
 })
 
 it('handles browser Back/Forward and normalized trailing-slash routes without replacing the shell', async () => {

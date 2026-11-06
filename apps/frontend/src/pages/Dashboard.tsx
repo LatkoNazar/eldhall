@@ -15,6 +15,7 @@ import { Insights } from './Insights'
 import { Integrations } from './Integrations'
 import { Knowledge, Settings, Team } from './Resources'
 import { AppLink } from '../components/AppLink'
+import { WorkspaceProvider, type WorkspaceBusiness } from '../components/WorkspaceProvider'
 
 const navigation = [
   { id: 'inbox', label: 'core.nav.inbox', icon: 'inbox', href: '/operator' },
@@ -27,6 +28,10 @@ const navigation = [
 ] as const
 
 export function Dashboard({ token, location, onLogout }: { token: string; location: string; onLogout: () => void }) {
+  return <WorkspaceProvider token={token}>{business => <WorkspaceDashboard token={token} location={location} onLogout={onLogout} business={business} />}</WorkspaceProvider>
+}
+
+function WorkspaceDashboard({ token, location, onLogout, business }: { token: string; location: string; onLogout: () => void; business: WorkspaceBusiness }) {
   const { t, locale } = useI18n()
   const url = new URL(location, window.location.origin)
   url.searchParams.delete('lang')
@@ -39,8 +44,7 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
   const [menuOpen, setMenuOpen] = useState(false)
   const cases = useResource<SupportCase[]>('/cases', token, 4000)
   const metrics = useResource<Metrics>('/metrics', token, 5000)
-  const businesses = useResource<{ businesses: { id: string; name: string }[] }>('/businesses', token)
-  const businessNames = Object.fromEntries((businesses.data?.businesses ?? []).map(item => [item.id, item.name]))
+  const businessNames = { [business.id]: business.name }
   const title = t(navigation.find(item => item.id === page)?.label ?? 'core.nav.inbox')
   const previousRoute = useRef(routeKey)
   useEffect(() => {
@@ -59,6 +63,7 @@ export function Dashboard({ token, location, onLogout }: { token: string; locati
     <a className="skip-link" href="#main-content">{t("core.nav.skip")}</a>
     <aside className="sidebar">
       <Brand />
+      <p className="workspace-identity" title={business.name}>{business.name}</p>
       <button className="mobile-menu" aria-expanded={menuOpen} aria-controls="main-nav" onClick={() => setMenuOpen(value => !value)}>{t("core.nav.menu")} <Icon name="inbox" /></button>
       <nav id="main-nav" className={menuOpen ? 'nav-open' : ''} aria-label={t("core.nav.label")}>
           {navigation.map(item => <AppLink href={item.href} key={item.id} aria-label={t(item.label)} title={t(item.label)} onClick={() => setMenuOpen(false)} aria-current={page === item.id ? 'page' : undefined}><Icon name={item.icon} /><span>{t(item.label)}</span>{item.id === 'inbox' && metrics.data && <span className="nav-count">{formatNumber(metrics.data.cases - metrics.data.byStatus.resolved, locale)}</span>}</AppLink>)}

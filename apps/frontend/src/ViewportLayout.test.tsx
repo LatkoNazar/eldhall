@@ -77,11 +77,13 @@ it('returns keyboard focus to the queue region when polling removes the selected
 it('resets the internal page scroller on a route change while preserving it on a language change', async () => {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return new Response(JSON.stringify({ business: { id: 'business-1', name: 'Fixture Bank', slug: 'bank', currency: 'UAH' } }), { headers: { 'Content-Type': 'application/json' } })
     const value = path.endsWith('/cases') ? [] : path.endsWith('/team') ? { members: [], capabilities: { invite: false, updateRole: false } } : { cases: 0, byStatus: { open: 0, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: {}, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null }
     return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
   }))
   const user = userEvent.setup()
   const view = render(<Dashboard token="synthetic-operator" location="/operator/team" onLogout={vi.fn()} />)
+  await screen.findByRole('heading', { name: 'Команда' })
   const main = view.container.querySelector('main')!
   main.scrollTop = 200
   view.rerender(<Dashboard token="synthetic-operator" location="/operator/analytics" onLogout={vi.fn()} />)

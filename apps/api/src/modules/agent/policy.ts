@@ -1,3 +1,4 @@
+import { evaluateGuards } from '../support/guards.js';
 import type { Business, Customer, Payment, PolicyCheck, PolicyResult, Proposal, Refund } from '../support/contracts.js';
 import { TOOLS, isToolName } from './tools.js';
 
@@ -20,6 +21,7 @@ export function evaluatePolicy(tool: string, rawArgs: unknown, ctx: PolicyContex
   const parsed = TOOLS[tool as keyof typeof TOOLS].args.safeParse(rawArgs);
   if (!check('valid_arguments', parsed.success, parsed.success ? 'Arguments match the schema' : 'Arguments do not match the schema')) return done(true);
 
+  const additional=evaluateGuards(tool,parsed.data as Record<string,unknown>,ctx.business.policy.guards,ctx.business.currency);checks.push(...additional.checks);
   if (tool === 'escalate_to_human') return done(false);
 
   const args = parsed.data as { payment_id: string; amount_cents: number };

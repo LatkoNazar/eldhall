@@ -92,6 +92,9 @@ export async function createInspectorDemoServer({ now = Date.now() } = {}) {
     if (url.pathname === '/health/ready') return send(200, { status: 'ok', mode: 'inspector-demo', persistence: 'none', readOnly: true })
     if (request.headers.authorization !== `Bearer ${inspectorDemoToken}`) return send(401, { detail: 'Invalid operator token' }, { 'WWW-Authenticate': 'Bearer' })
     if (url.pathname === '/api/v1/operator/session') return send(200, { authenticated: true })
+    // Explicit identity for this synthetic read-only template gallery, never a runtime tenant selector.
+    if (url.pathname === '/api/v1/workspace') return send(200, { business: { id: fixture.scenarios[0].business.id, name: 'Inspector templates', slug: 'inspector-gallery', currency: fixture.scenarios[0].business.currency } })
+    if (url.pathname === '/api/v1/guards') return send(200, { version: 1, revision: 0, rules: [], definitions: ['deny_action', 'amount_limit', 'require_approval'].map(kind => ({ kind, definitionVersion: 1, title: kind, description: 'Presentation metadata only; this fixture has no executable actions.', targetTools: kind === 'amount_limit' ? ['refund_payment'] : ['refund_payment', 'external_action'] })) })
     if (url.pathname === '/api/v1/businesses') return send(200, { businesses: fixture.scenarios.map(scenario => scenario.business) })
     const business = url.searchParams.get('businessId')
     if (url.searchParams.getAll('businessId').length > 1) return send(422, { detail: 'One businessId is required' })

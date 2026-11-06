@@ -61,6 +61,46 @@ test('native request checkpoint survives business ask and fences the remaining p
   } finally {if(api)await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
 });
 
+test('native refund repairs missing, misplaced and stale request links before concluding with a freeform canonical goal', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-request-repair-'));const messageId='00000000-0000-4000-8000-000000000951';const requestId='00000000-0000-4000-8000-000000000952';
+  const batch={version:0,syncState:'current' as const,changes:[{localKey:'charge-review',title:'Повторний платіж: повернення',goal:'Return this exact repeated payment',waitingOn:null,nextStep:null,sourceMessageIds:[messageId],dependencyIds:[],dependencyKeys:[]}]};
+  const canonical={...finalDecision,action:{...finalDecision.action!,requests:[{id:requestId,revision:2}]}};
+  const api=await endpoint([{name:'update_customer_requests',args:batch},{name:'lookup_payments',args:{limit:10}},
+    {name:'submit_decision',args:finalDecision},{name:'submit_decision',args:{...canonical,requests:canonical.action.requests}},
+    {name:'submit_decision',args:{...canonical,action:{...canonical.action,requests:[{id:requestId,revision:1}]}}},{name:'submit_decision',args:canonical}]);
+  let accepted=false;let catalog=emptyCatalog();
+  try{
+    const model=new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000});
+    const result=await model.decide(context({currentCustomerMessageId:messageId,requestCatalog:()=>catalog,requestSourceMessages:[{id:messageId,body:'Please return the duplicated payment'}],requestCheckpointAccepted:()=>accepted,
+      checkpointRequests:async input=>{assert.deepEqual(input,batch);accepted=true;const now=new Date().toISOString();catalog={version:1,syncState:'current',lastSourceMessageId:messageId,requests:[{id:requestId,number:1,revision:2,title:batch.changes[0]!.title,goal:batch.changes[0]!.goal,lifecycle:'open',waitingOn:null,nextStep:null,sourceMessageIds:[messageId],dependencyIds:[],actions:[],createdAt:now,updatedAt:now,updatedBy:'fixture',fulfillment:null}],history:{events:[],hasMore:false}};return catalog;}}),new AbortController().signal);
+    assert.equal(api.requests.length,6);assert.deepEqual(result.decision.action?.requests,[{id:requestId,revision:2}]);assert.equal(result.toolCalls.filter(name=>name==='submit_decision').length>=2,true);
+    assert.equal(JSON.stringify(api.requests.at(-1)!.messages).includes('action.requests'),true,'repair feedback identifies the exact field');
+  }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
+test('native checkpoint repairs guessed next version using safe current source guidance', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-checkpoint-repair-'));const messageId='00000000-0000-4000-8000-000000000961';
+  const batch={version:0,syncState:'needs_review' as const,changes:[]};const decision={...finalDecision,action:null};
+  const api=await endpoint([{name:'update_customer_requests',args:{...batch,version:1}},{name:'update_customer_requests',args:batch},{name:'submit_decision',args:decision}]);let accepted=false;let calls=0;let catalog=emptyCatalog();
+  try{
+    const result=await new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000}).decide(context({currentCustomerMessageId:messageId,requestCatalog:()=>catalog,requestSourceMessages:[{id:messageId,body:'An unclear new request'}],requestCheckpointAccepted:()=>accepted,
+      checkpointRequests:async input=>{calls++;assert.equal(input.version,0);accepted=true;catalog={...catalog,version:1,lastSourceMessageId:messageId};return catalog;}}),new AbortController().signal);
+    assert.equal(api.requests.length,3);assert.equal(calls,1);assert.equal(result.decision.action,null);const repair=JSON.stringify(api.requests[1]!.messages);assert.match(repair,/CURRENT requestCatalog.version=0/);assert.match(repair,new RegExp(messageId));
+  }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
+test('native informational reply repairs an invented action tool to literal null after a knowledge read', {timeout:60000},async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-answer-only-'));
+  const decision={...finalDecision,intent:'billing_question' as const,summary:'Published fees',reasoning:'The scoped fee source states 0 UAH.',reply:'The published card service fee is 0 UAH.',action:null};
+  const api=await endpoint([{name:'search_knowledge',args:{query:'card service fee'}},{name:'submit_decision',args:{...decision,action:{tool:'other',args:{reason:'Answer fees'}}}},{name:'submit_decision',args:decision}]);let reads=0;
+  try{
+    const result=await new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000}).decide(context({searchKnowledge:async()=>{reads++;return [{id:'fees',title:'Published fees',content:'Card service fee: 0 UAH.',version:1}];}}),new AbortController().signal);
+    assert.equal(reads,1);assert.equal(api.requests.length,3);assert.equal(result.decision.action,null);assert.equal(result.decision.reply,decision.reply);
+    assert.match(JSON.stringify(api.requests[0]!.tools!.find(tool=>tool.function.name==='submit_decision')),/literal null/);
+    assert.match(JSON.stringify(api.requests[0]!.messages),/action:null/);
+  }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
 function context(overrides: Partial<AgentContext> = {}): AgentContext {
   const data = seedData();
   const business = data.businesses[0]!;

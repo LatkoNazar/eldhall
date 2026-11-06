@@ -1,3 +1,4 @@
+import { evaluateGuards, guardPolicyUpdate } from './guards.js';
 import { requestCheckpointSchema } from './requests/contracts.js';
 import { hasUnrepresentedInput, isAcknowledgement } from './requests/text.js';
 import type { RequestCatalog, RequestCheckpoint, RequestEvent, RequestTarget, RequestTransition } from './requests/contracts.js';
@@ -12,7 +13,7 @@ type StoredSettings = Omit<SupportSettings, 'classification'> & { classification
 
 export type NewProposal = Omit<Proposal, 'id' | 'createdAt' | 'decidedBy' | 'decidedAt' | 'result' | 'error'>;
 export type CasePatch = Partial<Pick<SupportCase, 'status' | 'priority' | 'intent' | 'analysis' | 'ownership' | 'assignedTo'>>;
-export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs']; completionActionId?: string; integrationRefs?: { integrationId:string;manifestHash:string;connectionRevision:string;policyRevision:number }[] }
+export interface TurnContext { policy: Business['policy']; skills: { id: string; revision: number }[]; settingsVersion?:number; classification?: SupportSettings['classification']; externalSourceRefs?: Message['externalSourceRefs']; completionActionId?: string; integrationRefs?: { integrationId:string;manifestHash:string;connectionRevision:string;policyRevision:number }[] }
 export class DuplicateRefund extends Error {}
 export class StaleTurn extends Error {}
 /** Tools a policy may run without operator approval: pending -> executing by `agent:auto`,
@@ -26,10 +27,10 @@ export interface SupportStore {
   readonly integrationStore: IntegrationStore;
   markExternalDispatched(id: string): Promise<boolean>;
   finishExternalAction(id: string, status: 'executed' | 'failed' | 'unknown', result: Record<string, unknown> | null, error: string | null, message: string | null, actor: string, reconciliation?: boolean): Promise<Proposal>;
-  expireExternalActions(caseId?: string): Promise<void>;
+  expireExternalActions(caseId?: string,businessId?:string): Promise<void>;
   reset(seed: SeedData): Promise<void>;
   seedIfEmpty(seed: SeedData): Promise<void>;
-  recoverInterruptedExecutions(): Promise<void>;
+  recoverInterruptedExecutions(businessId?:string): Promise<void>;
   businessesList(): Promise<Business[]>;
   createBusiness(business: Business): Promise<Business>;
   createCustomer(customer: Customer): Promise<Customer>;
@@ -49,9 +50,9 @@ export interface SupportStore {
   assertTurn(lease: TurnLease): Promise<boolean>;
   releaseTurn(lease: TurnLease): Promise<void>;
   enqueueTurn(caseId: string, customerId: string, body: string, clientMessageId?: string): Promise<AcceptedTurn>;
-  pendingTurnJobs(limit?: number): Promise<SupportTurnJob[]>;
+  pendingTurnJobs(limit?: number,businessId?:string): Promise<SupportTurnJob[]>;
   activeTurnJob(caseId: string): Promise<SupportTurnJob | null>;
-  claimTurnJob(id: string, workerId: string): Promise<{job:SupportTurnJob;lease:TurnLease}|null>;
+  claimTurnJob(id: string, workerId: string,businessId?:string): Promise<{job:SupportTurnJob;lease:TurnLease}|null>;
   heartbeatTurnJob(lease: TurnLease): Promise<boolean>;
   failTurnJob(lease: TurnLease, error: string, retry: boolean): Promise<void>;
   completeTurn(lease: TurnLease, patch: CasePatch, body: string, sourceRefs?: Message['sourceRefs'], context?: TurnContext): Promise<{ case: SupportCase; reply: Message } | null>;
@@ -71,15 +72,15 @@ export interface SupportStore {
   refunds(customerId?: string): Promise<Refund[]>;
   audit(caseId: string, type: string, actor: string, data?: Record<string, unknown>): Promise<AuditEvent>;
   auditEvents(caseId: string): Promise<AuditEvent[]>;
-  recordRun(run: Omit<AgentRun, 'id' | 'createdAt'>): Promise<AgentRun>;
+  recordRun(run: Omit<AgentRun, 'id' | 'createdAt'>, id?:string): Promise<AgentRun>;
   runs(caseId?: string): Promise<AgentRun[]>;
-  metrics(): Promise<Metrics>;
+  metrics(businessId?:string): Promise<Metrics>;
   knowledge(businessId: string): Promise<KnowledgeSource[]>;
   saveKnowledge(source: KnowledgeSource, expectedVersion?: number): Promise<KnowledgeSource>;
   /** Every saved version of one source, newest first. */
   knowledgeVersions(businessId: string, id: string): Promise<KnowledgeSource[]>;
   skills(businessId: string): Promise<SupportSkill[]>;
-  saveSkill(skill: SupportSkill): Promise<SupportSkill>;
+  saveSkill(skill: SupportSkill, expectedRevision?:number): Promise<SupportSkill>;
   settings(businessId: string): Promise<SupportSettings>;
   classificationState(businessId: string): Promise<ClassificationState>;
   saveSettings(settings: SupportSettings, expectedVersion: number): Promise<SupportSettings>;
@@ -164,9 +165,9 @@ export class MemorySupportStore implements SupportStore {
     return (row.tool==='escalate_to_human'||!unresolved)&&actionAllowed(catalog,row.id,row.tool==='escalate_to_human');
   }
   async seedIfEmpty(seed: SeedData) { if (!this.businesses.size) await this.reset(seed); }
-  async recoverInterruptedExecutions() {
-    await this.expireExternalActions();
-    for(const proposal of this.proposalRows.values()) if(proposal.status==='executing' && proposal.decidedAt && Date.now()-Date.parse(proposal.decidedAt)>180000) {
+  async recoverInterruptedExecutions(businessId?:string) {
+    await this.expireExternalActions(undefined,businessId);
+    for(const proposal of this.proposalRows.values()) if((!businessId||this.cases.get(proposal.caseId)?.businessId===businessId)&&proposal.status==='executing' && proposal.decidedAt && Date.now()-Date.parse(proposal.decidedAt)>180000) {
       const external=this.externalExecutions.get(proposal.id);
       if(external) { await this.finishExternalAction(proposal.id,external.status==='admitted'?'failed':'unknown',null,external.status==='admitted'?'interrupted_before_dispatch':'interrupted_after_dispatch','Результат зовнішньої дії потребує перевірки спеціалістом. Автоматичний повтор заблоковано.','system:recovery');continue; }
       Object.assign(proposal,{status:'unknown',error:'Execution confirmation was interrupted; manual reconciliation required'});
@@ -266,12 +267,13 @@ export class MemorySupportStore implements SupportStore {
     this.turnJobs.set(job.id, job);
     return { case: copy(supportCase), message: copy(message), job: copy(job) };
   }
-  async pendingTurnJobs(limit = 50) {
-    return copy([...this.turnJobs.values()].filter(job => (job.status === 'queued' && Date.parse(job.availableAt) <= Date.now()) || (job.status === 'running' && Date.parse(job.leaseExpiresAt ?? '') <= Date.now())).sort((a,b) => a.createdAt.localeCompare(b.createdAt)).slice(0,limit));
+  async pendingTurnJobs(limit=50,businessId?:string) {
+    return copy([...this.turnJobs.values()].filter(job=>(!businessId||this.cases.get(job.caseId)?.businessId===businessId)&&((job.status==='queued'&&Date.parse(job.availableAt)<=Date.now())||(job.status==='running'&&Date.parse(job.leaseExpiresAt??'')<=Date.now()))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).slice(0,limit));
   }
   async activeTurnJob(caseId: string) { return copy([...this.turnJobs.values()].find(job => job.caseId === caseId && ['queued','running'].includes(job.status)) ?? null); }
-  async claimTurnJob(id: string, workerId: string) {
+  async claimTurnJob(id: string, workerId: string,businessId?:string) {
     const job = this.turnJobs.get(id);
+    if(job&&businessId&&this.cases.get(job.caseId)?.businessId!==businessId)return null;
     const supportCase = job ? this.cases.get(job.caseId) : undefined;
     if (!job || !supportCase || !['queued','running'].includes(job.status) || Date.parse(job.availableAt) > Date.now() || (job.status === 'running' && Date.parse(job.leaseExpiresAt ?? '') > Date.now())) return null;
     if (supportCase.ownership !== 'bot' || supportCase.ownershipVersion !== job.ownershipVersion) { job.status = 'cancelled'; return null; }
@@ -312,6 +314,8 @@ export class MemorySupportStore implements SupportStore {
     if(context?.integrationRefs?.some(ref=>{const state=this.integrationStore.peek(this.cases.get(lease.caseId)!.businessId,ref.integrationId);return !state||!state.enabled||state.draining||state.activeManifestHash!==ref.manifestHash||state.connectionRevision!==ref.connectionRevision||state.policy.policyRevision!==ref.policyRevision;})) return null;
     if (sourceRefs.some(ref=>{ const source=this.knowledgeRows.get(ref.id); return !source || source.version!==ref.version || source.status!=='published' || source.businessId!==this.cases.get(lease.caseId)?.businessId; })) return null;
     if(context && (JSON.stringify(this.businesses.get(this.cases.get(lease.caseId)!.businessId)?.policy)!==JSON.stringify(context.policy) || context.skills.some(ref=>{const skill=this.skillRows.get(ref.id);return !skill || !skill.enabled || skill.revision!==ref.revision;}))) return null;
+    if(context?.settingsVersion!==undefined&&(this.settingRows.get(this.cases.get(lease.caseId)!.businessId)?.version??1)!==context.settingsVersion)return null;
+    if(context&&JSON.stringify([...this.skillRows.values()].filter(row=>row.businessId===this.cases.get(lease.caseId)!.businessId&&row.enabled).map(row=>[row.id,row.revision]).sort())!==JSON.stringify(context.skills.map(row=>[row.id,row.revision]).sort()))return null;
     if (context && !sameClassificationConfig(visibleClassification(this.settingRows.get(this.cases.get(lease.caseId)!.businessId)?.classification), context.classification)) return null;
     const row=this.cases.get(lease.caseId)!;
     Object.assign(row,copy(patch),{updatedAt:now()}); row.status=this.caseStatus(lease.caseId,row.status,row.ownership);
@@ -352,17 +356,23 @@ export class MemorySupportStore implements SupportStore {
   }
   async proposal(id: string) { return copy(this.proposalRows.get(id) ?? null); }
   async proposals(caseId: string) { return copy([...this.proposalRows.values()].filter(p=>p.caseId===caseId)); }
+  private guardAdmission(row:Proposal,automatic=false) {
+    const business=this.businesses.get(this.cases.get(row.caseId)?.businessId??'');if(!business)return false;
+    const result=evaluateGuards(row.tool,row.args,business.policy.guards,business.currency);
+    if(result.checks.length||!result.allowed)this.auditRows.push({id:randomUUID(),caseId:row.caseId,type:'guard.evaluated',actor:'system:guards',data:{proposalId:row.id,guardRevision:business.policy.guardRevision??0,guards:result.rules,settingsVersion:this.settingRows.get(business.id)?.version??1,checks:result.checks,allowed:result.allowed&&(!automatic||!result.requiresApproval),requiresApproval:result.requiresApproval},createdAt:now()});
+    return result.allowed&&(!automatic||!result.requiresApproval);
+  }
   async decideProposal(id: string, argsHash: string, decision:'approved'|'rejected', actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.status!=='pending' || row.argsHash!==argsHash) return null;
-    if (decision === 'approved' && !this.requestActionAllowed(row)) return null;
+    if (decision === 'approved' && (!this.requestActionAllowed(row)||!this.guardAdmission(row))) return null;
     if (row.tool === 'external_action' && decision === 'approved' && !this.admitExternal(row, false)) return null;
     Object.assign(row,{status:decision,decidedBy:actor,decidedAt:now()}); return copy(row);
   }
   async claimExecution(id:string,argsHash:string,actor:string) {
     const row=this.proposalRows.get(id);
     if (!row || row.argsHash!==argsHash || row.status!=='approved' || !row.decidedAt || Date.now()-Date.parse(row.decidedAt)>15*60*1000) return null;
-    if (!this.requestActionAllowed(row)) return null;
+    if (!this.requestActionAllowed(row)||!this.guardAdmission(row)) return null;
     if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
     if (row.tool==='refund_payment') {
       const paymentId=String(row.args.payment_id);
@@ -375,7 +385,7 @@ export class MemorySupportStore implements SupportStore {
     if (to==='rejected') return this.decideProposal(id,argsHash,'rejected',actor);
     const row=this.proposalRows.get(id);
     if (!row || !AUTO_CLAIMABLE.includes(row.tool) || row.policy.requiresApproval!==false || row.status!=='pending' || row.argsHash!==argsHash) return null;
-    if (!this.requestActionAllowed(row)) return null;
+    if (!this.requestActionAllowed(row)||!this.guardAdmission(row,true)) return null;
     if (row.tool === 'external_action' && !this.admitExternal(row, true,actor)) return null;
     if(row.tool==='external_action') row.authorizationOrigin='policy_auto';
     Object.assign(row,{status:to,decidedBy:actor,decidedAt:now()}); return copy(row);
@@ -391,11 +401,11 @@ export class MemorySupportStore implements SupportStore {
   async markExternalDispatched(id: string) {
     const execution = this.externalExecutions.get(id);
     const proposal=this.proposalRows.get(id);
-    if (!execution || execution.status !== 'admitted'||proposal?.status!=='executing') return false;
+    if (!execution || execution.status !== 'admitted'||proposal?.status!=='executing'||!this.guardAdmission(proposal,proposal.authorizationOrigin==='policy_auto')) return false;
     execution.status = 'dispatched';this.auditRows.push({id:randomUUID(),caseId:proposal.caseId,type:'action.dispatched',actor:proposal.decidedBy??'system',data:{proposalId:id,integrationId:proposal.args.integrationId,operationKey:proposal.args.operationKey,manifestHash:proposal.args.manifestHash,connectionRevision:proposal.args.connectionRevision,policyRevision:proposal.args.policyRevision,argsHash:proposal.argsHash,origin:proposal.authorizationOrigin},createdAt:now()});return true;
   }
-  async expireExternalActions(caseId?: string) {
-    for (const row of this.proposalRows.values()) if((caseId===undefined||row.caseId===caseId)&&row.tool==='external_action' && ['pending','approved'].includes(row.status) && typeof row.args.expiresAt==='string' && Date.parse(row.args.expiresAt)<=Date.now()) {
+  async expireExternalActions(caseId?: string,businessId?:string) {
+    for (const row of this.proposalRows.values()) if((caseId===undefined||row.caseId===caseId)&&(!businessId||this.cases.get(row.caseId)?.businessId===businessId)&&row.tool==='external_action' && ['pending','approved'].includes(row.status) && typeof row.args.expiresAt==='string' && Date.parse(row.args.expiresAt)<=Date.now()) {
       Object.assign(row,{status:'expired',error:'approval_expired'});this.terminalExternal(row,'action.expired','approval_expired',`Строк погодження дії «${String(row.args.title)}» минув. Дію не виконано; звернення передано спеціалісту.`);
     }
   }
@@ -440,15 +450,16 @@ export class MemorySupportStore implements SupportStore {
     const row:AuditEvent={id:randomUUID(),caseId,type,actor,data:copy(data),createdAt:now()}; this.auditRows.push(row); return copy(row);
   }
   async auditEvents(caseId:string) { return copy(this.auditRows.filter(a=>a.caseId===caseId)); }
-  async recordRun(run:Omit<AgentRun,'id'|'createdAt'>) { const row={...copy(run),id:randomUUID(),createdAt:now()}; this.runRows.push(row); return copy(row); }
+  async recordRun(run:Omit<AgentRun,'id'|'createdAt'>,id?:string) { const row={...copy(run),id:id??randomUUID(),createdAt:now()}; this.runRows.push(row); return copy(row); }
   async runs(caseId?:string) { return copy(this.runRows.filter(r=>!caseId || r.caseId===caseId)); }
-  async metrics():Promise<Metrics> {
-    const cases=[...this.cases.values()];
+  async metrics(businessId?:string):Promise<Metrics> {
+    const cases=[...this.cases.values()].filter(row=>!businessId||row.businessId===businessId);const ids=new Set(cases.map(row=>row.id));
+    const proposals=[...this.proposalRows.values()].filter(row=>ids.has(row.caseId));const refunds=this.refundRows.filter(row=>proposals.some(proposal=>proposal.id===row.proposalId));const runs=this.runRows.filter(row=>ids.has(row.caseId));
     const count=<K extends string>(keys:K[],values:K[])=>Object.fromEntries(keys.map(k=>[k,values.filter(v=>v===k).length])) as Record<K,number>;
-    const timed=this.runRows.filter(r=>r.status!=='failed');
+    const timed=runs.filter(r=>r.status!=='failed');
     return { cases:cases.length,byStatus:count<CaseStatus>(['open','awaiting_approval','escalated','resolved'],cases.map(c=>c.status)),byPriority:count<Priority>(['P1','P2','P3'],cases.map(c=>c.priority)),
-      proposals:count<ProposalStatus>(['pending','approved','executing','executed','rejected','failed','denied','unknown','expired','invalidated'],[...this.proposalRows.values()].map(p=>p.status)),
-      refundsIssuedCents:this.refundRows.reduce((s,r)=>s+r.amountCents,0),agentRuns:this.runRows.length,fallbackRuns:this.runRows.filter(r=>r.status==='fallback').length,
+      proposals:count<ProposalStatus>(['pending','approved','executing','executed','rejected','failed','denied','unknown','expired','invalidated'],proposals.map(p=>p.status)),
+      refundsIssuedCents:refunds.reduce((s,r)=>s+r.amountCents,0),agentRuns:runs.length,fallbackRuns:runs.filter(r=>r.status==='fallback').length,
       avgAgentLatencyMs:timed.length?Math.round(timed.reduce((s,r)=>s+r.latencyMs,0)/timed.length):null };
   }
   async knowledge(businessId:string) { return copy([...this.knowledgeRows.values()].filter(x=>x.businessId===businessId)); }
@@ -462,9 +473,14 @@ export class MemorySupportStore implements SupportStore {
   }
   async knowledgeVersions(businessId:string,id:string) { return copy(this.knowledgeHistory.filter(h=>h.businessId===businessId&&h.id===id).sort((a,b)=>b.version-a.version)); }
   async skills(businessId:string) { return copy([...this.skillRows.values()].filter(x=>x.businessId===businessId)); }
-  async saveSkill(skill:SupportSkill) { this.skillRows.set(skill.id,copy(skill)); return copy(skill); }
+  async saveSkill(skill:SupportSkill,expectedRevision?:number) {
+    if(!this.businesses.has(skill.businessId))throw new VersionConflict('Business not found');
+    const old=this.skillRows.get(skill.id);
+    if(old&&(old.businessId!==skill.businessId||old.revision!==(expectedRevision??skill.revision-1)||skill.revision<=old.revision)||!old&&expectedRevision!==undefined)throw new VersionConflict('Skill revision changed');
+    this.skillRows.set(skill.id,copy(skill));return copy(skill);
+  }
   async settings(businessId:string):Promise<SupportSettings> {
-    const stored=this.settingRows.get(businessId); if (stored) return copy({ ...stored, classification: visibleClassification(stored.classification) });
+    const stored=this.settingRows.get(businessId); if (stored) return copy({ ...stored, ...(this.businesses.get(businessId)?.policy.guards===undefined?{}:{guards:this.businesses.get(businessId)!.policy.guards,guardRevision:this.businesses.get(businessId)!.policy.guardRevision??0}), classification: visibleClassification(stored.classification) });
     const business=this.businesses.get(businessId); if (!business) throw new Error('Business not found');
     return {businessId,version:1,language:'uk',tone:'empathetic',requireApproval:true,...copy(business.policy)};
   }
@@ -473,11 +489,13 @@ export class MemorySupportStore implements SupportStore {
     const old = this.settingRows.get(settings.businessId);
     if ((old?.version ?? 1)!==expectedVersion) throw new VersionConflict('Settings version changed');
     if (!canReplaceClassification(old?.classification, settings.classification)) throw new VersionConflict('Classification changes require a newer revision');
+    const business=this.businesses.get(settings.businessId);if(!business)throw new VersionConflict('Business not found');
+    const guards=guardPolicyUpdate(business.policy,settings);if(!guards)throw new VersionConflict('Guard revision changed');
+    settings={...settings,...guards};
     const classification = storedClassification(old?.classification, settings.classification);
     this.settingRows.set(settings.businessId,copy({ ...settings, classification }));
     settings = { ...settings, classification: visibleClassification(classification) };
-    const business=this.businesses.get(settings.businessId)!;
-    business.policy={refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:copy(settings.enabledTools)};
+    business.policy={refundLimitCents:settings.refundLimitCents,duplicateWindowMinutes:settings.duplicateWindowMinutes,enabledTools:copy(settings.enabledTools),...guards};
     return copy(settings);
   }
 }

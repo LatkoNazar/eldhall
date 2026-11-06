@@ -144,3 +144,40 @@ Content-Type: application/json
 ```
 
 The body is `{status:"executed"|"failed",reason:string(3..500),providerRef?:string(1..200),result?:object}`. Only an external proposal currently in `unknown` can be reconciled. Optional result data is projected through the recorded operation's approved output fields. The response is `{proposal,case}`. This endpoint records the verified outcome, customer message and audit; it does not dispatch another upstream request. Concurrent/stale reconciliation returns 409.
+
+
+## Fixed workspace, editable skills, guards and agent activity
+
+`SUPPORT_WORKSPACE_BUSINESS_ID` binds a deployment to one server-selected business.
+Authenticated `GET /api/v1/workspace` returns `{business:{id,slug,name,currency}}`.
+Without an explicit binding, the operator workspace requires exactly one stored
+business; ambiguity returns409. The UI does not choose the first business or
+retarget itself from a `businessId` URL. A configured binding also limits case,
+customer, proposal, metrics, team, knowledge, settings, insights and integration
+reads/writes; it is not only a hidden selector. Foreign references are rejected.
+Legacy unbound administration APIs retain their existing scope rules.
+
+| Method | Operator path | Contract |
+| --- | --- | --- |
+| PATCH | `/api/v1/skills/:id` | `{revision,content,enabled}` → stored skill with revision+1; stable id/name,409 on stale revision |
+| GET | `/api/v1/guards` | `{version,revision,rules,definitions}`; settings CAS version and separate guard-policy revision |
+| PUT | `/api/v1/guards` | `{version,rules}` → newer settings/guard revisions; validation and409 conflicts do not execute business effects |
+
+These scoped resource routes can use the configured workspace without a query
+parameter. Supplying a foreign business ID cannot override the binding. Skills
+remain prose. Guard rules instantiate registered, versioned deterministic kinds:
+`deny_action`, `amount_limit` and `require_approval`. The last kind can strengthen
+an external operation's approval requirement; it cannot weaken mandatory refund
+approval. Code bootstrap uses versioned `guardPolicies`, and preserves newer
+operator edits. See [banking setup](BANKING_SANDBOX.md).
+
+`CaseDetail.agentActivity` is a bounded application DTO with
+`status:recorded|not_recorded`, `events` and `hasMore`. Events correlate a run and
+optional tool call, request IDs and proposal ID; record context revisions, safe
+input/result facts, server checks, brief decision reasons and fallback/failure
+provenance. Server/provider results are distinct from model claims. An attempted
+or proposed operation is not an executed effect. Historical runs without this
+recording say `not_recorded`; raw native sessions, thought signatures and private
+chain-of-thought are not the operator API. More than100 retained events are
+reported through `hasMore`, rather than pretending the displayed subset is the
+whole history.

@@ -96,3 +96,5 @@ The ordinary API tests require Node/native runtime support, not Docker or paid m
 Project-authored software is [Apache-2.0](LICENSE); preserve [NOTICE](NOTICE) and [licensing scope](docs/LICENSING.md). Dependencies, native components and separately pulled services keep their own terms. Redis 7.4 is not Apache licensed. [Third-party notices](docs/THIRD_PARTY_NOTICES.md) and [native review inputs](docs/NATIVE_RECEIPTS.md) describe the remaining source/notice review obligations.
 
 The [distribution contract](docs/distribution-contract.md) separates implemented metadata/CLI from the outstanding publication, compatibility, installer and restore gates. This source preview does not promise a supported production release.
+
+Single-workspace banking setup, versioned skills/guards and live-evaluation boundaries: [banking sandbox](docs/BANKING_SANDBOX.md).

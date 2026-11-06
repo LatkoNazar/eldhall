@@ -18,6 +18,7 @@ function mockWorkspace(classification: TicketClassification | null) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method && init.method !== 'GET') throw new Error('Classification display must not mutate support state')
     const path = String(input)
+    if (path === '/api/v1/workspace') return new Response(JSON.stringify({ business: { id: 'business-1', name: 'Fixture Bank', slug: 'fixture-bank', currency: 'UAH' } }), { headers: { 'Content-Type': 'application/json' } })
     if (path === '/api/v1/operator/session') return new Response(JSON.stringify({ authenticated: true }), { headers: { 'Content-Type': 'application/json' } })
     const payload = path === '/api/v1/cases' ? [current.case] : path === '/api/v1/cases/classified-case' ? current : { cases: 1, byStatus: { open: 1, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 1 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 1, fallbackRuns: 0, avgAgentLatencyMs: 100 }
     return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })

@@ -43,10 +43,10 @@ export class InsightsRepository {
     if (row.input_snapshot && !await this.refsCurrent(query, row.business_id, row.input_snapshot.sourceRefs)) return { ...run, stale: true, findings: [], error: 'Knowledge sources changed. Run a new analysis to view current findings.' };
     return run;
   }
-  async claim(owner: string): Promise<InsightLease | null> {
+  async claim(owner: string,businessId?:string): Promise<InsightLease | null> {
     return this.transaction(async client => {
-      await client.query("UPDATE support_insight_runs SET status='failed',data=jsonb_set(jsonb_set(data,'{error}',to_jsonb('Analysis recovery limit reached'::text)),'{completedAt}',to_jsonb(now())),lease_owner=NULL,lease_expires_at=NULL WHERE attempts>=3 AND (status='queued' OR (status='running' AND lease_expires_at<now()))");
-      const row = (await client.query<Row>("SELECT * FROM support_insight_runs WHERE (status='queued' AND attempts<3) OR (status='running' AND lease_expires_at<now() AND attempts<3) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
+      await client.query("UPDATE support_insight_runs SET status='failed',data=jsonb_set(jsonb_set(data,'{error}',to_jsonb('Analysis recovery limit reached'::text)),'{completedAt}',to_jsonb(now())),lease_owner=NULL,lease_expires_at=NULL WHERE attempts>=3 AND (status='queued' OR (status='running' AND lease_expires_at<now())) AND ($1::uuid IS NULL OR business_id=$1)",[businessId??null]);
+      const row = (await client.query<Row>("SELECT * FROM support_insight_runs WHERE ((status='queued' AND attempts<3) OR (status='running' AND lease_expires_at<now() AND attempts<3)) AND ($1::uuid IS NULL OR business_id=$1) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",[businessId??null])).rows[0];
       if (!row) return null;
       const updated = (await client.query<Row>("UPDATE support_insight_runs SET status='running',lease_owner=$2,lease_expires_at=now()+interval '30 seconds',fence=fence+1,attempts=attempts+1,updated_at=now() WHERE id=$1 RETURNING *", [row.id, owner])).rows[0]!;
       return { id: row.id, businessId: row.business_id, owner, fence: updated.fence, limit: row.requested_limit };

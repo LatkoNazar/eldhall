@@ -12,5 +12,5 @@ export async function createInsights(settings: Settings, pool: pg.Pool): Promise
   const model = configured ? new DshInsightsModel({ provider: settings.llmProvider as 'google' | 'openai' | 'anthropic' | 'local',
     model: settings.llmModel, apiKey: settings.llmApiKey, baseURL: settings.llmBaseUrl || undefined,
     homeRoot: settings.runtimeHome, timeoutMs: settings.llmTimeoutMs }) : undefined;
-  return new InsightsService(repository, model, settings.llmTimeoutMs);
+  return new InsightsService(repository, model, settings.llmTimeoutMs,settings.supportWorkspaceBusinessId||undefined);
 }

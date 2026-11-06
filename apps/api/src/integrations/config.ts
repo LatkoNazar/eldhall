@@ -1,3 +1,4 @@
+import { guardRulesSchema } from '../modules/support/guards.js';
 import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { classificationConfigSchema } from '../modules/agent/classification.js';
@@ -9,6 +10,7 @@ import { qdrantKnowledgeSchema } from '../modules/knowledge/qdrant.js';
 const id = z.uuid();
 const key = z.string().refine(safeKey, 'Expected a safe identifier');
 const policy = z.strictObject({
+  guards: guardRulesSchema.optional(), guardRevision: z.number().int().nonnegative().optional(),
   refundLimitCents: z.number().int().min(1).max(100_000_000),
   duplicateWindowMinutes: z.number().int().min(1).max(1440),
   enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3),
@@ -81,6 +83,7 @@ export const supportConfigSchema = z.strictObject({
   version: z.literal(1).default(1),
   businesses: z.array(z.strictObject({ id, slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/), name: z.string().min(1).max(200), currency: z.string().regex(/^[A-Z]{3}$/), policy })).max(100).default([]),
   knowledge: z.array(z.strictObject({ id, businessId: id, title: z.string().min(1).max(200), category: z.string().max(100).default('general'), content: z.string().min(1).max(50_000), version: z.number().int().positive(), status: z.enum(['draft', 'published', 'revoked']), updatedAt: timestamp, audience: z.enum(['customer', 'internal']).optional(), plans: z.array(z.string().min(1).max(80)).max(20).optional(), sourceUrl: z.url().max(2000).nullable().optional() })).max(500).default([]),
+  guardPolicies: z.array(z.strictObject({businessId:id,revision:z.number().int().positive(),guards:guardRulesSchema})).max(100).default([]),
   skills: z.array(z.strictObject({ id, businessId: id, name: z.string().min(1).max(200), content: z.string().min(1).max(20_000), revision: z.number().int().positive(), enabled: z.boolean(), updatedAt: timestamp })).max(200).default([]),
   classifications: z.array(classificationConfigSchema.safeExtend({ businessId: id })).max(100).default([]),
   integrations: z.array(integrationSchema).max(100).default([]),
@@ -91,6 +94,7 @@ export const supportConfigSchema = z.strictObject({
     if (new Set(config[field].map(row => row.id)).size !== config[field].length) ctx.addIssue({ code: 'custom', message: `Duplicate ${field} id` });
   }
   if (new Set(config.businesses.map(row => row.slug)).size !== config.businesses.length) ctx.addIssue({ code: 'custom', message: 'Duplicate business slug' });
+  if(new Set(config.guardPolicies.map(row=>row.businessId)).size!==config.guardPolicies.length) ctx.addIssue({code:'custom',message:'Duplicate guard policy business'});
   if (new Set(config.classifications.map(row => row.businessId)).size !== config.classifications.length) ctx.addIssue({ code: 'custom', message: 'Duplicate classification business' });
   if (new Set(config.externalKnowledge.map(row => row.id)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Duplicate external knowledge connector id' });
   if (new Set(config.externalKnowledge.map(row => row.businessId)).size !== config.externalKnowledge.length) ctx.addIssue({ code: 'custom', message: 'Only one external knowledge connector per business is supported' });

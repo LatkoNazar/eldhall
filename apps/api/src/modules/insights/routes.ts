@@ -16,8 +16,9 @@ async function guard(reply: FastifyReply, action: () => Promise<unknown>) {
     throw error;
   }
 }
-export async function insightsRoutes(app: FastifyInstance, options: { insights: InsightsService; operatorToken: string }) {
+export async function insightsRoutes(app: FastifyInstance, options: { insights: InsightsService; operatorToken: string; workspaceBusinessId?: string }) {
   app.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, options.operatorToken));
+  app.addHook('preHandler',async(request,reply)=>{if(!options.workspaceBusinessId)return;const businessId=(request.query as Record<string,unknown>)?.businessId??(request.body as Record<string,unknown>|undefined)?.businessId;if(businessId!==options.workspaceBusinessId)return reply.code(404).send({detail:'Business not found'});});
   app.get('/runs', (request, reply) => guard(reply, async () => ({ runs: await options.insights.repository.list(businessQuery.parse(request.query).businessId) })));
   app.post('/runs', (request, reply) => guard(reply, async () => {
     const body = createBody.parse(request.body);

@@ -25,6 +25,7 @@ function mockOperator(extra?: (path: string, init?: RequestInit) => Response | P
   let current = detail()
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return response({ business: { id: 'business-1', name: 'Бізнес А', slug: 'a', currency: 'UAH' } })
     const override = extra?.(path, init)
     if (override) return override
     if (path === '/api/v1/operator/session') return response({ authenticated: true })

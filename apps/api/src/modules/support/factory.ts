@@ -39,10 +39,11 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
     store = new MemorySupportStore();
     if (settings.demoResetEnabled) await store.reset(seedData());
   }
-  await store.recoverInterruptedExecutions();
+  await store.recoverInterruptedExecutions(settings.supportWorkspaceBusinessId||undefined);
   const config = await loadSupportConfig(settings.supportConfigFile || undefined);
   const integrations = createSupportIntegrations(config, loadEnvironment(), store.integrationStore);
   await bootstrapSupportConfig(store, config);
+  if(settings.supportWorkspaceBusinessId&&!await store.business(settings.supportWorkspaceBusinessId))throw new Error('Configured workspace business is unavailable');
   const fallback = new RulesModel();
   const model = settings.agentRuntime === 'rules' ? fallback : new DshSupportModel({
     provider: settings.llmProvider as 'google' | 'openai' | 'anthropic' | 'local', model: settings.llmModel,
@@ -57,8 +58,8 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const knowledge = new KnowledgeRetriever(createEmbedder(settings.knowledgeEmbeddingsProvider, settings.knowledgeEmbeddingsModel, settings.knowledgeEmbeddingsApiKey), vectors, message => console.warn(message));
   const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
   configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
-  const harness = new SupportHarness({ store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
-  return { harness, store, integrations, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+  const harness = new SupportHarness({ workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
+  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,

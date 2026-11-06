@@ -6,6 +6,7 @@ import { relatedPayments } from '../lib/presentation'
 import { currentRequestProposals, requestLabel, requestNeedsVerification, requestProposals, waitingDependencies, type CustomerRequest, type RequestCatalog } from '../lib/request-catalog'
 import { ActionCard } from './ActionCard'
 import { ClassificationSummary } from './ClassificationSummary'
+import { AgentActivity } from './AgentActivity'
 import { RequestTransitionForm } from './RequestTransitionForm'
 import { Badge, Icon, Notice } from './ui'
 
@@ -72,6 +73,7 @@ export function RequestInspector({ detail, businessName, token, stale, selectedI
         <section className="request-section"><h3><Icon name="clock" size={17} />{t('requests.history')}</h3><ol className="timeline">{catalog.history.events.filter(event => event.requestId === selected.id).slice().reverse().map(event => <li key={event.id}><strong>{t(`requests.event.${event.type}`)}</strong><small>{event.actor} · {formatDateTime(event.at, locale)} · {formatNumber(event.revision, locale)}</small>{event.reason && <p>{event.reason}</p>}<details><summary>{t('requests.goal')}</summary><p>{event.snapshot.goal}</p></details></li>)}</ol>{!catalog.history.events.some(event => event.requestId === selected.id) && <p>{t('requests.noHistory')}</p>}{catalog.history.hasMore && <p className="field-hint">{t('requests.historyMore')}</p>}</section>
       </>}
       {detail.case.analysis && <details className="request-ticket-context" open={!requests.length}><summary>{t('presentation.caseContext')}</summary><h3>{t('core.inbox.summary')}</h3><p>{detail.case.analysis.summary}</p><p>{detail.case.analysis.reasoning}</p>{detail.case.analysis.classification && <ClassificationSummary classification={detail.case.analysis.classification} />}</details>}
+      <AgentActivity detail={detail} selectedRequestId={selectedId} />
       <p className="request-lifecycle-note"><Icon name="lock" size={15} />{t('requests.separate')}</p>
     </div>
   </aside>

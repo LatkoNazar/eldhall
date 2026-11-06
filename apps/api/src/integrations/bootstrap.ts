@@ -21,7 +21,7 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
     classifierStates.set(business.id, await store.classificationState(business.id));
   }
   // Validate every reference/revision before writing any bootstrap rows.
-  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications, ...config.externalKnowledge, ...config.catalogs]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
+  for (const row of [...config.knowledge, ...config.skills, ...config.integrations, ...config.classifications, ...config.guardPolicies, ...config.externalKnowledge, ...config.catalogs]) if (!businessIds.has(row.businessId)) throw new Error('Support config references an unknown business');
   for (const source of config.knowledge) {
     const old = existingKnowledge.get(source.id);
     if (old && (old.businessId !== source.businessId || (old.version === source.version && ['title', 'category', 'content', 'status'].some(key => old[key as keyof typeof old] !== source[key as keyof typeof source])))) throw new Error('Configured document requires a new version or a distinct id');
@@ -34,6 +34,10 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
     const old = existingSettings.get(businessId)?.classification;
     if (old && old.revision === classification.revision && !sameClassificationConfig(old, classification)) throw new Error('Configured classification requires a new revision');
   }
+  for (const policy of config.guardPolicies) {
+    const old=existingSettings.get(policy.businessId);
+    if(old&&(old.guardRevision??0)===policy.revision&&fingerprint(old.guards??[])!==fingerprint(policy.guards)) throw new Error('Configured guards require a new revision');
+  }
   for (const business of config.businesses) if (!known.some(row => row.id === business.id)) await store.createBusiness(business);
   for (const source of config.knowledge) {
     const old = existingKnowledge.get(source.id);
@@ -41,13 +45,17 @@ export async function bootstrapSupportConfig(store: SupportStore, config: Suppor
   }
   for (const skill of config.skills) {
     const old = existingSkills.get(skill.id);
-    if (!old || skill.revision > old.revision) await store.saveSkill(skill);
+    if (!old || skill.revision > old.revision) await store.saveSkill(skill,old?.revision);
   }
   for (const { businessId, ...classification } of config.classifications) {
     const settings = existingSettings.get(businessId) ?? await store.settings(businessId);
     if (classification.revision > (classifierStates.get(businessId)?.revision ?? 0)) {
       await store.saveSettings({ ...settings, classification, version: settings.version + 1 }, settings.version);
     }
+  }
+  for(const policy of config.guardPolicies) {
+    const settings=await store.settings(policy.businessId);
+    if(policy.revision>(settings.guardRevision??0)) await store.saveSettings({...settings,version:settings.version+1,guards:policy.guards,guardRevision:policy.revision},settings.version);
   }
   for (const catalog of config.catalogs) await store.integrationStore.bootstrap({ businessId: catalog.businessId, manifest: catalog.manifest, policy: catalog.policy,
     connectionRevision: catalog.connectionRevision,

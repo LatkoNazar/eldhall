@@ -21,7 +21,9 @@ test('local demo genuinely serves memory/rules fixtures, simulated approval and 
     assert.equal(capabilities.runtime, 'rules'); assert.equal(capabilities.provider, 'rules'); assert.equal(capabilities.execution, 'inline');
     assert.equal(capabilities.persistence, 'memory'); assert.equal(capabilities.paymentProvider, 'simulated');
     const personas = (await app.inject({ url: '/api/v1/chat/personas' })).json();
-    assert.equal(personas.length, 4);
+    assert.equal(personas.length, 3);
+    assert.equal((await app.inject({url:'/api/v1/workspace',headers:operator})).json().business.id,'00000000-0000-4000-8000-000000000001');
+    assert.equal((await app.inject({method:'POST',url:'/api/v1/demo/reset',headers:operator})).statusCode,409);
     const customer = { 'x-customer-session': 'demo-olena' };
     const opened = await app.inject({ method: 'POST', url: '/api/v1/chat/cases', headers: customer });
     assert.equal(opened.statusCode, 201); const id = opened.json().id;

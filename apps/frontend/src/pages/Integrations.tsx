@@ -1,3 +1,4 @@
+import { WorkspaceProvider } from '../components/WorkspaceProvider'
 import { useI18n, formatDateTime, type UiMessage } from '../i18n'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -6,7 +7,6 @@ import { ApiError, request } from '../lib/api'
 import { decisionLabel, integrationPath, loadIntegration, loadIntegrations, modeLabel } from '../lib/integrations-api'
 import type { CatalogOperation, IntegrationCatalog, IntegrationPolicy, IntegrationPolicyResponse, IntegrationSummary, PermissionGroup, PermissionMode, RuleMode } from '../lib/integrations-api'
 import { registerNavigationGuard } from '../lib/navigation'
-import { useResource } from '../lib/useResource'
 
 interface Draft { defaultMode: PermissionMode; groups: PermissionGroup[]; operations: { operationKey: string; mode: RuleMode }[] }
 const toDraft = (policy: IntegrationPolicy, operations: CatalogOperation[]): Draft => ({ defaultMode: policy.defaultMode, groups: structuredClone(policy.groups), operations: operations.map(({ operationKey }) => ({ operationKey, mode: policy.operations.find(rule => rule.operationKey === operationKey)?.mode ?? 'inherit' })) })
@@ -14,16 +14,12 @@ const effectLabel = { read: "operations.integrations.readEffect", write: "operat
 
 export function Integrations({ token }: { token: string }) {
   const { t } = useI18n()
-  const businesses = useResource<{ businesses: { id: string; name: string; currency: string }[] }>('/businesses', token)
-  const [selected, setSelected] = useState(() => new URLSearchParams(window.location.search).get('businessId') ?? '')
-  const business = businesses.data?.businesses.find(item => item.id === selected) ?? businesses.data?.businesses[0]
   const dirtyRef = useRef(false)
-  return <>
+  return <WorkspaceProvider token={token}>{business => <>
     <div className="page-heading"><div><h1>{t("operations.integrations.title")}</h1><p>{t("operations.integrations.description")}</p></div></div>
     <p className="muted small">{t("operations.integrations.adminScope")}</p>
-    {Boolean(businesses.error) && <ErrorNotice error={businesses.errorCause}> <button onClick={businesses.refresh}>{t("operations.common.refreshBusinesses")}</button></ErrorNotice>}
-    {business ? <><div className="business-scope"><label htmlFor="integrations-business">{t("operations.integrations.business")}</label><select id="integrations-business" value={business.id} onChange={event => { if (!dirtyRef.current || window.confirm(t("operations.integrations.discardPrompt"))) setSelected(event.target.value) }}>{businesses.data?.businesses.map(item => <option key={item.id} value={item.id}>{item.name} · {item.currency}</option>)}</select></div><IntegrationList key={business.id} businessId={business.id} token={token} dirtyRef={dirtyRef} /></> : <div className="card"><Empty title={businesses.loading ? t("operations.common.loadingBusinesses") : t("operations.common.noBusiness")} /></div>}
-  </>
+    <IntegrationList key={business.id} businessId={business.id} token={token} dirtyRef={dirtyRef} />
+  </>}</WorkspaceProvider>
 }
 
 function IntegrationList({ businessId, token, dirtyRef }: { businessId: string; token: string; dirtyRef: { current: boolean } }) {

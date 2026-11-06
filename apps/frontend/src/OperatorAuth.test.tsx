@@ -10,6 +10,7 @@ const emptyMetrics = { cases: 0, byStatus: { open: 0, awaiting_approval: 0, esca
 function mock(session: () => Response | Promise<Response>) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input)
+    if (path === '/api/v1/workspace') return reply({ business: { id: 'business-1', name: 'Fixture Bank', slug: 'fixture-bank', currency: 'UAH' } })
     if (path === '/api/v1/operator/session') return session()
     if (path === '/api/v1/metrics') return reply(emptyMetrics)
     if (path === '/api/v1/cases' || path === '/api/v1/chat/personas') return reply([])
@@ -78,6 +79,7 @@ it('returns an authenticated workspace to the key form on a current private-requ
   sessionStorage.setItem('support.customer', 'preserved-customer')
   let respond!: (value: Response) => void
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === '/api/v1/workspace') return reply({ business: { id: 'business-1', name: 'Fixture Bank', slug: 'fixture-bank', currency: 'UAH' } })
     if (String(input) === '/api/v1/operator/session') return reply({ authenticated: true })
     if (String(input) === '/api/v1/cases') return new Promise<Response>(done => { respond = done })
     return reply(emptyMetrics)

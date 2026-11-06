@@ -1,3 +1,5 @@
+import { activity, activityFromAudit, type NewActivity } from '../support/activity.js';
+import { evaluateGuards, guardRulesSchema } from '../support/guards.js';
 import { fallbackCheckpoint, fallbackTargets } from '../support/requests/rules.js';
 import { requestCheckpointSchema, requestTargetsSchema, type RequestTarget } from '../support/requests/contracts.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -23,6 +25,7 @@ export class HarnessError extends Error {
 }
 
 export interface HarnessDeps {
+  workspaceBusinessId?:string;
   store: SupportStore;
   model: AgentModel;       // primary (LLM or rules)
   fallback: AgentModel;    // deterministic rules, used when the primary fails
@@ -55,6 +58,7 @@ export function ungroundedClaim(reply: string, evidence: readonly string[]): boo
 
 export class SupportHarness {
   constructor(private readonly deps: HarnessDeps) {}
+  get workspaceBusinessId(){return this.deps.workspaceBusinessId;}
 
   private async visibleMessages(businessId: string, caseId: string): Promise<Message[]> {
     const messages = await this.deps.store.messages(caseId);
@@ -84,7 +88,7 @@ export class SupportHarness {
 
   async customer(sessionToken: string | undefined): Promise<Customer> {
     const customer = sessionToken ? await this.deps.store.customerBySession(sessionToken) : null;
-    if (!customer) throw new HarnessError(401, 'Unknown customer session');
+    if (!customer || this.deps.workspaceBusinessId&&customer.businessId!==this.deps.workspaceBusinessId) throw new HarnessError(401, 'Unknown customer session');
     return customer;
   }
 
@@ -180,7 +184,8 @@ export class SupportHarness {
       const current = await store.knowledge(customer.businessId);
       if (knowledge.some(d => !current.some(n => n.id === d.id && n.version === d.version && n.status === 'published'))) throw new StaleTurn('Knowledge access changed');
       const currentSkills = await store.skills(customer.businessId);
-      if (skills.some(s => !currentSkills.some(n => n.id === s.id && n.revision === s.revision && n.enabled))) throw new StaleTurn('Skill access changed');
+      if(JSON.stringify(currentSkills.filter(row=>row.enabled).map(row=>[row.id,row.revision]).sort())!==JSON.stringify(skills.map(row=>[row.id,row.revision]).sort()))throw new StaleTurn('Skill access changed');
+      if((await store.settings(customer.businessId)).version!==settings.version)throw new StaleTurn('Settings changed');
       if (JSON.stringify((await store.business(customer.businessId))?.policy) !== JSON.stringify(business.policy)) throw new StaleTurn('Business policy changed');
       if (!sameClassificationConfig((await store.settings(customer.businessId)).classification, settings.classification)) throw new StaleTurn('Classification taxonomy changed');
       if (externalFailed) throw new StaleTurn('External knowledge is unavailable');
@@ -191,6 +196,7 @@ export class SupportHarness {
     if (!sourceMessage) throw new StaleTurn('Current customer message is unavailable');
     let requestCatalog = await store.requestCatalog(caseId);
     let checkpointAccepted = requestCatalog.lastSourceMessageId === sourceMessage.id;
+    let knowledgeRead = false;
     let selectedRequests: RequestTarget[] = [];
     const checkpoint = async (batch: import('../support/requests/contracts.js').RequestCheckpoint) => {
       await assertActive();
@@ -211,7 +217,12 @@ export class SupportHarness {
       modelTools = next.then(() => undefined, () => undefined);
       return next;
     };
+    const activityRunId=randomUUID();let activitySequence=0;
+    const recordActivity=async(event:NewActivity)=>{const linked=event.proposalId?await store.proposal(event.proposalId):null;await store.audit(caseId,'agent.activity','agent:'+activityRunId,{...event,proposalId:linked?.caseId===caseId?linked.id:null,runId:activityRunId,sequence:++activitySequence,turnJobId:lease.jobFence===undefined?null:lease.runId});};
+    const configuredGuards=guardRulesSchema.safeParse(business.policy.guards??[]);
+    await recordActivity(activity('context','Application context supplied to the agent',{context:{settingsVersion:settings.version,guardRevision:business.policy.guardRevision??0,skills:skills.map(({id,name,revision,content})=>({id,name,revision,contentHash:createHash('sha256').update(content.slice(0,8000)).digest('hex'),preview:content.slice(0,240),truncated:content.length>240,loadedCharacters:Math.min(content.length,8000),totalCharacters:content.length})),guards:configuredGuards.success?configuredGuards.data:[],provider:this.deps.model.provider,model:this.deps.model.model}}));
     const ctx: AgentContext = {
+      activityRunId, recordActivity,
       conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
       runtimeAttempt: lease.jobFence !== undefined && lease.jobFence > 1 ? lease.jobFence : undefined,
       ...(externalMode ? { knowledgeSessionKey: lease.runId } : {}),
@@ -228,12 +239,14 @@ export class SupportHarness {
           try {
             const result = await external!.search({ businessId: customer.businessId, plan: customer.plan }, query, signal ? AbortSignal.any([signal, externalSignal]) : externalSignal);
             remember(result.refs);
+            knowledgeRead ||= result.hits.length>0&&result.refs.length>0;
             await assertActive();
             await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { source: 'external', queryLength: query.length, hits: result.hits.map(hit => ({ id: hit.id, version: hit.version, section: hit.section })) });
             return result.hits;
           } catch (error) { externalFailed = true; throw error; }
         }
         const hits = await (this.deps.knowledge ?? knowledgeRuntime.retriever).search(knowledge, query, { audience: 'customer', plan: customer.plan });
+        knowledgeRead ||= hits.some(hit=>knowledge.some(source=>source.id===hit.id&&source.version===hit.version));
         await store.audit(caseId, 'knowledge.searched', `agent:${lease.runId}`, { queryLength: query.length, hits: hits.map(h => ({ id: h.id, version: h.version, section: h.section, score: h.score })) });
         return hits.map(({ id, title, content, version, section }) => ({ id, title, content, version, section }));
       }),
@@ -260,10 +273,14 @@ export class SupportHarness {
       const semantic = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([key])=>key!=='expiresAt'));
       if (prior && argsHash(caseId,'external_action',semantic(prior.args)) !== argsHash(caseId,'external_action',semantic(requestedArgs))) return { status: 'denied', reasonCode: 'one_external_action_per_turn' };
       const args = prior?.args ?? requestedArgs;
+      const guards=evaluateGuards('external_action',args,business.policy.guards,business.currency);
+      await recordActivity(activity('guard','Business action guard evaluation',{outcome:guards.allowed?'succeeded':'denied',tool:'external_action',checks:guards.checks,requestIds:selectedRequests.filter(target=>requestCatalog.requests.some(row=>row.id===target.id)).map(row=>row.id)}));
+      if(!guards.allowed)return {status:'denied' as const,reasonCode:'business_guard_denied'};
+      if(guards.requiresApproval)mode='ask';
       if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before proposing an action');
       const hash = argsHash(caseId, 'external_action', args);
       let proposal = prior ?? await store.createProposal({ caseId, tool: 'external_action', args, argsHash: hash, risk: 'high', status: 'pending',
-        policy: { allowed: true, requiresApproval: mode === 'ask', checks: [{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease, selectedRequests);
+        policy: { allowed: true, requiresApproval: mode === 'ask', checks: [...guards.checks,{ name: 'integration_permission', passed: true, detail: `${mode}: ${String(args.operationKey)} (policy r${String(args.policyRevision)})` }] } }, lease, selectedRequests);
       if (!prior) await store.audit(caseId, 'action.proposed', 'agent', { proposalId: proposal.id, tool: 'external_action', operationKey: args.operationKey, mode });
       if (mode === 'auto' && proposal.status === 'pending') {
         const claimed = await store.claimProposal(proposal.id, proposal.argsHash, 'executing', 'agent:auto');
@@ -284,6 +301,7 @@ export class SupportHarness {
     // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
     const evidence: string[] = [];
     ctx.callBusinessTool = integrations ? (integrationId, name, input, signal, requests) => modelTool(async () => {
+      await assertActive();
       if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before business tools');
       selectedRequests = requests ? requestTargetsSchema.parse(requests) : fallbackTargets(requestCatalog, 'external_action');
       const result = await integrations.callTool(integrationId, name, input, signal);collectStrings(result, evidence);return result;
@@ -307,7 +325,7 @@ export class SupportHarness {
       action = { tool: 'escalate_to_human', args: { reason: `High escalation risk (${sentiment.label})` } };
     }
     let proposal: Proposal | null = null;
-    if (action) proposal = await this.propose(caseId, customer, action.tool, action.args, lease, action.requests ?? fallbackTargets(requestCatalog, action.tool));
+    if (action) {proposal = await this.propose(caseId, customer, action.tool, action.args, lease, action.requests ?? fallbackTargets(requestCatalog, action.tool));await recordActivity(activity('guard','Registered action guard evaluation',{tool:action.tool,outcome:proposal.policy.allowed?'proposed':'denied',proposalId:proposal.id,requestIds:(action.requests??fallbackTargets(requestCatalog,action.tool)).map(row=>row.id),checks:proposal.policy.checks}));}
     let escalated = proposal?.status === 'executed' && proposal.tool === 'escalate_to_human';
     if (externalAction) externalAction.proposal = (await store.proposal(externalAction.proposal.id)) ?? externalAction.proposal;
     // An unconfirmed external effect needs a person to reconcile it before anything else happens.
@@ -321,7 +339,7 @@ export class SupportHarness {
     const status = escalated ? 'escalated' : waiting ? 'awaiting_approval' : 'open';
     await assertActive();
     await assertExternal();
-    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),classification:settings.classification,externalSourceRefs:[...externalRefs.values()],completionActionId:externalAction?.proposal.id,integrationRefs:[...observedPolicies].map(([integrationId,ref])=>({integrationId,...ref}))});
+    const completed = await store.completeTurn(lease, { status, intent: analysis.intent, analysis, priority: analysis.priority, ...(escalated ? { ownership: 'staff' as const } : {}) }, this.compose(decision, analysis, proposal, business.currency, body, externalAction, evidence, knowledgeRead), sourceRefs, {policy:business.policy,skills:skills.map(({id,revision})=>({id,revision})),settingsVersion:settings.version,classification:settings.classification,externalSourceRefs:[...externalRefs.values()],completionActionId:externalAction?.proposal.id,integrationRefs:[...observedPolicies].map(([integrationId,ref])=>({integrationId,...ref}))});
     if (!completed) throw new StaleTurn('Conversation ownership changed');
     return { ...completed, proposal };
     } catch (error) {
@@ -371,23 +389,25 @@ export class SupportHarness {
       const decision = applicationDecision ?? decisionSchema.parse(output.decision);
       const classification = await classified(decision, model.provider === 'rules' ? 'fallback' : 'llm');
       await ctx.assertActive();
-      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: null });
+      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: null },ctx.activityRunId);
+      await ctx.recordActivity?.(activity('decision',decision.summary,{reason:decision.reasoning})).catch(()=>undefined);
       return { decision, source: model.provider === 'rules' ? 'fallback' : 'llm', model: model.model, classification };
-    } catch (error) {
+    } catch {
       await ctx.assertActive();
       const applicationDecision = terminal?.read();
       if (applicationDecision) {
         controller.abort(new Error('Turn is awaiting operator approval'));
         const classification = await classified(applicationDecision, 'fallback');
-        await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: 1, toolCalls: ['call_business_tool'], latencyMs: Date.now() - started, error: null });
+        await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'ok', steps: 1, toolCalls: ['call_business_tool'], latencyMs: Date.now() - started, error: null },ctx.activityRunId);
         return { decision: applicationDecision, source: 'fallback', model: model.model, classification };
       }
-      const message = error instanceof Error ? error.message.slice(0, 300) : 'Model failed';
+      const message = 'agent_runtime_failure';
       await ctx.ensureRequestCheckpoint?.();
       const output = await fallback.decide(ctx, new AbortController().signal);
       const classification = await classified(output.decision, 'fallback');
       await ctx.assertActive();
-      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'fallback', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: message });
+      await store.recordRun({ caseId, turnJobId: ctx.turnJobId ?? null, provider: model.provider, model: model.model, status: 'fallback', steps: output.steps, toolCalls: output.toolCalls, latencyMs: Date.now() - started, error: message },ctx.activityRunId);
+      await ctx.recordActivity?.(activity('fallback','Rules fallback used instead of a successful model decision',{outcome:'fallback',reason:'The configured model did not complete this turn'}));
       await store.audit(caseId, 'agent.fallback', 'system', { error: message });
       return { decision: output.decision, source: 'fallback', model: fallback.model, classification };
     } finally { clearTimeout(timer); if (classifierWatch) clearInterval(classifierWatch); }
@@ -424,7 +444,13 @@ export class SupportHarness {
     return proposal;
   }
 
+  private async proposalScope(id:string) {
+    if(!this.deps.workspaceBusinessId)return;
+    const proposal=await this.deps.store.proposal(id);const supportCase=proposal?await this.deps.store.getCase(proposal.caseId):null;
+    if(!supportCase||supportCase.businessId!==this.deps.workspaceBusinessId)throw new HarnessError(404,'Proposal not found');
+  }
   async approve(proposalId: string, operator: string, hash: string) {
+    await this.proposalScope(proposalId);
     const { store } = this.deps;
     const existing = await store.proposal(proposalId);
     if (!existing) throw new HarnessError(404, 'Proposal not found');
@@ -437,6 +463,7 @@ export class SupportHarness {
   }
 
   async executeApproved(proposalId: string, operator: string, hash: string) {
+    await this.proposalScope(proposalId);
     const existing = await this.deps.store.proposal(proposalId);
     if (!existing) throw new HarnessError(404, 'Proposal not found');
     const claimed = await this.deps.store.claimExecution(proposalId, hash, `operator:${operator}`);
@@ -445,6 +472,7 @@ export class SupportHarness {
   }
 
   async reject(proposalId: string, operator: string, reason: string) {
+    await this.proposalScope(proposalId);
     const { store } = this.deps;
     const existing = await store.proposal(proposalId);
     if (!existing) throw new HarnessError(404, 'Proposal not found');
@@ -524,7 +552,7 @@ export class SupportHarness {
     return {proposal:done,case:(await store.getCase(proposal.caseId))!};
   }
 
-  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = []): string {
+  private compose(decision: AgentDecision, analysis: Analysis, proposal: Proposal | null, currency: string, body: string, external?: { proposal: Proposal }, evidence: readonly string[] = [], knowledgeRead = false): string {
     const uk = /[а-яіїєґ]/i.test(body);
     const lead = analysis.tone === 'neutral' ? '' : uk ? 'Мені дуже шкода, що так сталося — розумію, як це неприємно. ' : "I'm really sorry about this — I understand how frustrating it is. ";
     // External outcomes come only from the recorded proposal state, never from model prose.
@@ -548,7 +576,7 @@ export class SupportHarness {
     if (!proposal && decision.intent === 'cancel_subscription') {
       return lead + (uk ? 'Я не можу скасувати підписку автоматично. Спеціаліст розгляне ваш запит і відповість тут.' : 'I cannot cancel the subscription automatically. A specialist will review your request and reply here.');
     }
-    if (!proposal && decision.intent === 'billing_question') {
+    if (!proposal && decision.intent === 'billing_question' && !(knowledgeRead && decision.reply.trim() && !ungroundedClaim(decision.reply, evidence))) {
       return lead + (uk ? 'Дякую за питання щодо оплати. Підкажіть дату та суму списання — я перевірю, а за потреби підключу спеціаліста.' : 'Thanks for your billing question. Please tell me the date and amount of the charge so I can check it; a specialist will join if needed.');
     }
     if (!decision.reply || ungroundedClaim(decision.reply, evidence)) {
@@ -559,14 +587,15 @@ export class SupportHarness {
 
   async detail(caseId: string): Promise<CaseDetail> {
     const { store } = this.deps;
-    await store.recoverInterruptedExecutions();
     const supportCase = await store.getCase(caseId);
-    if (!supportCase) throw new HarnessError(404, 'Case not found');
+    if (!supportCase||this.deps.workspaceBusinessId&&supportCase.businessId!==this.deps.workspaceBusinessId) throw new HarnessError(404, 'Case not found');
+    await store.recoverInterruptedExecutions(this.deps.workspaceBusinessId);
     const customer: Partial<Customer> & Omit<Customer, 'sessionToken'> = { ...(await store.customer(supportCase.customerId))! };
     delete customer.sessionToken;
     const activeRun = await store.activeTurnJob(caseId);
     return {
       activeRun: activeRun ? { id: activeRun.id, status: activeRun.status } : null,
+      agentActivity:activityFromAudit(await store.auditEvents(caseId)),
       requestCatalog: await store.requestCatalog(caseId),
       case: supportCase, customer,
       payments: await store.payments(customer.id, 20),
