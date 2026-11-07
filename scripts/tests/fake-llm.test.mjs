@@ -7,6 +7,12 @@ const messageId = '00000000-0000-4000-8000-000000000101';
 const requestId = '00000000-0000-4000-8000-000000000202';
 const context = (message = 'Скасуйте замовлення ORD-1001') => ({ message, currentCustomerMessageId: messageId,
   requestSourceMessages: [{ id: messageId, body: message }], requestCatalog: { version: 7, lastSourceMessageId: null, requests: [] } });
+const memoryContext = message => {
+  const legacy = context(message);
+  return { currentCustomerMessageId: messageId, contextMemory: { schemaVersion: 1, currentMessage: { id: messageId, role: 'customer', body: legacy.message },
+    recentMessages: [{ id: '00000000-0000-4000-8000-000000000303', role: 'customer', body: 'Скасуйте OLD-0001' }], requestCatalog: legacy.requestCatalog,
+    actions: [], facts: [], sourceCoverage: { olderMessagesAvailable: true, uncheckpointedMessageIds: [messageId] } } };
+};
 const user = value => ({ role: 'user', content: JSON.stringify(value) });
 const accepted = value => ({ version: 8, lastSourceMessageId: messageId, requests: [{ id: requestId, revision: 3, lifecycle: 'open', goal: value.message, sourceMessageIds: [messageId] }] });
 const toolResult = (name, value) => [
@@ -40,6 +46,34 @@ test('checkpoint replay uses already canonical IDs without rewriting the checkpo
   assert.deepEqual(decide([user(value)]).args.requests, [{ id: requestId, revision: 3 }]);
 });
 
+test('modern context memory drives checkpoint, canonical read targets and a reply grounded in the actual tool result', () => {
+  const message = 'Який статус замовлення ORD-1002?', value = memoryContext(message);
+  const messages = [user(context('Скасуйте замовлення ORD-1001')), user(value)];
+  const checkpoint = decide(messages);
+  assert.equal(checkpoint.tool, 'update_customer_requests'); assert.equal(checkpoint.args.version, 7);
+  assert.equal(checkpoint.args.changes[0].goal, message); assert.deepEqual(checkpoint.args.changes[0].sourceMessageIds, [messageId]);
+  messages.push(...toolResult('update_customer_requests', { requestCatalog: accepted({ message }) }));
+  const read = decide(messages);
+  assert.equal(read.tool, 'call_business_tool'); assert.equal(read.args.name, 'get_order_status');
+  assert.deepEqual(read.args.input, { order_id: 'ORD-1002' }); assert.deepEqual(read.args.requests, [{ id: requestId, revision: 3 }]);
+  messages.push(...toolResult('call_business_tool', { result: { status: 'shipped', order_id: 'ORD-1002' } }));
+  const final = decide(messages);
+  assert.equal(final.tool, 'submit_decision'); assert.equal(final.args.reply, 'Статус замовлення: shipped.'); assert.equal(final.args.action, null);
+});
+
+test('modern replay and write keep canonical links, while malformed latest memory cannot fall back to an older application turn', () => {
+  const message = 'Скасуйте замовлення ORD-1001', value = memoryContext(message);
+  value.contextMemory.requestCatalog = accepted({ message });
+  const write = decide([user(value)]);
+  assert.equal(write.args.name, 'cancel_order'); assert.deepEqual(write.args.requests, [{ id: requestId, revision: 3 }]);
+  assert.deepEqual(write.args.input, { order_id: 'ORD-1001', reason: 'customer request' });
+  const pending = decide([user(value), ...toolResult('call_business_tool', { status: 'awaiting_approval' })]);
+  assert.equal(pending.args.reply, 'Запит передано на підтвердження спеціалісту.');
+  for (const invalid of [null, { ...value.contextMemory, schemaVersion: 99 }, { ...value.contextMemory, currentMessage: { ...value.contextMemory.currentMessage, role: 'assistant' } }, { ...value.contextMemory, currentMessage: { ...value.contextMemory.currentMessage, id: requestId } }]) {
+    assert.throws(() => decide([user(context()), user({ ...value, contextMemory: invalid })]));
+  }
+});
+
 test('failed, malformed or ambiguous checkpoint never produces an unlinked business write', () => {
   const value = context();
   for (const result of ['Error: checkpoint denied', { requestCatalog: { requests: [] } }, { requestCatalog: { requests: [...accepted(value).requests, ...accepted(value).requests] } }]) {
@@ -65,7 +99,9 @@ test('non-order input records review without inventing a business action; legacy
 test('HTTP fixture emits the checkpoint through the existing streaming protocol', async () => {
   const server = createFakeLlmServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   try {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [user(context())] }) });
-    assert.equal(response.status, 200); const output = await response.text(); assert.match(output, /update_customer_requests/); assert.match(output, /\[DONE\]/); assert.doesNotMatch(output, /"name":"call_business_tool"/);
+    for (const value of [context(), memoryContext('Який статус замовлення ORD-1002?')]) {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [user(value)] }) });
+      assert.equal(response.status, 200); const output = await response.text(); assert.match(output, /update_customer_requests/); assert.match(output, /\[DONE\]/); assert.doesNotMatch(output, /"name":"call_business_tool"/);
+    }
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

@@ -13,10 +13,20 @@ const decision = reply => ({ tool: 'submit_decision', args: { intent: 'other', s
 function applicationContext(messages) {
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index].role !== 'user') continue;
-    try {
-      const value = JSON.parse(text(messages[index].content));
-      if (record(value) && typeof value.message === 'string') return value;
-    } catch { /* Runtime/user prose is not the application context. */ }
+    let value;
+    try { value = JSON.parse(text(messages[index].content)); }
+    catch { continue; /* Runtime/user prose is not the application context. */ }
+    if (!record(value)) continue;
+    if (Object.hasOwn(value, 'contextMemory')) {
+      const memory = value.contextMemory, current = memory?.currentMessage;
+      if (!record(memory) || memory.schemaVersion !== 1 || !record(current) || current.role !== 'customer' || !uuid(current.id) || typeof current.body !== 'string'
+        || !record(memory.requestCatalog) || (value.currentCustomerMessageId !== undefined && value.currentCustomerMessageId !== current.id)) throw new Error('Smoke fixture requires canonical context memory');
+      // The current message and compact catalog moved into memory. Never pick a recent
+      // message, an old native turn, or request titles as the current customer input.
+      return { ...value, message: current.body, currentCustomerMessageId: current.id, requestCatalog: memory.requestCatalog,
+        requestSourceMessages: [{ id: current.id, body: current.body }] };
+    }
+    if (typeof value.message === 'string') return value;
   }
   throw new Error('Smoke fixture requires application context');
 }
