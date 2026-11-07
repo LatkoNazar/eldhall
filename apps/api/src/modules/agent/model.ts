@@ -4,9 +4,14 @@ import { z } from 'zod';
 import type { Business, Payment } from '../support/contracts.js';
 import { duplicateCandidate } from './policy.js';
 import type { ClassificationConfig } from './classification.js';
+import type { SupportContextCatalog, SupportContextDetails, SupportContextMemory, SupportContextRequest } from './context.js';
 
 // Controlled context: built by the harness from backend state, never from customer-supplied ids.
 export interface AgentContext {
+  contextCatalog?: SupportContextCatalog;
+  contextMemory?: SupportContextMemory;
+  loadSupportContext?: (request: SupportContextRequest, signal?: AbortSignal) => Promise<SupportContextDetails>;
+  callBusinessTools?: (calls: { integrationId: string; name: string; input: Record<string, unknown>; requests?: RequestTarget[] }[], signal?: AbortSignal) => Promise<{ results: { integrationId: string; name: string; result: unknown }[] }>;
   activityRunId?:string;
   recordActivity?: (event:NewActivity)=>Promise<void>;
   currentCustomerMessageId?: string;
@@ -61,6 +66,7 @@ export type AgentDecision = z.infer<typeof decisionSchema>;
 
 export interface ModelOutput { decision: AgentDecision; steps: number; toolCalls: string[] }
 export interface AgentModel {
+  readonly contextProtocol?: 'catalog-v1';
   readonly requestCatalogProtocol?: 'checkpoint-v1';
   readonly provider: string;
   readonly model: string;

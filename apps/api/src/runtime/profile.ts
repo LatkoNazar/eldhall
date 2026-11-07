@@ -50,7 +50,7 @@ export async function prepareProfile(options: ProfileOptions): Promise<{ home: s
   return { home, workspace, sessionId: `support-${identity}` };
 }
 
-export function childEnvironment(values: { apiKey: string; gatewayUrl: string; capability: string; maxToolCalls: number; home: string; businessToolsEnabled?: boolean; requestCatalogEnabled?: boolean; requestCheckpointAccepted?: boolean; classificationClassIds?: string[] }): NodeJS.ProcessEnv {
+export function childEnvironment(values: { apiKey: string; gatewayUrl: string; capability: string; maxToolCalls: number; home: string; businessToolsEnabled?: boolean; contextLoaderEnabled?: boolean; businessToolBatchEnabled?: boolean; requestCatalogEnabled?: boolean; requestCheckpointAccepted?: boolean; classificationClassIds?: string[] }): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ['PATH', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'TZ']) {
     if (process.env[key]) env[key] = process.env[key];
@@ -63,6 +63,7 @@ export function childEnvironment(values: { apiKey: string; gatewayUrl: string; c
   return { ...env, ...nativeLoader, HOME: values.home, USERPROFILE: values.home, DSH_AGENTS_HOME: join(values.home, 'agents'), SUPPORT_MODEL_API_KEY: values.apiKey, SUPPORT_GATEWAY_URL: values.gatewayUrl,
     SUPPORT_GATEWAY_CAPABILITY: values.capability, SUPPORT_MAX_TOOL_CALLS: String(values.maxToolCalls),
     SUPPORT_BUSINESS_TOOL_ENABLED: String(values.businessToolsEnabled === true),
+    SUPPORT_CONTEXT_LOADER_ENABLED: String(values.contextLoaderEnabled === true), SUPPORT_BUSINESS_TOOL_BATCH_ENABLED: String(values.businessToolBatchEnabled === true),
     SUPPORT_REQUEST_CATALOG_ENABLED: String(values.requestCatalogEnabled === true), SUPPORT_REQUEST_CHECKPOINT_ACCEPTED: String(values.requestCheckpointAccepted === true),
     SUPPORT_CLASSIFICATION_IDS: JSON.stringify(values.classificationClassIds ?? []) };
 }

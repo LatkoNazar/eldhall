@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { parseSkillContext } from '../agent/context.js';
 
 /**
  * SKILL.md packs (knowledge/skills/, two layers) -> rows of the support config file.
@@ -8,7 +9,7 @@ import { join, relative, sep } from 'node:path';
  *   universal/<procedure>/SKILL.md   -> support skills   (how to handle a kind of request, any business)
  *   <business>/<fact-sheet>/SKILL.md -> support knowledge (the business's published facts, versioned)
  *
- * Frontmatter: name, description, metadata.{layer, business, title, category, version, status, updated, source, audience, plans}.
+ * Frontmatter: name, description, optional activation, metadata.{layer, business, title, category, version, status, updated, source, audience, plans}.
  * Ids are derived from business id + layer + name, so re-importing updates the same rows and the
  * config bootstrap only applies a higher version/revision.
  */
@@ -28,6 +29,8 @@ export interface SkillFile {
   audience: 'customer' | 'internal';
   plans: string[];
   body: string;
+  /** Only the runtime's recognized inline activation profile survives import. */
+  activationHeader?: string;
 }
 
 export interface ImportedKnowledge { id: string; businessId: string; title: string; category: string; content: string; version: number; status: 'draft' | 'published' | 'revoked'; updatedAt: string; audience: 'customer' | 'internal'; plans: string[]; sourceUrl: string | null }
@@ -69,14 +72,23 @@ export function parseSkill(path: string, text: string): SkillFile {
   if (!body) throw new Error(`${path}: empty body`);
   const layer = str(meta.layer) === 'business' || str(meta.business) ? 'business' : 'universal';
   const version = Number(/\d+/.exec(str(meta.version) ?? '1')?.[0] ?? 1) || 1;
+  const description = str(data.description) ?? '';
+  const context = parseSkillContext({ name, content: text });
+  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text.replace(/^\uFEFF/, ''));
+  const descriptionLine = header?.[1]?.split(/\r?\n/).find(line => /^description:/.test(line));
+  // Reuse the exact accepted scalar spelling. Block/duplicate/malformed metadata
+  // falls back to the legacy mandatory body, rather than hiding instructions.
+  const activationHeader = context.content !== text && context.purpose === description && descriptionLine
+    ? `---\nactivation: ${context.activation}\n${descriptionLine}\n---\n` : undefined;
   return {
-    path, name, description: str(data.description) ?? '', layer, business: str(meta.business),
+    path, name, description, layer, business: str(meta.business),
     title: str(meta.title) ?? (/^#\s+(.+)$/m.exec(body)?.[1]?.trim() ?? name),
     category: str(meta.category) ?? (layer === 'universal' ? 'Procedure' : 'general'),
     version, status: (str(meta.status) ?? 'published').toLowerCase() === 'draft' ? 'draft' : 'published',
     updated: str(meta.updated), source: str(meta.source), body,
     audience: str(meta.audience)?.toLowerCase() === 'internal' ? 'internal' : 'customer',
     plans: (str(meta.plans) ?? '').replace(/^\[|\]$/g, '').split(',').map(p => p.trim().replace(/^["']|["']$/g, '')).filter(Boolean),
+    ...(activationHeader ? { activationHeader } : {}),
   };
 }
 
@@ -114,7 +126,10 @@ export function toSupportConfig(skills: SkillFile[], businessId: string, busines
     const settings = skill.layer === 'business' && skill.name.endsWith('-assistant-settings');
     if (settings && (skill.business ?? skill.path.split('/')[0]) !== businessSlug) continue;
     if (skill.layer === 'universal' || settings) {
-      procedures.push({ id: stableId(businessId, 'skill', skill.name), businessId, name: settings ? `${businessSlug}/assistant-settings` : `universal/${skill.name}`, content: `${skill.description}\n\n${skill.body}`.trim().slice(0, 20_000), revision: skill.version, enabled: skill.status === 'published', updatedAt });
+      const legacy = `${skill.description}\n\n${skill.body}`.trim();
+      const content = skill.activationHeader ? skill.activationHeader + legacy : legacy.slice(0, 20_000);
+      if (content.length > 20_000) throw new Error(`${skill.path}: activation metadata exceeds the skill content limit`);
+      procedures.push({ id: stableId(businessId, 'skill', skill.name), businessId, name: settings ? `${businessSlug}/assistant-settings` : `universal/${skill.name}`, content, revision: skill.version, enabled: skill.status === 'published', updatedAt });
       continue;
     }
     if (skill.business !== businessSlug && !skill.path.startsWith(`${businessSlug}/`)) continue;

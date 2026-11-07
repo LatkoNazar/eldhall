@@ -17,10 +17,65 @@ import { SupportHarness } from '../src/modules/agent/harness.js';
 import { RulesModel } from '../src/modules/agent/model.js';
 import { SimulatedPaymentProvider } from '../src/modules/support/payment-provider.js';
 import { DatabaseInvestigationError } from '../src/modules/database/contracts.js';
+import type { SupportContextMemory } from '../src/modules/agent/context.js';
 
 const finalDecision: AgentDecision = { intent: 'duplicate_charge', summary: 'A duplicate charge was found.', reasoning: 'Two matching captured charges.',
   sentiment: { label: 'frustrated', urgency: 'high' }, reply: 'I prepared a refund for specialist review.',
   action: { tool: 'refund_payment', args: { payment_id: '00000000-0000-4000-8000-000000000202', amount_cents: 49900 } } };
+
+test('native on-demand context loads exact details before checkpoint and starts the next memory turn without old payloads', {timeout:90000}, async()=>{
+  const homeRoot=await mkdtemp(join(tmpdir(),'support-context-native-'));
+  const decision={...finalDecision,action:null};
+  const api=await endpoint([{batch:[{name:'load_support_context',args:{skillIds:['lazy-skill'],toolRefs:[{integrationId:'fixture',name:'read_record'}],messageIds:['older-message']}},{name:'update_customer_requests',args:{version:0,syncState:'needs_review',changes:[]}}]},{name:'submit_decision',args:decision}]);
+  let loads=0;let checkpoints=0;let accepted=false;let catalog=emptyCatalog();
+  const memory=(body:string):SupportContextMemory=>({schemaVersion:1,currentMessage:{id:'current-message',role:'customer',body},recentMessages:[],requestCatalog:emptyCatalog(),actions:[],facts:[],sourceCoverage:{olderMessagesAvailable:true,uncheckpointedMessageIds:['current-message']}});
+  const base=context({
+    currentCustomerMessageId:'current-message',message:'LEGACY_DUPLICATE_CURRENT',history:[{role:'customer',body:'LEGACY_HISTORY_SENTINEL'}],requestSourceMessages:[{id:'older-message',body:'LEGACY_SOURCE_SENTINEL'}],
+    requestCatalog:()=>catalog,requestCheckpointAccepted:()=>accepted,checkpointRequests:async()=>{checkpoints++;accepted=true;catalog={...catalog,version:1};return catalog;},
+    skills:[{id:'mandatory',name:'Safety',revision:1,content:'MANDATORY_POLICY_SENTINEL'},{id:'lazy-skill',name:'Domain procedure',revision:2,content:'---\nactivation: on_demand\ndescription: Domain-specific procedure\n---\nON_DEMAND_BODY_SENTINEL'}],
+    businessTools:[{integrationId:'fixture',name:'read_record',description:'Read a record',inputSchema:{type:'object',properties:{recordId:{type:'string',description:'FULL_SCHEMA_SENTINEL'}}}}],
+    contextCatalog:{skills:[{id:'mandatory',name:'Safety',revision:1,purpose:'Safety',activation:'always'},{id:'lazy-skill',name:'Domain procedure',revision:2,purpose:'Domain-specific procedure',activation:'on_demand'}],tools:[{integrationId:'fixture',name:'read_record',description:'Read a record',arguments:['recordId']}]},
+    loadSupportContext:async(request,signal)=>{signal?.throwIfAborted();loads++;assert.deepEqual(request,{skillIds:['lazy-skill'],toolRefs:[{integrationId:'fixture',name:'read_record'}],messageIds:['older-message']});return {skills:[{id:'lazy-skill',name:'Domain procedure',revision:2,content:'ON_DEMAND_BODY_SENTINEL',contentHash:'a'.repeat(64)}],tools:[{integrationId:'fixture',name:'read_record',description:'Read a record',inputSchema:{type:'object',properties:{recordId:{type:'string',description:'FULL_SCHEMA_SENTINEL'}}}}],messages:[{id:'older-message',role:'customer',body:'OLDER_DETAIL_SENTINEL'}]};},
+  });
+  try{
+    const model=new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000});
+    await model.decide({...base,contextMemory:memory('FIRST_CURRENT_SENTINEL')},new AbortController().signal);
+    accepted=false;catalog=emptyCatalog();
+    await model.decide({...base,runId:'run-2',contextMemory:memory('SECOND_CURRENT_SENTINEL')},new AbortController().signal);
+    assert.equal(loads,2);assert.equal(checkpoints,2);assert.equal(api.requests.length,4,'independent context loading and checkpoint share one model roundtrip');
+    const first=JSON.stringify(api.requests[0]!.messages);const loaded=JSON.stringify(api.requests[1]!.messages);const next=JSON.stringify(api.requests[2]!.messages);
+    assert.match(first,/MANDATORY_POLICY_SENTINEL/);assert.equal(first.split('FIRST_CURRENT_SENTINEL').length-1,1);
+    assert.doesNotMatch(first,/ON_DEMAND_BODY_SENTINEL|FULL_SCHEMA_SENTINEL|LEGACY_DUPLICATE_CURRENT|LEGACY_HISTORY_SENTINEL|LEGACY_SOURCE_SENTINEL/);
+    assert.match(loaded,/ON_DEMAND_BODY_SENTINEL/);assert.match(loaded,/FULL_SCHEMA_SENTINEL/);assert.match(loaded,/OLDER_DETAIL_SENTINEL/);
+    assert.match(next,/SECOND_CURRENT_SENTINEL/);assert.doesNotMatch(next,/FIRST_CURRENT_SENTINEL|ON_DEMAND_BODY_SENTINEL|OLDER_DETAIL_SENTINEL/);
+    assert.equal(api.requests[0]!.tools!.some(tool=>tool.function.name==='load_support_context'),true);
+    assert.equal(api.requests[0]!.tools!.some(tool=>tool.function.name==='call_business_tools'),false,'bundle capability is never inferred from the tool inventory');
+  }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+});
+
+test('native automatic-read bundles require checkpoint and charge each member against the tool budget', {timeout:120000},async t=>{
+  for(const overBudget of [false,true])await t.test(overBudget?'over-budget bundle dispatches no members':'accepted bundle returns both independent reads',async()=>{
+    const homeRoot=await mkdtemp(join(tmpdir(),'support-bundle-native-'));let accepted=false;let dispatched=0;let catalog=emptyCatalog();
+    const call={integrationId:'fixture',name:'read_record',input:{recordId:'synthetic'}};const decision={...finalDecision,action:null};
+    const api=await endpoint([
+      ...(overBudget?[]:[{name:'call_business_tools',args:{calls:[call]}}]),
+      {name:'update_customer_requests',args:{version:0,syncState:'needs_review',changes:[]}},
+      {name:'call_business_tools',args:{calls:Array.from({length:overBudget?3:2},()=>call)}},
+      {name:'submit_decision',args:decision},
+    ]);
+    try{
+      const result=await new DshSupportModel({provider:'local',model:'support-fixture',baseURL:api.url,homeRoot,timeoutMs:30000,maxToolCalls:overBudget?3:6}).decide(context({
+        currentCustomerMessageId:'source-message',requestCatalog:()=>catalog,requestCheckpointAccepted:()=>accepted,checkpointRequests:async()=>{accepted=true;catalog={...catalog,version:1};return catalog;},
+        businessTools:[{integrationId:'fixture',name:'read_record',description:'Read',inputSchema:{type:'object'}}],
+        callBusinessTools:async(calls,signal)=>{assert.equal(accepted,true);signal?.throwIfAborted();dispatched+=calls.length;return {results:calls.map(row=>({...row,result:{status:'read',data:{found:true}}}))};},
+      }),new AbortController().signal);
+      assert.equal(result.decision.action,null);assert.equal(dispatched,overBudget?0:2);
+      assert.deepEqual(result.toolCalls,overBudget?['update_customer_requests','submit_decision']:['update_customer_requests','call_business_tools','submit_decision']);
+      assert.match(JSON.stringify(api.requests[2]!.messages),overBudget?/budget exhausted/:/request catalog first/);
+      if(!overBudget)assert.match(JSON.stringify(api.requests[3]!.messages),/found/);
+    }finally{await stop(api.server);await rm(homeRoot,{recursive:true,force:true});}
+  });
+});
 
 test('native request checkpoint is enforced before final decision and exposes canonical source identities', {timeout:60000}, async()=>{
   const homeRoot=await mkdtemp(join(tmpdir(),'support-request-runtime-'));

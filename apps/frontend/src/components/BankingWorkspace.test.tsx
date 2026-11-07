@@ -114,6 +114,7 @@ it('saves only supported structured guards with exact configurationCAS and prese
 it('shows only recorded public call/result/decision fields and filters requests by explicit links', async () => {
   const detail = requestFixture()
   detail.agentActivity = { status: 'recorded', hasMore: true, events: [{ id: uuid(701), runId: uuid(710), sequence: 1, turnJobId: uuid(711), callId: 'recorded-call-1', createdAt: bankingTime, type: 'tool_result', tool: 'lookup_payments', outcome: 'succeeded', summary: 'One matching customer payment was returned.', reason: 'Recorded scoped payment lookup.', proposalId: null, requestIds: [uuid(3)], input: { limit: 10 }, result: { paymentCount: 1 }, checks: [], context: { settingsVersion: 1, guardRevision: 2, skills: [{ id: uuid(601), name: 'custom/customer-support', revision: 2, contentHash: 'a'.repeat(64), preview: 'Recorded instructions', truncated: false, loadedCharacters: 21, totalCharacters: 21 }], guards: [], provider: 'rules', model: 'keyword-rules-v1' } }] }
+  detail.agentActivity.events[0]!.context!.availableSkills = [{ id: uuid(602), name: 'custom/refund-procedure', revision: 3, purpose: 'Investigate a duplicate charge.', activation: 'on_demand' }]
   Object.assign(detail.agentActivity.events[0]!, { privateChainOfThought: 'DO_NOT_RENDER_PRIVATE_REASONING' })
   render(<AgentActivity detail={detail} selectedRequestId={uuid(1)} />)
   const user = userEvent.setup()
@@ -126,6 +127,10 @@ it('shows only recorded public call/result/decision fields and filters requests 
   await user.click(screen.getByText('Контекст запуску'))
   expect(screen.getByText('Завантажено 21 із 21 символів')).toBeInTheDocument()
   expect(screen.getByText('Recorded instructions')).toBeInTheDocument()
+  expect(screen.getByText('Каталог доступних інструкцій')).toBeVisible()
+  expect(screen.getByText('Інструкції, надані на початку цього ходу')).toBeVisible()
+  expect(screen.getByText('Investigate a duplicate charge.')).toBeVisible()
+  expect(screen.getByText('custom/refund-procedure · v3')).toBeVisible()
   expect(screen.getByText('SHA-256: ' + 'a'.repeat(64))).toBeInTheDocument()
   expect(screen.getByText(/останні 100/)).toBeInTheDocument()
   await user.click(screen.getByRole('checkbox', { name: /Лише явні зв’язки із R-01/ }))

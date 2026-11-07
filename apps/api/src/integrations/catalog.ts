@@ -115,10 +115,21 @@ export function createCatalogIntegration(config: CatalogIntegrationConfig): Busi
 
     return {
       tools,
+      async canBatchRead(integrationId, name) {
+        if (!own || !config.registry || integrationId !== manifest.integrationId) return false;
+        await context.assertActive();
+        const operation = manifest.operations.find(op => op.toolName === name);
+        if (!operation || operation.effect !== 'read') return false;
+        const decision = await decide(operation);
+        if (decision.mode !== 'auto' || decision.policyRevision === null || decision.policyRevision < 1) return false;
+        context.rememberPolicy?.(manifest.integrationId, manifest.manifestHash, config.connectionRevision ?? '1', decision.policyRevision);
+        await context.assertActive();
+        return true;
+      },
       async listTools() {
         if(!own) return [];
         const allowed=await Promise.all(manifest.operations.map(async op=>({op,decision:await decide(op)})));
-        return allowed.filter(row=>row.decision.mode!=='deny').map(({op})=>({integrationId:manifest.integrationId,name:op.toolName,description:op.description,inputSchema:structuredClone(op.inputSchema)}));
+        return allowed.filter(row=>row.decision.mode!=='deny').map(({op,decision})=>({integrationId:manifest.integrationId,name:op.toolName,description:op.description,inputSchema:structuredClone(op.inputSchema),...(config.registry&&decision.policyRevision!==null?{contextRef:{manifestHash:manifest.manifestHash,connectionRevision:config.connectionRevision??'1',policyRevision:decision.policyRevision}}:{}),...(config.registry&&op.effect==='read'&&decision.mode==='auto'?{batchRead:true as const}:{})}));
       },
       async callTool(integrationId, name, input, signal) {
         const operation = own && integrationId === manifest.integrationId ? manifest.operations.find(op => op.toolName === name) : undefined;

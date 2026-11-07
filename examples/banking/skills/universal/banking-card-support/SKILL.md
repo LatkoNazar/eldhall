@@ -1,11 +1,12 @@
 ---
 name: banking-card-support
-description: Lost or blocked card handling
+description: Load for lost, blocked, frozen or replacement cards, suspected card compromise, or a card-specific integration operation.
+activation: on_demand
 metadata:
   layer: universal
-  version: 1
+  version: 2
   status: published
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 # Lost or blocked card handling

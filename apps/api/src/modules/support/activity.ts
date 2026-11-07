@@ -1,8 +1,10 @@
 import type { GuardRule } from './guards.js';
 import type { AuditEvent, PolicyCheck } from './contracts.js';
+import type { ContextSkillMetadata } from '../agent/context.js';
 
 export type ActivityFacts = Record<string, string | number | boolean | null | string[]>;
 export interface ActivityContext {
+  availableSkills?: ContextSkillMetadata[];
   settingsVersion: number; guardRevision:number; skills: { id: string; name: string; revision: number;contentHash:string;preview:string;truncated:boolean;loadedCharacters:number;totalCharacters:number }[];
   guards: GuardRule[];
   provider: string; model: string;
@@ -35,6 +37,8 @@ export function activity(type:NewActivity['type'],summary:string,extra:Partial<N
   return {type,summary,outcome:'succeeded',callId:null,tool:null,reason:null,proposalId:null,requestIds:[],input:null,result:null,checks:[],context:null,...extra};
 }
 export function safeToolFacts(tool:string,args:Record<string,unknown>):ActivityFacts {
+  if(tool==='load_support_context')return {skillCount:Array.isArray(args.skillIds)?args.skillIds.length:0,toolCount:Array.isArray(args.toolRefs)?args.toolRefs.length:0,messageCount:Array.isArray(args.messageIds)?args.messageIds.length:0};
+  if(tool==='call_business_tools')return {readCount:Array.isArray(args.calls)?args.calls.length:0};
   if(tool==='search_knowledge')return {queryLength:typeof args.query==='string'?args.query.length:0};
   if(tool==='lookup_payments')return {limit:Number.isInteger(args.limit)?Number(args.limit):10};
   if(tool==='update_customer_requests')return {changes:Array.isArray(args.changes)?args.changes.length:0};
@@ -52,6 +56,17 @@ export function safeToolFacts(tool:string,args:Record<string,unknown>):ActivityF
 export function safeToolResult(value:unknown):ActivityFacts {
   if(!value||typeof value!=='object')return {recorded:true};
   const row=value as Record<string,unknown>;const facts:ActivityFacts={};
+  if(Array.isArray(row.skills)){
+    facts.skillCount=row.skills.length;
+    row.skills.slice(0,4).forEach((value,index)=>{
+      if(!value||typeof value!=='object')return;const skill=value as Record<string,unknown>;
+      if(typeof skill.id!=='string'||!/^[a-f0-9-]{36}$/i.test(skill.id)||typeof skill.contentHash!=='string'||!/^[a-f0-9]{64}$/.test(skill.contentHash))return;
+      facts['skill'+(index+1)+'Id']=skill.id;facts['skill'+(index+1)+'Hash']=skill.contentHash;
+      if(typeof skill.content==='string')facts['skill'+(index+1)+'Characters']=skill.content.length;
+    });
+  }
+  if(Array.isArray(row.tools))facts.toolCount=row.tools.length;
+  if(Array.isArray(row.messages))facts.messageCount=row.messages.length;
   if(typeof row.status==='string'&&['awaiting_approval','executed','denied','failed','unknown','shipped','paid','cancelled','canceled','captured','refunded','confirmed','delivered','scheduled','active','suspended','pending','in_transit'].includes(row.status))facts.status=row.status;
   if(typeof row.reasonCode==='string'&&/^[a-z0-9_.-]{1,100}$/i.test(row.reasonCode))facts.reasonCode=row.reasonCode;
   if(typeof row.actionId==='string'&&/^[a-f0-9-]{36}$/i.test(row.actionId))facts.proposalId=row.actionId;

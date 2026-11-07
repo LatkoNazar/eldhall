@@ -1,11 +1,12 @@
 ---
 name: banking-complaints
-description: Complaints and escalation
+description: Load for formal complaints, disputed outcomes, compensation requests, or complaint escalation and tone.
+activation: on_demand
 metadata:
   layer: universal
-  version: 1
+  version: 2
   status: published
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 # Complaints and escalation

@@ -4,6 +4,10 @@ import { validateToolInput, type InputSchema } from './schema.js';
 import type { NewActivity } from '../modules/support/activity.js';
 
 export interface BusinessTool {
+  /** Application-only context fence; never a model grant. */
+  contextRef?: { manifestHash: string; connectionRevision: string; policyRevision: number };
+  /** Discovery hint only; execution still requires canBatchRead's current persisted permission proof. */
+  batchRead?: true;
   integrationId: string;
   name: string;
   description: string;
@@ -33,6 +37,8 @@ export interface BusinessIntegrationContext {
   propose?: (request: ExternalActionRequest) => Promise<BusinessToolResult>;
 }
 export interface ScopedBusinessTools {
+  /** Only a connector with current persisted read+auto permission can opt in; absence means no batching. */
+  canBatchRead?(integrationId: string, name: string): Promise<boolean>;
   tools: BusinessTool[];
   listTools?(): Promise<BusinessTool[]>;
   callTool(integrationId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
@@ -178,6 +184,7 @@ export function combineIntegrations(parts: { owns: readonly (readonly [businessI
         if (!owner) throw new IntegrationError('denied', 'Business tool is not allowlisted');
         return owner.callTool(integrationId, name, input, signal);
       },
+      async canBatchRead(integrationId, name) { return await route(integrationId)?.canBatchRead?.(integrationId, name) ?? false; },
       async executeAction(args, actionId, signal) {
         const owner = route(args.integrationId);
         return owner?.executeAction ? owner.executeAction(args, actionId, signal) : { status: 'failed', reasonCode: 'integration_unavailable' };

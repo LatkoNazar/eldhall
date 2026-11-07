@@ -238,7 +238,7 @@ class SourceArchiveTests(unittest.TestCase):
             self.archive(self.commit_tree())
 
     def test_named_product_guides_are_required_and_internal_guides_remain_excluded(self):
-        for name in ("OPENAPI_QUICKSTART.md", "NATIVE_RECEIPTS.md", "RELEASE_STATUS.md", "INSTALLATION_INIT.md", "CLI.md", "SCHEMA_OBSERVATION.md"):
+        for name in ("OPENAPI_QUICKSTART.md", "NATIVE_RECEIPTS.md", "RELEASE_STATUS.md", "INSTALLATION_INIT.md", "CLI.md", "SCHEMA_OBSERVATION.md", "customer-database-investigation.md", "provider-neutral-agent-context.md"):
             self.assertIn(name, source_archive.DOCS)
             self.assertIn("docs/" + name, source_archive.ESSENTIAL_DOCS)
             (self.repo / "docs" / name).unlink()

@@ -1,4 +1,8 @@
-import { activity, activityFromAudit, type NewActivity } from '../support/activity.js';
+import { activity, activityFromAudit, safeToolFacts, safeToolResult, type NewActivity } from '../support/activity.js';
+import { parseSkillContext, type ContextMessage } from './context.js';
+import { createSupportContextAccess, SupportContextError } from './context-access.js';
+import { buildSupportContextMemory } from './context-memory.js';
+import { validateToolInput, type InputSchema } from '../../integrations/schema.js';
 import { evaluateGuards, guardRulesSchema } from '../support/guards.js';
 import { fallbackCheckpoint, fallbackTargets } from '../support/requests/rules.js';
 import { requestCheckpointSchema, requestTargetsSchema, type RequestTarget } from '../support/requests/contracts.js';
@@ -152,12 +156,14 @@ export class SupportHarness {
     const externalSignal = AbortSignal.timeout(this.deps.timeoutMs);
     const knowledge = externalMode ? [] : (await store.knowledge(customer.businessId)).filter(d => d.status === 'published' && (d.audience ?? 'customer') === 'customer' && (!d.plans?.length || d.plans.includes(customer.plan))).map(({ id, businessId, title, category, content, version, audience, plans, sourceUrl }) => ({ id, businessId, title, category, content, version, audience, plans, sourceUrl }));
     const skills = (await store.skills(customer.businessId)).filter(s => s.enabled).map(({ id, name, content, revision }) => ({ id, name, content, revision }));
+    const modernContext = this.deps.model.contextProtocol === 'catalog-v1';
     // A native session or product history can reuse facts without searching this turn.
     // Conservatively fence every eligible source until transitive citation tracking exists.
     const sourceRefs = knowledge.map(({ id, version }) => ({ id, version }));
-    const history = (await this.visibleMessages(customer.businessId, caseId)).slice(-10).map(message => externalMode && message.sourceRefs?.length
+    const visibleHistory = (await this.visibleMessages(customer.businessId, caseId)).map(message => externalMode && message.sourceRefs?.length
       ? { ...message, body: '[Попередню відповідь із локальної бази знань не включено: джерело бізнесу змінено]', sourceRefs: [], externalSourceRefs: [] }
       : message);
+    const history = visibleHistory.slice(-10);
     const externalRefs = new Map<string, ExternalKnowledgeRef>();
     const remember = (refs: ExternalKnowledgeRef[]) => {
       for (const ref of refs) {
@@ -221,7 +227,12 @@ export class SupportHarness {
     const activityRunId=randomUUID();let activitySequence=0;
     const recordActivity=async(event:NewActivity)=>{const linked=event.proposalId?await store.proposal(event.proposalId):null;await store.audit(caseId,'agent.activity','agent:'+activityRunId,{...event,proposalId:linked?.caseId===caseId?linked.id:null,runId:activityRunId,sequence:++activitySequence,turnJobId:lease.jobFence===undefined?null:lease.runId});};
     const configuredGuards=guardRulesSchema.safeParse(business.policy.guards??[]);
-    await recordActivity(activity('context','Application context supplied to the agent',{context:{settingsVersion:settings.version,guardRevision:business.policy.guardRevision??0,skills:skills.map(({id,name,revision,content})=>({id,name,revision,contentHash:createHash('sha256').update(content.slice(0,8000)).digest('hex'),preview:content.slice(0,240),truncated:content.length>240,loadedCharacters:Math.min(content.length,8000),totalCharacters:content.length})),guards:configuredGuards.success?configuredGuards.data:[],provider:this.deps.model.provider,model:this.deps.model.model}}));
+    const availableSkills = skills.map(skill => { const metadata=parseSkillContext(skill); return {id:skill.id,name:skill.name,revision:skill.revision,purpose:metadata.purpose,activation:metadata.activation}; });
+    const deliveredSkills = skills.flatMap(skill => {
+      const parsed=parseSkillContext(skill);
+      return modernContext&&parsed.activation==='on_demand'?[]:[{...skill,content:modernContext?parsed.content:skill.content}];
+    });
+    await recordActivity(activity('context','Application context supplied to the agent',{context:{settingsVersion:settings.version,guardRevision:business.policy.guardRevision??0,...(modernContext?{availableSkills}:{}),skills:deliveredSkills.map(({id,name,revision,content})=>({id,name,revision,contentHash:createHash('sha256').update(content.slice(0,8000)).digest('hex'),preview:content.slice(0,240),truncated:content.length>240,loadedCharacters:Math.min(content.length,8000),totalCharacters:content.length})),guards:configuredGuards.success?configuredGuards.data:[],provider:this.deps.model.provider,model:this.deps.model.model}}));
     const ctx: AgentContext = {
       activityRunId, recordActivity,
       conversationId: caseId, runId: lease.runId, businessId: customer.businessId, ownershipVersion: lease.ownershipVersion,
@@ -295,9 +306,19 @@ export class SupportHarness {
       }
       return result;
     };
+    const rememberIntegrationPolicy=(integrationId:string,manifestHash:string,connectionRevision:string,policyRevision:number)=>{
+      const next={manifestHash,connectionRevision,policyRevision},previous=observedPolicies.get(integrationId);
+      if(previous&&JSON.stringify(previous)!==JSON.stringify(next))throw new StaleTurn('Integration policy changed');
+      observedPolicies.set(integrationId,next);
+    };
+    const readTargets=(requests:RequestTarget[]|undefined)=>{
+      const targets=requests?requestTargetsSchema.parse(requests):fallbackTargets(requestCatalog,'external_action');
+      if(targets.some(target=>!requestCatalog.requests.some(request=>request.id===target.id&&request.revision===target.revision)))throw new HarnessError(409,'Read request links are stale or unavailable');
+      return targets;
+    };
     const integrations = this.deps.integrations?.forContext({ businessId: customer.businessId, customerId: customer.id, caseId, ownershipVersion: supportCase.ownershipVersion, assertActive, propose, recordActivity,
       rememberRead:()=>{returnedBusinessRead=true;},
-      rememberPolicy:(integrationId,manifestHash,connectionRevision,policyRevision)=>observedPolicies.set(integrationId,{manifestHash,connectionRevision,policyRevision}),
+      rememberPolicy:rememberIntegrationPolicy,
     });
     ctx.businessTools = integrations?.listTools ? await integrations.listTools() : integrations?.tools ?? [];
     // Business data actually returned this turn: the only ground for the reply to state an order/payment status.
@@ -305,14 +326,82 @@ export class SupportHarness {
     ctx.callBusinessTool = integrations ? (integrationId, name, input, signal, requests) => modelTool(async () => {
       await assertActive();
       if (!checkpointAccepted) throw new HarnessError(409, 'Update the request catalog before business tools');
-      selectedRequests = requests ? requestTargetsSchema.parse(requests) : fallbackTargets(requestCatalog, 'external_action');
+      selectedRequests = readTargets(requests);
       returnedBusinessRead=false;
       const result = await integrations.callTool(integrationId, name, input, signal);
       businessRead ||= returnedBusinessRead;
       collectStrings(result, evidence);return result;
     }).catch(error => { if (error instanceof ApprovalPendingToolError) return { status: 'denied', reasonCode: 'turn_awaiting_approval' };throw error; }) : undefined;
 
-    const { decision, source, model, classification } = await this.decide(caseId, ctx, terminal);
+    let contextUnavailable=false;
+    if (modernContext) {
+      const cutoff=visibleHistory.findIndex(message=>message.id===sourceMessage.id);
+      const scopedMessages:ContextMessage[]=(cutoff<0?[]:visibleHistory.slice(0,cutoff+1)).map(({id,role,body})=>({id,role,body}));
+      if(!scopedMessages.some(message=>message.id===sourceMessage.id)) scopedMessages.push({id:sourceMessage.id,role:'customer',body:sourceMessage.body});
+      const visibleTools=ctx.businessTools as Parameters<typeof createSupportContextAccess>[0]['tools'];
+      const access=createSupportContextAccess({skills,tools:visibleTools,messages:scopedMessages,assertActive,verifyTools:async refs=>{
+        if(!refs.length)return;
+        for(const ref of refs){
+          const initial=visibleTools.find(tool=>tool.integrationId===ref.integrationId&&tool.name===ref.name);
+          if(initial?.contextRef)rememberIntegrationPolicy(ref.integrationId,initial.contextRef.manifestHash,initial.contextRef.connectionRevision,initial.contextRef.policyRevision);
+        }
+        await assertActive();
+        const current=integrations?.listTools?await integrations.listTools():integrations?.tools??[];
+        for(const ref of refs){
+          const initial=visibleTools.find(tool=>tool.integrationId===ref.integrationId&&tool.name===ref.name),latest=current.find(tool=>tool.integrationId===ref.integrationId&&tool.name===ref.name);
+          if(!initial||!latest||JSON.stringify(initial)!==JSON.stringify(latest))throw new StaleTurn('Tool context changed');
+        }
+        await assertActive();
+      }});
+      ctx.contextCatalog=access.catalog;
+      ctx.loadSupportContext=(request,signal)=>modelTool(()=>access.load(request,signal));
+      try {
+        ctx.contextMemory=buildSupportContextMemory({currentMessageId:sourceMessage.id,messages:scopedMessages,requestCatalog,proposals:await store.proposals(caseId)});
+      } catch(error) {
+        if(!(error instanceof SupportContextError))throw error;
+        contextUnavailable=true;
+      }
+      if(integrations?.canBatchRead) ctx.callBusinessTools=(calls,signal)=>modelTool(async()=>{
+        if(!checkpointAccepted)throw new HarnessError(409,'Update the request catalog before business tools');
+        if(!Array.isArray(calls)||calls.length<1||calls.length>4)throw new HarnessError(422,'Use one to four independent automatic reads');
+        await assertActive();signal?.throwIfAborted();
+        // Validate every member and persist each first-seen policy fence BEFORE dispatching anything.
+        for(const call of calls){
+          const tool=ctx.businessTools?.find(tool=>tool.integrationId===call.integrationId&&tool.name===call.name);
+          if(!tool||Buffer.byteLength(JSON.stringify(call.input))>16384)throw new HarnessError(422,'Bundle tool is unavailable');
+          validateToolInput(tool.inputSchema as InputSchema,call.input);
+          readTargets(call.requests);
+          if(!await integrations.canBatchRead!(call.integrationId,call.name))throw new HarnessError(403,'Only reviewed automatic reads support bundles');
+        }
+        await assertActive();signal?.throwIfAborted();
+        const results:{integrationId:string;name:string;result:unknown}[]=[];let grounded=false;
+        for(const call of calls){
+          await assertActive();signal?.throwIfAborted();
+          if(!await integrations.canBatchRead!(call.integrationId,call.name))throw new HarnessError(403,'Read permission changed');
+          selectedRequests=readTargets(call.requests);
+          const callId=randomUUID(),requestIds=selectedRequests.map(row=>row.id);
+          await recordActivity(activity('tool_call','Bundled business read requested',{tool:'call_business_tool',callId,requestIds,outcome:'started',input:safeToolFacts('call_business_tool',call)}));
+          try{
+            returnedBusinessRead=false;
+            const result=await integrations.callTool(call.integrationId,call.name,call.input,signal);
+            await assertActive();signal?.throwIfAborted();
+            if(awaitingApproval)throw new HarnessError(409,'Bundle stopped for operator approval');
+            results.push({integrationId:call.integrationId,name:call.name,result});grounded ||= returnedBusinessRead;
+            await recordActivity(activity('tool_result','Bundled business read completed',{tool:'call_business_tool',callId,requestIds,result:safeToolResult(result)}));
+            if(Buffer.byteLength(JSON.stringify({results}))>65536)throw new HarnessError(422,'Bundle result too large; request fewer reads');
+          }catch(error){
+            await recordActivity(activity('tool_result','Bundled business read stopped',{tool:'call_business_tool',callId,requestIds,outcome:'failed',reason:'Scoped read failed; remaining members were not dispatched'}));
+            throw error;
+          }
+        }
+        await assertActive();businessRead ||= grounded;
+        for(const row of results)collectStrings(row.result,evidence);
+        return {results};
+      });
+    }
+
+    const { decision, source, model, classification } = contextUnavailable
+      ? await this.contextHandoff(caseId,ctx) : await this.decide(caseId, ctx, terminal);
     if (!checkpointAccepted) throw new HarnessError(409, 'Request catalog checkpoint required');
     await assertActive();
     await assertExternal();
@@ -351,6 +440,20 @@ export class SupportHarness {
       if (error instanceof StaleTurn) throw new HarnessError(409, error.message);
       throw error;
     } finally { await store.releaseTurn(lease); }
+  }
+
+  private async contextHandoff(caseId:string,ctx:AgentContext):Promise<{decision:AgentDecision;source:Analysis['source'];model:string;classification:TicketClassification|null}>{
+    await ctx.assertActive();
+    // Preserve every existing request. New input remains explicitly unparsed rather than
+    // dispatching a model with incomplete required state or inferring a financial action.
+    if(!ctx.requestCheckpointAccepted?.())await ctx.checkpointRequests!({version:ctx.requestCatalog!().version,syncState:'needs_review',changes:[]});
+    await this.deps.store.recordRun({caseId,turnJobId:ctx.turnJobId??null,provider:'application',model:'context-guard',status:'fallback',steps:0,toolCalls:[],latencyMs:0,error:'agent_context_unavailable'},ctx.activityRunId);
+    await ctx.recordActivity?.(activity('fallback','Required ticket context needs operator review',{outcome:'fallback',reason:'The complete required state could not be supplied within the context boundary; no model was called'}));
+    await this.deps.store.audit(caseId,'agent.context_unavailable','system',{reason:'required_state_boundary'});
+    return {source:'fallback',model:'context-guard',classification:normalizeClassification(ctx.classification,undefined,'fallback'),decision:{
+      intent:'other',summary:'Required ticket context needs operator review',reasoning:'The required ticket state is unavailable or exceeds its boundary. Existing goals and actions were preserved; no model or business operation was dispatched.',
+      sentiment:{label:'calm',urgency:'medium'},reply:'',action:{tool:'escalate_to_human',args:{reason:'Required ticket context needs operator review'}},
+    }};
   }
 
   private async decide(caseId: string, ctx: AgentContext, terminal?: { wait: Promise<AgentDecision>; read: () => AgentDecision | undefined }): Promise<{ decision: AgentDecision; source: Analysis['source']; model: string; classification: TicketClassification | null }> {

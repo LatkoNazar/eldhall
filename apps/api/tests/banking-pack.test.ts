@@ -4,6 +4,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { loadSupportConfig } from '../src/integrations/config.js';
 import { readSkillTree, toSupportConfig } from '../src/modules/knowledge/skill-md.js';
+import { parseSkillContext } from '../src/modules/agent/context.js';
 import { seedData } from '../src/modules/support/seed.js';
 import { duplicateCandidate, evaluatePolicy } from '../src/modules/agent/policy.js';
 import type { Customer, Payment } from '../src/modules/support/contracts.js';
@@ -17,6 +18,10 @@ test('banking example registers one workspace and exact versioned Markdown proce
   assert.equal(imported.skills.length, 8); assert.equal(imported.knowledge.length, 5);
   assert.deepEqual(config.skills, imported.skills); assert.deepEqual(config.knowledge, imported.knowledge);
   assert.ok(config.skills.every(row => row.businessId === business.id && row.enabled && row.revision > 0));
+  const lazy = config.skills.filter(skill => parseSkillContext(skill).activation === 'on_demand');
+  assert.deepEqual(lazy.map(skill => skill.name).sort(), ['banking-card-support', 'banking-complaints', 'banking-fees-statements', 'banking-refunds', 'banking-transfers'].map(name => `universal/${name}`));
+  assert.ok(lazy.every(skill => skill.revision === 2));
+  assert.deepEqual(config.skills.filter(skill => !lazy.includes(skill)).map(skill => [skill.name, skill.revision]), [['universal/banking-evidence', 1], ['universal/banking-security', 1], ['universal/banking-workflow', 2]]);
   assert.ok(config.knowledge.every(row => row.businessId === business.id && row.status === 'published' && row.audience === 'customer'));
   assert.equal(config.guardPolicies.length, 1); assert.equal(config.guardPolicies[0]!.businessId, business.id);
   assert.equal(config.guardPolicies[0]!.revision, 1);

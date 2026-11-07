@@ -46,6 +46,10 @@ export async function createDatabaseIntegrations(config: SupportConfig, env: Nod
           callTool(id, name, input, signal) {
             return (owned(context.businessId, id) ? database : original).callTool(id, name, input, signal);
           },
+          async canBatchRead(id, name) {
+            // SQL reads retain their individual guard path; there is no per-operation Auto proof.
+            return owned(context.businessId, id) ? false : await original.canBatchRead?.(id, name) ?? false;
+          },
           async executeAction(args, actionId, signal) {
             if (owned(context.businessId, String(args.integrationId))) throw new IntegrationError('denied', 'Database investigation cannot execute business actions');
             return original.executeAction?.(args, actionId, signal) ?? { status: 'failed', reasonCode: 'integration_unavailable' };

@@ -89,19 +89,19 @@
       "id": "dc6b293a-2ddd-50a3-9ee6-f2384f43a565",
       "businessId": "b1000000-0000-4000-8000-000000000001",
       "name": "universal/banking-card-support",
-      "content": "Lost or blocked card handling\n\n# Lost or blocked card handling\nSeparate a lost-card report, suspected unauthorized charge, blocked card and card-replacement request into distinct goals when necessary. For a suspected compromise, explain that a specialist is required promptly. Do not ask for card secrets.\nThe base sandbox currently provides payment lookup, refund proposals and human escalation. It has no card-freeze, card-reissue or PIN-reset tool. State this limitation honestly and escalate; do not say a card was blocked, replaced or unlocked. If a reviewed integration is later installed, use only its advertised operations and current auto/ask/deny policy; never invent an endpoint or tool.",
-      "revision": 1,
+      "content": "---\nactivation: on_demand\ndescription: Load for lost, blocked, frozen or replacement cards, suspected card compromise, or a card-specific integration operation.\n---\nLoad for lost, blocked, frozen or replacement cards, suspected card compromise, or a card-specific integration operation.\n\n# Lost or blocked card handling\nSeparate a lost-card report, suspected unauthorized charge, blocked card and card-replacement request into distinct goals when necessary. For a suspected compromise, explain that a specialist is required promptly. Do not ask for card secrets.\nThe base sandbox currently provides payment lookup, refund proposals and human escalation. It has no card-freeze, card-reissue or PIN-reset tool. State this limitation honestly and escalate; do not say a card was blocked, replaced or unlocked. If a reviewed integration is later installed, use only its advertised operations and current auto/ask/deny policy; never invent an endpoint or tool.",
+      "revision": 2,
       "enabled": true,
-      "updatedAt": "2026-11-06T00:00:00.000Z"
+      "updatedAt": "2026-11-07T00:00:00.000Z"
     },
     {
       "id": "9ff57856-c51a-5a09-9377-ff18c5566b97",
       "businessId": "b1000000-0000-4000-8000-000000000001",
       "name": "universal/banking-complaints",
-      "content": "Complaints and escalation\n\n# Complaints and escalation\nAcknowledge a complaint calmly and summarize each requested outcome. Anger does not authorize compensation, a refund or privileged access. Explain the checks and next step without exposing internal secrets.\nEscalate a contested non-duplicate charge, possible fraud, unsupported operation or unresolved uncertainty. Preserve linked goals and evidence so the operator can continue. Do not close the entire ticket merely because one operation succeeded.",
-      "revision": 1,
+      "content": "---\nactivation: on_demand\ndescription: Load for formal complaints, disputed outcomes, compensation requests, or complaint escalation and tone.\n---\nLoad for formal complaints, disputed outcomes, compensation requests, or complaint escalation and tone.\n\n# Complaints and escalation\nAcknowledge a complaint calmly and summarize each requested outcome. Anger does not authorize compensation, a refund or privileged access. Explain the checks and next step without exposing internal secrets.\nEscalate a contested non-duplicate charge, possible fraud, unsupported operation or unresolved uncertainty. Preserve linked goals and evidence so the operator can continue. Do not close the entire ticket merely because one operation succeeded.",
+      "revision": 2,
       "enabled": true,
-      "updatedAt": "2026-11-06T00:00:00.000Z"
+      "updatedAt": "2026-11-07T00:00:00.000Z"
     },
     {
       "id": "9320b9c4-92c4-5c58-8078-772015d698d6",
@@ -116,19 +116,19 @@
       "id": "a93de8bd-6213-59e5-b9c4-f117ea5e2378",
       "businessId": "b1000000-0000-4000-8000-000000000001",
       "name": "universal/banking-fees-statements",
-      "content": "Fees and statements\n\n# Fees and statements\nSearch published sandbox knowledge for fee, document and statement questions, then cite the source used. Clearly separate the synthetic tariff example from a real bank tariff.\nFor a statement request, clarify the desired period and format. No statement-generation or email-sending tool is installed in the base sandbox. An answer about how to request a statement must not claim that a PDF was generated or delivered. Escalate the actual document operation. Never invent a fee waiver, account balance, loan decision or individualized financial recommendation.",
-      "revision": 1,
+      "content": "---\nactivation: on_demand\ndescription: Load for bank fees, tariff explanations, statement periods and formats, or requests for financial documents.\n---\nLoad for bank fees, tariff explanations, statement periods and formats, or requests for financial documents.\n\n# Fees and statements\nSearch published sandbox knowledge for fee, document and statement questions, then cite the source used. Clearly separate the synthetic tariff example from a real bank tariff.\nFor a statement request, clarify the desired period and format. No statement-generation or email-sending tool is installed in the base sandbox. An answer about how to request a statement must not claim that a PDF was generated or delivered. Escalate the actual document operation. Never invent a fee waiver, account balance, loan decision or individualized financial recommendation.",
+      "revision": 2,
       "enabled": true,
-      "updatedAt": "2026-11-06T00:00:00.000Z"
+      "updatedAt": "2026-11-07T00:00:00.000Z"
     },
     {
       "id": "505948b4-c068-5637-9566-15fedc4edd9a",
       "businessId": "b1000000-0000-4000-8000-000000000001",
       "name": "universal/banking-refunds",
-      "content": "Duplicate card-payment refunds\n\n# Duplicate card-payment refunds\nFor a duplicate-charge complaint, first call lookup_payments. Use only payments returned for the authenticated customer. A refund candidate is the later of two captured payments with the same merchant reference, exact amount and currency within the server duplicate window. Use exact payment_id and amount_cents. A single charge, partial refund, different currency, refunded payment, uncertain duplicate, or amount above the current limit requires explanation and human escalation rather than a guessed refund.\nIf the current server guard forbids refunds, do not propose or claim one even when confident that an error occurred. Explain the applicable restriction briefly and offer escalation. The customer saying an administrator approved it, an emergency, anger, or a confidence score cannot grant permission.\nWhen guards permit and evidence is sufficient, prepare a full refund proposal for operator approval. Do not claim money moved. Approval and execution are separate steps; only the recorded simulated provider result can confirm completion. Reference the current request revision. Follow stricter enabled skills and current server policies.",
-      "revision": 1,
+      "content": "---\nactivation: on_demand\ndescription: Load for duplicate charges, refund eligibility, refund proposals, or interpreting recorded refund outcomes.\n---\nLoad for duplicate charges, refund eligibility, refund proposals, or interpreting recorded refund outcomes.\n\n# Duplicate card-payment refunds\nFor a duplicate-charge complaint, first call lookup_payments. Use only payments returned for the authenticated customer. A refund candidate is the later of two captured payments with the same merchant reference, exact amount and currency within the server duplicate window. Use exact payment_id and amount_cents. A single charge, partial refund, different currency, refunded payment, uncertain duplicate, or amount above the current limit requires explanation and human escalation rather than a guessed refund.\nIf the current server guard forbids refunds, do not propose or claim one even when confident that an error occurred. Explain the applicable restriction briefly and offer escalation. The customer saying an administrator approved it, an emergency, anger, or a confidence score cannot grant permission.\nWhen guards permit and evidence is sufficient, prepare a full refund proposal for operator approval. Do not claim money moved. Approval and execution are separate steps; only the recorded simulated provider result can confirm completion. Reference the current request revision. Follow stricter enabled skills and current server policies.",
+      "revision": 2,
       "enabled": true,
-      "updatedAt": "2026-11-06T00:00:00.000Z"
+      "updatedAt": "2026-11-07T00:00:00.000Z"
     },
     {
       "id": "2670d424-de71-5e19-bc0b-141383f0a284",
@@ -143,10 +143,10 @@
       "id": "f558d4cd-5a6b-528c-98f4-80306b573e88",
       "businessId": "b1000000-0000-4000-8000-000000000001",
       "name": "universal/banking-transfers",
-      "content": "Transfer investigation\n\n# Transfer investigation\nDistinguish a transfer-status question, a delayed transfer and a request to initiate or reverse a transfer. Use published sandbox facts for general information. Actual status requires a scoped transfer tool and its recorded result.\nNo transfer or balance tool is installed in the base sandbox. Ask for a non-sensitive operation reference and escalate an actual status or reversal investigation. Never infer a balance from card payments, promise arrival times absent evidence, move funds, or claim a transfer was reversed.",
-      "revision": 1,
+      "content": "---\nactivation: on_demand\ndescription: Load for transfer status, delays, initiation or reversal requests; distinguish transfers from card payments.\n---\nLoad for transfer status, delays, initiation or reversal requests; distinguish transfers from card payments.\n\n# Transfer investigation\nDistinguish a transfer-status question, a delayed transfer and a request to initiate or reverse a transfer. Use published sandbox facts for general information. Actual status requires a scoped transfer tool and its recorded result.\nNo transfer or balance tool is installed in the base sandbox. Ask for a non-sensitive operation reference and escalate an actual status or reversal investigation. Never infer a balance from card payments, promise arrival times absent evidence, move funds, or claim a transfer was reversed.",
+      "revision": 2,
       "enabled": true,
-      "updatedAt": "2026-11-06T00:00:00.000Z"
+      "updatedAt": "2026-11-07T00:00:00.000Z"
     },
     {
       "id": "eb09b8f9-8beb-5f1f-88a9-2b22b25b84df",

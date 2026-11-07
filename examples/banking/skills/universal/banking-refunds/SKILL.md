@@ -1,11 +1,12 @@
 ---
 name: banking-refunds
-description: Duplicate card-payment refunds
+description: Load for duplicate charges, refund eligibility, refund proposals, or interpreting recorded refund outcomes.
+activation: on_demand
 metadata:
   layer: universal
-  version: 1
+  version: 2
   status: published
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 # Duplicate card-payment refunds

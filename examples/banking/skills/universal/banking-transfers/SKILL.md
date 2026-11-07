@@ -1,11 +1,12 @@
 ---
 name: banking-transfers
-description: Transfer investigation
+description: Load for transfer status, delays, initiation or reversal requests; distinguish transfers from card payments.
+activation: on_demand
 metadata:
   layer: universal
-  version: 1
+  version: 2
   status: published
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 # Transfer investigation

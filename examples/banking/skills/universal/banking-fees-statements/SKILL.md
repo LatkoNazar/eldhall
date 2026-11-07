@@ -1,11 +1,12 @@
 ---
 name: banking-fees-statements
-description: Fees and statements
+description: Load for bank fees, tariff explanations, statement periods and formats, or requests for financial documents.
+activation: on_demand
 metadata:
   layer: universal
-  version: 1
+  version: 2
   status: published
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 # Fees and statements

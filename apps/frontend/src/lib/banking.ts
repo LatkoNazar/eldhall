@@ -13,6 +13,7 @@ export type ActivityFacts = Record<string, string | number | boolean | null | st
 export interface ActivityContext {
   settingsVersion: number; guardRevision: number
   skills: { id: string; name: string; revision: number; contentHash: string; preview: string; truncated: boolean; loadedCharacters: number; totalCharacters: number }[]
+  availableSkills?: { id: string; name: string; revision: number; purpose: string; activation: 'always' | 'on_demand' }[]
   guards: GuardRule[]; provider: string; model: string
 }
 export interface AgentActivityEvent {
@@ -54,6 +55,7 @@ function activityContext(value: unknown): value is ActivityContext | null {
   if (value === null) return true
   if (!record(value) || !positive(value.settingsVersion) || !Number.isSafeInteger(value.guardRevision) || Number(value.guardRevision) < 0 || !string(value.provider) || !string(value.model)) return false
   if (!Array.isArray(value.guards) || value.guards.length > 30 || !value.guards.every(validGuard)) return false
+  if (value.availableSkills !== undefined && (!Array.isArray(value.availableSkills) || value.availableSkills.some(skill => !record(skill) || Object.keys(skill).length !== 5 || !['id', 'name', 'revision', 'purpose', 'activation'].every(key => Object.hasOwn(skill, key)) || !string(skill.id, 200) || !skill.id.trim() || !string(skill.name, 200) || !skill.name.trim() || !positive(skill.revision) || !string(skill.purpose, 240) || !skill.purpose.trim() || !['always', 'on_demand'].includes(String(skill.activation))) || new Set(value.availableSkills.map(skill => skill.id)).size !== value.availableSkills.length)) return false
   return Array.isArray(value.skills) && value.skills.every(skill => record(skill) && string(skill.id) && string(skill.name, 200) && positive(skill.revision) && typeof skill.contentHash === 'string' && /^[a-f0-9]{64}$/.test(skill.contentHash) && string(skill.preview, 240) && typeof skill.truncated === 'boolean' && Number.isSafeInteger(skill.loadedCharacters) && Number.isSafeInteger(skill.totalCharacters) && Number(skill.totalCharacters) >= 0 && skill.loadedCharacters === Math.min(Number(skill.totalCharacters), 8000) && skill.truncated === (Number(skill.totalCharacters) > 240) && skill.preview.length === Math.min(Number(skill.totalCharacters), 240))
 }
 /** Only the server's bounded public activity DTO is rendered, never SDK/session events. */

@@ -38,6 +38,11 @@ it('rejects malformed, cross-request/proposal and unbounded activity before rend
   const context = { settingsVersion: 1, guardRevision: 2, provider: 'rules', model: 'fixture', guards: [], skills: [{ id: uuid(601), name: 'custom/support', revision: 2, contentHash: 'a'.repeat(64), preview: 'A'.repeat(240), truncated: true, loadedCharacters: 8000, totalCharacters: 9000 }] }
   const withContext = (change: Record<string, unknown>) => ({ ...source, events: [{ ...source.events[0], context: { ...context, ...change } }] })
   expect(validAgentActivity(withContext({}), detail)).toBe(true)
+  const available = { id: uuid(602), name: 'custom/refund-procedure', revision: 3, purpose: 'Investigate a duplicate charge.', activation: 'on_demand' }
+  expect(validAgentActivity(withContext({ skills: [], availableSkills: [available] }), detail)).toBe(true)
+  for (const entry of [{ ...available, activation: 'optional' }, { ...available, purpose: '' }, { ...available, purpose: 'x'.repeat(241) }, { ...available, revision: 0 }, { ...available, content: 'Unadvertised instruction body' }]) expect(validAgentActivity(withContext({ availableSkills: [entry] }), detail)).toBe(false)
+  expect(validAgentActivity(withContext({ availableSkills: [available, available] }), detail)).toBe(false)
+  expect(validAgentActivity(withContext({ availableSkills: null }), detail)).toBe(false)
   expect(validAgentActivity(withContext({ guardRevision: -1 }), detail)).toBe(false)
   expect(validAgentActivity(withContext({ skills: [{ ...context.skills[0], contentHash: 'not-a-hash' }] }), detail)).toBe(false)
   expect(validAgentActivity(withContext({ skills: [{ ...context.skills[0], loadedCharacters: 9000 }] }), detail)).toBe(false)

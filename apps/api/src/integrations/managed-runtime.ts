@@ -25,6 +25,7 @@ export function withManagedIntegrations(base:BusinessIntegrations,store:Integrat
       tools:original.tools,
       async listTools(){await context.assertActive();const staticTools=original.listTools?await original.listTools():original.tools;const rows=await store.list(context.businessId);const managed=await Promise.all(rows.filter(row=>row.managedConnection&&row.enabled&&!row.draining).map(async row=>{try{const scoped=await resolve(context,row.integrationId);return scoped?.listTools?await scoped.listTools():scoped?.tools??[];}catch{return [];}}));await context.assertActive();return [...staticTools,...managed.flat()];},
       async callTool(id,name,input,signal){await context.assertActive();const scoped=await resolve(context,id);await context.assertActive();return (scoped??original).callTool(id,name,input,signal);},
+      async canBatchRead(id,name){await context.assertActive();const scoped=await resolve(context,id);await context.assertActive();return await (scoped??original).canBatchRead?.(id,name)??false;},
       async executeAction(args,id,signal){await context.assertActive();const scoped=await resolve(context,String(args.integrationId),typeof args.manifestHash==='string'?args.manifestHash:undefined);await context.assertActive();return (scoped??original).executeAction?.(args,id,signal)??{status:'failed',reasonCode:'integration_unavailable'};}
     };}
   };
