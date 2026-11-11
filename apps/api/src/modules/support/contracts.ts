@@ -50,11 +50,13 @@ export interface Analysis {
   tone: 'neutral' | 'empathetic' | 'de-escalating';
   source: 'llm' | 'fallback';
   model: string;
+  replyLanguage?: string;
   classification?: TicketClassification | null;
 }
 
 export interface SupportCase {
   id: string; businessId: string; customerId: string; customerName: string;
+  isTest?: boolean;
   status: CaseStatus; priority: Priority; intent: Intent | null; analysis: Analysis | null;
   createdAt: string; updatedAt: string;
   ownership: 'bot' | 'staff'; ownershipVersion: number; assignedTo: string | null;

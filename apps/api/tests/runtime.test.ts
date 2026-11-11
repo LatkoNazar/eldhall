@@ -223,16 +223,20 @@ async function stop(server: Server) { server.closeAllConnections(); await new Pr
 
 test('actual installed DSH exposes only gateway tools, retrieves knowledge, submits a proposal and resumes its native session', { timeout: 60000 }, async () => {
   const homeRoot = await mkdtemp(join(tmpdir(), 'support-runtime-test-'));
-  const api = await endpoint([{ name: 'lookup_payments', args: { limit: 10 } }, { name: 'search_knowledge', args: { query: 'duplicate charges' } }, { name: 'submit_decision', args: finalDecision }]);
+  const localizedDecision = { ...finalDecision, replyLanguage: 'en', summary: 'Клієнт повідомив про подвійне списання.' };
+  const api = await endpoint([{ name: 'lookup_payments', args: { limit: 10 } }, { name: 'search_knowledge', args: { query: 'duplicate charges' } }, { name: 'submit_decision', args: localizedDecision }]);
   try {
     const model = new DshSupportModel({ provider: 'local', model: 'support-fixture', baseURL: api.url, homeRoot, timeoutMs: 25000 });
     let checks = 0;
-    const ctx = context({ assertActive: async () => { checks++; } });
+    const ctx = context({ operatorLanguage: 'uk', assertActive: async () => { checks++; } });
     const result = await model.decide(ctx, new AbortController().signal);
-    assert.deepEqual(result.decision, finalDecision);
+    assert.deepEqual(result.decision, localizedDecision);
     assert.deepEqual(result.toolCalls, ['lookup_payments', 'search_knowledge', 'submit_decision']);
     assert.equal(api.requests.length, 3);
     for (const request of api.requests) assert.deepEqual(request.tools?.map(tool => tool.function.name).sort(), [...SUPPORT_TOOLS].sort());
+    assert.match(JSON.stringify(api.requests[0]?.tools?.find(tool => tool.function.name === 'submit_decision')), /replyLanguage/);
+    assert.match(JSON.stringify(api.requests[0]?.messages), /operatorLanguage/);
+    assert.doesNotMatch(JSON.stringify(api.requests[0]?.messages), /responseStyle/);
     assert.doesNotMatch(JSON.stringify(api.requests), /sessionToken|demo-olena/);
     assert.ok(checks >= 7, 'ownership must be checked at each tool and final delivery');
     assert.match(JSON.stringify(api.requests[2]?.messages), /Duplicate charges/);
@@ -240,7 +244,7 @@ test('actual installed DSH exposes only gateway tools, retrieves knowledge, subm
     const marker = (await readdir(homeRoot, { recursive: true })).find(path => path.endsWith('support-session.json'));
     assert.ok(marker); await unlink(join(homeRoot, marker));
     const resumed = await model.decide({ ...ctx, runId: 'run-2', message: 'Can you confirm the next step?' }, new AbortController().signal);
-    assert.deepEqual(resumed.decision, finalDecision);
+    assert.deepEqual(resumed.decision, localizedDecision);
     assert.equal(api.requests.length, 6);
     assert.match(JSON.stringify(api.requests[3]?.messages), /You charged me twice/);
     assert.match(JSON.stringify(api.requests[3]?.messages), /Can you confirm/);

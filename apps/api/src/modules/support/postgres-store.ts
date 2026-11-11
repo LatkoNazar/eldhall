@@ -9,6 +9,7 @@ import type pg from 'pg';
 import type { AgentRun, AuditEvent, Business, CaseStatus, Customer, KnowledgeSource, Message, MessageRole, Metrics, Payment, Proposal, Refund, SupportCase, SupportSettings, SupportSkill, TurnLease } from './contracts.js';
 import { PostgresTurnJobs } from './postgres-turn-jobs.js';
 import type { SeedData } from './seed.js';
+import { testCaseSql, testChatStarted, type CaseEnvironment } from './test-sessions.js';
 import { AUTO_CLAIMABLE, DuplicateRefund, StaleTurn, VersionConflict, type CasePatch, type NewProposal, type SupportStore, type TurnContext } from './store.js';
 import { sameClassificationConfig } from '../agent/classification.js';
 import { canReplaceClassification, classificationState, storedClassification, visibleClassification, type StoredClassification } from './classification-storage.js';
@@ -19,7 +20,8 @@ type Queryable = Pick<pg.Pool,'query'>;
 const json=(value:unknown)=>JSON.stringify(value);
 const map=<T>(row:Record<string,unknown>):T=>Object.fromEntries(Object.entries(row).filter(([key])=>!['active_run_id','active_run_at'].includes(key)).map(([key,value])=>[key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase()),value instanceof Date?value.toISOString():value])) as T;
 const first=<T>(rows:Record<string,unknown>[])=>rows[0]?map<T>(rows[0]):null;
-const caseSelect='SELECT c.*,u.name AS customer_name FROM support_cases c JOIN support_customers u ON u.id=c.customer_id';
+const caseCustomers = 'support_cases c JOIN support_customers u ON u.id=c.customer_id';
+const caseSelect = `SELECT c.*,u.name AS customer_name,(${testCaseSql}) AS is_test FROM ${caseCustomers}`;
 export class PostgresSupportStore implements SupportStore {
   private readonly turnJobs: PostgresTurnJobs;
   readonly integrationStore: PostgresIntegrationStore;
@@ -117,12 +119,24 @@ export class PostgresSupportStore implements SupportStore {
   async business(id:string) { return first<Business>((await this.pool.query('SELECT * FROM support_businesses WHERE id=$1',[id])).rows); }
   async payments(customerId:string,limit=10) { return (await this.pool.query('SELECT * FROM support_payments WHERE customer_id=$1 ORDER BY created_at DESC,id LIMIT $2',[customerId,limit])).rows.map(r=>map<Payment>(r)); }
   async payment(id:string) { return first<Payment>((await this.pool.query('SELECT * FROM support_payments WHERE id=$1',[id])).rows); }
-  async createCase(businessId:string,customerId:string) {
-    const id=randomUUID(); await this.pool.query("INSERT INTO support_cases(id,business_id,customer_id,status,priority) VALUES($1,$2,$3,'open','P3')",[id,businessId,customerId]);
-    return (await this.getCase(id))!;
+  async createCase(businessId:string,customerId:string,environment:CaseEnvironment='live') {
+    return this.transaction(async client => {
+      const id = randomUUID();
+      await client.query("INSERT INTO support_cases(id,business_id,customer_id,status,priority) VALUES($1,$2,$3,'open','P3')",[id,businessId,customerId]);
+      if (environment === 'test') {
+        await client.query("INSERT INTO support_audit_events(id,case_id,type,actor,data) VALUES($1,$2,$3,'system','{}')",[randomUUID(),id,testChatStarted]);
+      }
+      return map<SupportCase>((await client.query(caseSelect+' WHERE c.id=$1',[id])).rows[0]);
+    });
   }
   async getCase(id:string) { return first<SupportCase>((await this.pool.query(caseSelect+' WHERE c.id=$1',[id])).rows); }
-  async listCases(status?:CaseStatus) { return (await this.pool.query(caseSelect+' WHERE ($1::text IS NULL OR c.status=$1) ORDER BY c.priority,c.updated_at DESC,c.id',[status??null])).rows.map(r=>map<SupportCase>(r)); }
+  async listCases(status?:CaseStatus,environment?:CaseEnvironment) {
+    return (await this.pool.query(
+      `${caseSelect} WHERE ($1::text IS NULL OR c.status=$1)
+        AND ($2::boolean IS NULL OR (${testCaseSql})=$2) ORDER BY c.priority,c.updated_at DESC,c.id`,
+      [status??null,environment===undefined?null:environment==='test'],
+    )).rows.map(r=>map<SupportCase>(r));
+  }
   private async patch(client:Queryable,id:string,patch:CasePatch) {
     await client.query('SELECT id FROM support_cases WHERE id=$1 FOR UPDATE',[id]);
     if(patch.status) patch={...patch,status:await this.caseStatus(client,id,patch.status,patch.ownership)};
@@ -352,11 +366,12 @@ export class PostgresSupportStore implements SupportStore {
   async recordRun(run:Omit<AgentRun,'id'|'createdAt'>,id?:string) { return map<AgentRun>((await this.pool.query('INSERT INTO support_agent_runs(id,case_id,provider,model,status,steps,tool_calls,latency_ms,error,turn_job_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',[id??randomUUID(),run.caseId,run.provider,run.model,run.status,run.steps,json(run.toolCalls),run.latencyMs,run.error,run.turnJobId??null])).rows[0]); }
   async runs(caseId?:string) { return (await this.pool.query('SELECT * FROM support_agent_runs WHERE ($1::uuid IS NULL OR case_id=$1) ORDER BY created_at,id',[caseId??null])).rows.map(r=>map<AgentRun>(r)); }
   async metrics(businessId?:string):Promise<Metrics> {
+    const where = `WHERE NOT (${testCaseSql}) AND ($1::uuid IS NULL OR c.business_id=$1)`;
     const [cases,proposals,refunds,runs]=await Promise.all([
-      this.pool.query('SELECT status,priority,count(*)::int AS n FROM support_cases WHERE ($1::uuid IS NULL OR business_id=$1) GROUP BY status,priority',[businessId??null]),
-      this.pool.query('SELECT p.status,count(*)::int AS n FROM support_proposals p JOIN support_cases c ON c.id=p.case_id WHERE ($1::uuid IS NULL OR c.business_id=$1) GROUP BY p.status',[businessId??null]),
-      this.pool.query('SELECT COALESCE(sum(r.amount_cents),0)::bigint AS n FROM support_refunds r JOIN support_proposals p ON p.id=r.proposal_id JOIN support_cases c ON c.id=p.case_id WHERE ($1::uuid IS NULL OR c.business_id=$1)',[businessId??null]),
-      this.pool.query("SELECT count(*)::int AS n,count(*) FILTER(WHERE r.status='fallback')::int AS fallback,round(avg(r.latency_ms) FILTER(WHERE r.status<>'failed'))::int AS latency FROM support_agent_runs r JOIN support_cases c ON c.id=r.case_id WHERE ($1::uuid IS NULL OR c.business_id=$1)",[businessId??null]),
+      this.pool.query(`SELECT c.status,c.priority,count(*)::int AS n FROM ${caseCustomers} ${where} GROUP BY c.status,c.priority`,[businessId??null]),
+      this.pool.query(`SELECT p.status,count(*)::int AS n FROM ${caseCustomers} JOIN support_proposals p ON c.id=p.case_id ${where} GROUP BY p.status`,[businessId??null]),
+      this.pool.query(`SELECT COALESCE(sum(r.amount_cents),0)::bigint AS n FROM ${caseCustomers} JOIN support_proposals p ON c.id=p.case_id JOIN support_refunds r ON p.id=r.proposal_id ${where}`,[businessId??null]),
+      this.pool.query(`SELECT count(*)::int AS n,count(*) FILTER(WHERE r.status='fallback')::int AS fallback,round(avg(r.latency_ms) FILTER(WHERE r.status<>'failed'))::int AS latency FROM ${caseCustomers} JOIN support_agent_runs r ON c.id=r.case_id ${where}`,[businessId??null]),
     ]);
     const result:Metrics={cases:0,byStatus:{open:0,awaiting_approval:0,escalated:0,resolved:0},byPriority:{P1:0,P2:0,P3:0},proposals:{pending:0,approved:0,executing:0,executed:0,rejected:0,failed:0,denied:0,unknown:0,expired:0,invalidated:0},refundsIssuedCents:Number(refunds.rows[0].n),agentRuns:runs.rows[0].n,fallbackRuns:runs.rows[0].fallback,avgAgentLatencyMs:runs.rows[0].latency};
     for (const row of cases.rows) { result.cases+=row.n; result.byStatus[row.status as keyof Metrics['byStatus']]+=row.n; result.byPriority[row.priority as keyof Metrics['byPriority']]+=row.n; }
@@ -375,6 +390,9 @@ export class PostgresSupportStore implements SupportStore {
     return this.transaction(async client=>{
       if(!(await client.query('SELECT id FROM support_businesses WHERE id=$1 FOR UPDATE',[skill.businessId])).rowCount)throw new VersionConflict('Business not found');
       const old=first<SupportSkill>((await client.query('SELECT * FROM support_skills WHERE id=$1',[skill.id])).rows);
+      if (!old && skill.name.startsWith('custom/') && (await client.query('SELECT 1 FROM support_skills WHERE business_id=$1 AND name=$2 LIMIT 1', [skill.businessId, skill.name])).rowCount) {
+        throw new VersionConflict('A skill with this name already exists');
+      }
       if(old&&(old.businessId!==skill.businessId||old.revision!==(expectedRevision??skill.revision-1)||skill.revision<=old.revision)||!old&&expectedRevision!==undefined)throw new VersionConflict('Skill revision changed');
       return map<SupportSkill>((await client.query('INSERT INTO support_skills(id,business_id,name,content,revision,enabled,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO UPDATE SET name=excluded.name,content=excluded.content,revision=excluded.revision,enabled=excluded.enabled,updated_at=excluded.updated_at WHERE support_skills.business_id=excluded.business_id RETURNING *',[skill.id,skill.businessId,skill.name,skill.content,skill.revision,skill.enabled,skill.updatedAt])).rows[0]);
     });

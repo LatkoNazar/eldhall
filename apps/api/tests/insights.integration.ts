@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import Fastify from 'fastify';
+import Fastify, { type LightMyRequestResponse } from 'fastify';
 import pg from 'pg';
 import { loadEnvironment } from '../src/core/config.js';
 import { migrateSupport } from '../src/modules/support/migrations.js';
@@ -27,12 +27,15 @@ test('real PostgreSQL insights admission, worker recovery, evidence isolation, d
     const support = new PostgresSupportStore(pool);
     await support.seedIfEmpty(seedData());
     const [business, otherBusiness] = await support.businessesList(); assert.ok(business && otherBusiness);
-    const customer = seedData().customers.find(item => item.businessId === business.id)!;
-    const otherCustomer = seedData().customers.find(item => item.businessId === otherBusiness.id)!;
+    const customer = await support.createCustomer({ id: randomUUID(), businessId: business.id, name: 'Ordinary customer fixture', email: 'ordinary-insights@example.test', plan: 'Standard', sessionToken: randomUUID() });
+    const otherCustomer = await support.createCustomer({ ...customer, id: randomUUID(), businessId: otherBusiness.id, email: 'foreign-insights@example.test', sessionToken: randomUUID() });
     const cases = await Promise.all([support.createCase(business.id, customer.id), support.createCase(business.id, customer.id)]);
     for (const c of cases) await support.addMessage(c.id, 'customer', 'Synthetic invoice download fails; contact fake@example.test.');
     const privateCase = await support.createCase(otherBusiness.id, otherCustomer.id);
     await support.addMessage(privateCase.id, 'customer', 'OTHER_BUSINESS_PRIVATE_MARKER');
+    const testCustomer = seedData().customers.find(item => item.businessId === business.id)!;
+    const testCase = await support.createCase(business.id, testCustomer.id, 'test');
+    const testMessage = await support.addMessage(testCase.id, 'customer', 'TEST_CONVERSATION_MARKER');
     const source = await support.saveKnowledge({ id: randomUUID(), businessId: business.id, title: 'Billing documents', category: 'Billing', content: 'Ask a support agent to check a billing-document error. The cause must be verified.', version: 1, status: 'published', updatedAt: new Date().toISOString() });
     const revoked = await support.saveKnowledge({ ...source, id: randomUUID(), title: 'Old secret advice', content: 'REVOKED_KB_MARKER', status: 'revoked' });
     await pool.query("INSERT INTO support_messages(id,case_id,role,body,source_refs) VALUES($1,$2,'assistant','REVOKED_ASSISTANT_MARKER',$3)", [randomUUID(), cases[0]!.id, JSON.stringify([{ id: revoked.id, version: 1 }])]);
@@ -42,7 +45,7 @@ test('real PostgreSQL insights admission, worker recovery, evidence isolation, d
     let analyze: (input: InsightInput) => Promise<InsightOutput> = async input => ({ findings: [{ kind: 'recurring_issue', title: 'Synthetic invoice-download reports', summary: 'Two sampled dialogues report an error. Cause remains unknown.', recommendation: 'Ask staff to reproduce the reported error.',
       evidence: input.tickets.map(ticket => ({ caseId: ticket.id, messageIds: [ticket.messages[0]!.id] })), knowledgeRefs: input.knowledge.map(kb => ({ id: kb.id, version: kb.version })), proposedArticle: { title: 'Invoice download troubleshooting — proposal', content: 'Draft for staff verification. Ask which error appears and check the service state; do not promise a confirmed resolution.' } }] });
     const model: InsightModel = { provider: 'synthetic-test', model: 'typed-fixture', analyze: async input => {
-      calls++; assert.doesNotMatch(JSON.stringify(input), /OTHER_BUSINESS_PRIVATE_MARKER|REVOKED_KB_MARKER|REVOKED_ASSISTANT_MARKER|EXTERNAL_UNVALIDATED_MARKER|fake@example\.test|sessionToken|customerId/);
+      calls++; assert.doesNotMatch(JSON.stringify(input), /OTHER_BUSINESS_PRIVATE_MARKER|TEST_CONVERSATION_MARKER|REVOKED_KB_MARKER|REVOKED_ASSISTANT_MARKER|EXTERNAL_UNVALIDATED_MARKER|fake@example\.test|sessionToken|customerId/);
       assert.equal(input.sample.truncated, true);
       return analyze(input);
     } };
@@ -68,7 +71,7 @@ test('real PostgreSQL insights admission, worker recovery, evidence isolation, d
       assert.equal(await service.processOne('test-worker', new AbortController().signal), true);
       const done = await new InsightsRepository(pool!).get(business.id, run.id);
       assert.equal(done.status, 'completed'); assert.equal(done.findings[0]?.caseCount, 2);
-      assert.equal(done.sample.caseCount, 2); assert.equal(done.sample.messageCount, 2); assert.equal(done.sample.knowledgeCount, 1); assert.equal(done.sample.truncated, true);
+      assert.equal(done.sample.caseCount, 2); assert.equal(done.sample.totalCases, 2); assert.equal(done.sample.messageCount, 2); assert.equal(done.sample.knowledgeCount, 1); assert.equal(done.sample.truncated, true);
       assert.equal(calls, 1); assert.equal(await service.processOne('redelivery', new AbortController().signal), false);
       const finding = done.findings[0]!;
       const responses = await Promise.all(Array.from({ length: 8 }, () => app.inject({ method: 'POST', url: `/api/v1/insights/runs/${run.id}/findings/${finding.id}/draft?businessId=${business.id}`, headers })));
@@ -78,6 +81,33 @@ test('real PostgreSQL insights admission, worker recovery, evidence isolation, d
       assert.match(drafts[0]!.content, /AI DRAFT.*staff must verify/);
       assert.equal((await pool!.query("SELECT count(*)::int n FROM support_knowledge WHERE category='AI draft'")).rows[0]?.n, 1);
       assert.equal((await pool!.query('SELECT count(*)::int n FROM support_refunds')).rows[0]?.n, 0);
+    });
+    await t.test('historical unmarked counts and mixed samples are hidden without deleting stored evidence', async () => {
+      const stored = (await pool!.query<{ data: Omit<InsightRun, 'id' | 'businessId' | 'status' | 'createdAt'>; input_snapshot: InsightInput }>('SELECT data,input_snapshot FROM support_insight_runs WHERE id=$1', [run.id])).rows[0]!;
+      const { tickets, knowledge, sourceRefs, sample } = stored.input_snapshot;
+      const unmarked: InsightInput = { tickets, knowledge, sourceRefs, sample: { ...sample, totalCases: 3, truncated: true } };
+      const mixed = { ...unmarked, caseEnvironment: 'live-case-origin-v1', tickets: [...tickets, { id: testCase.id, messages: [{ id: testMessage.id, role: testMessage.role, body: testMessage.body }] }],
+        sample: { ...unmarked.sample, caseCount: 3, messageCount: 3 } };
+      const findingId = stored.data.findings[0]!.id;
+      for (const input of [unmarked, mixed, null]) {
+        const historicalId = randomUUID();
+        await pool!.query("INSERT INTO support_insight_runs(id,business_id,requested_limit,status,data,input_snapshot) VALUES($1,$2,25,'completed',$3,$4)", [historicalId, business.id, JSON.stringify({ ...stored.data, sample: input?.sample ?? unmarked.sample }), input ? JSON.stringify(input) : null]);
+        const response: LightMyRequestResponse = await app.inject({ url: `/api/v1/insights/runs/${historicalId}?businessId=${business.id}`, headers });
+        assert.equal(response.statusCode, 200, response.body);
+        const hidden = response.json<InsightRun>();
+        assert.equal(hidden.stale, true); assert.equal(hidden.sample.totalCases, 0); assert.deepEqual(hidden.findings, []);
+        const listResponse: LightMyRequestResponse = await app.inject({ url: `/api/v1/insights/runs?businessId=${business.id}`, headers });
+        const listed = listResponse.json<{ runs: InsightRun[] }>().runs.find(item => item.id === historicalId);
+        assert.deepEqual(listed, hidden);
+        assert.equal((await app.inject({ method: 'POST', url: `/api/v1/insights/runs/${historicalId}/findings/${findingId}/draft?businessId=${business.id}`, headers })).statusCode, 409);
+        const retained = (await pool!.query<{ input_snapshot: InsightInput | null }>('SELECT input_snapshot FROM support_insight_runs WHERE id=$1', [historicalId])).rows[0]!.input_snapshot;
+        assert.deepEqual(retained, input);
+      }
+      const pending = await repository.create(business.id, 25, undefined, 'synthetic-test', 'legacy-worker');
+      const lease = await repository.claim('legacy-worker'); assert.equal(lease?.id, pending.id); assert.ok(lease);
+      await pool!.query('UPDATE support_insight_runs SET input_snapshot=$2 WHERE id=$1', [pending.id, JSON.stringify(unmarked)]);
+      await assert.rejects(repository.complete(lease, unmarked, []), /no longer available for live reporting/);
+      await repository.fail(lease);
     });
     await t.test('model failure records owned error and no findings; empty business avoids a model call', async () => {
       const failure = await service.create(business.id, 25);

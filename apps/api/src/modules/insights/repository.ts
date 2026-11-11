@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import type { KnowledgeSource } from '../support/contracts.js';
+import { testCaseSql } from '../support/test-sessions.js';
 import { emptySample, InsightError, type InsightFinding, type InsightInput, type InsightLease, type InsightRun } from './contracts.js';
 
-interface Row { id: string; business_id: string; status: InsightRun['status']; data: Omit<InsightRun, 'id' | 'businessId' | 'status' | 'createdAt'>; input_snapshot: InsightInput | null; requested_limit: number; fence: number; created_at: Date }
+const liveCaseScope = 'live-case-origin-v1';
+type StoredSnapshot = InsightInput & { caseEnvironment?: string };
+interface Row { id: string; business_id: string; status: InsightRun['status']; data: Omit<InsightRun, 'id' | 'businessId' | 'status' | 'createdAt'>; input_snapshot: StoredSnapshot | null; requested_limit: number; fence: number; created_at: Date }
 const runFrom = (row: Row): InsightRun => ({ ...row.data, id: row.id, businessId: row.business_id, status: row.status, createdAt: row.created_at.toISOString() });
 const clean = (value: string) => value.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]').replace(/\b(?:sk-(?:or-v1-|proj-)?)[A-Za-z0-9_-]{20,}\b/g, '[credential]').slice(0, 600);
+const liveCases = `FROM support_cases c WHERE c.business_id=$1 AND NOT (${testCaseSql})`;
+const sampleCases = `${liveCases} AND EXISTS(SELECT 1 FROM support_messages m WHERE m.case_id=c.id)`;
+const unavailableSample = 'Analysis sample is no longer available for live reporting. Run a new analysis.';
 
 export class InsightsRepository {
   constructor(readonly pool: pg.Pool) {}
@@ -40,6 +46,10 @@ export class InsightsRepository {
   }
   private async visible(row: Row, query: pg.Pool | pg.PoolClient): Promise<InsightRun> {
     const run = runFrom(row);
+    const hasReport = row.input_snapshot !== null || run.status === 'completed' || run.sample.totalCases > 0 || run.sample.caseCount > 0 || run.findings.length > 0;
+    if (hasReport && (row.input_snapshot?.caseEnvironment !== liveCaseScope || !await this.casesLive(query, row.business_id, row.input_snapshot.tickets))) {
+      return { ...run, stale: true, sample: emptySample(), findings: [], error: unavailableSample };
+    }
     if (row.input_snapshot && !await this.refsCurrent(query, row.business_id, row.input_snapshot.sourceRefs)) return { ...run, stale: true, findings: [], error: 'Knowledge sources changed. Run a new analysis to view current findings.' };
     return run;
   }
@@ -65,9 +75,9 @@ export class InsightsRepository {
       const known = (await client.query<Row>("SELECT * FROM support_insight_runs WHERE id=$1 AND business_id=$2 AND status='running' AND lease_owner=$3 AND fence=$4 AND lease_expires_at>now() FOR UPDATE", [lease.id, lease.businessId, lease.owner, lease.fence])).rows[0];
       if (!known) throw new InsightError(409, 'Analysis lease changed');
       // One repeatable input per claimed attempt; raw input is never returned by the API.
-      const counts = (await client.query<{ cases: number; knowledge: number }>("SELECT (SELECT count(*)::int FROM support_cases c WHERE c.business_id=$1 AND EXISTS(SELECT 1 FROM support_messages m WHERE m.case_id=c.id)) cases,(SELECT count(*)::int FROM support_knowledge WHERE business_id=$1 AND status='published') knowledge", [lease.businessId])).rows[0]!;
+      const counts = (await client.query<{ cases: number; knowledge: number }>(`SELECT (SELECT count(*)::int ${sampleCases}) cases,(SELECT count(*)::int FROM support_knowledge WHERE business_id=$1 AND status='published') knowledge`, [lease.businessId])).rows[0]!;
       const sources = (await client.query<{ id: string; title: string; version: number; content: string; full_length: number }>("SELECT id,title,version,left(content,1200) content,length(content) full_length FROM support_knowledge WHERE business_id=$1 AND status='published' ORDER BY updated_at DESC,id LIMIT 20", [lease.businessId])).rows;
-      const cases = (await client.query<{ id: string; updated_at: Date }>('SELECT c.id,c.updated_at FROM support_cases c WHERE c.business_id=$1 AND EXISTS(SELECT 1 FROM support_messages m WHERE m.case_id=c.id) ORDER BY c.updated_at DESC,c.id LIMIT $2', [lease.businessId, lease.limit])).rows;
+      const cases = (await client.query<{ id: string; updated_at: Date }>(`SELECT c.id,c.updated_at ${sampleCases} ORDER BY c.updated_at DESC,c.id LIMIT $2`, [lease.businessId, lease.limit])).rows;
       const input: InsightInput = { tickets: [], knowledge: sources.map(({ id, title, version, content }) => ({ id, title, version, content })), sourceRefs: sources.map(({ id, version }) => ({ id, version })), sample: { ...emptySample(), totalCases: counts.cases, totalPublishedKnowledge: counts.knowledge, truncated: counts.cases > cases.length || counts.knowledge > sources.length || sources.some(source => source.full_length > 1200) } };
       const refs = new Map(input.sourceRefs.map(ref => [ref.id, ref.version]));
       for (const c of cases) {
@@ -97,7 +107,8 @@ export class InsightsRepository {
       input.sample.caseCount = input.tickets.length;
       input.sample.messageCount = input.tickets.reduce((total, ticket) => total + ticket.messages.length, 0);
       input.sample.knowledgeCount = sources.length;
-      await client.query('UPDATE support_insight_runs SET input_snapshot=$2,data=$3,updated_at=now() WHERE id=$1', [lease.id, JSON.stringify(input), JSON.stringify({ ...known.data, ...model, sample: input.sample })]);
+      const stored: StoredSnapshot = { ...input, caseEnvironment: liveCaseScope };
+      await client.query('UPDATE support_insight_runs SET input_snapshot=$2,data=$3,updated_at=now() WHERE id=$1', [lease.id, JSON.stringify(stored), JSON.stringify({ ...known.data, ...model, sample: input.sample })]);
       return input;
     });
   }
@@ -105,6 +116,7 @@ export class InsightsRepository {
     await this.transaction(async client => {
       const row = (await client.query<Row>("SELECT * FROM support_insight_runs WHERE id=$1 AND business_id=$2 AND status='running' AND lease_owner=$3 AND fence=$4 AND lease_expires_at>now() FOR UPDATE", [lease.id, lease.businessId, lease.owner, lease.fence])).rows[0];
       if (!row) throw new InsightError(409, 'Analysis lease changed');
+      if (row.input_snapshot?.caseEnvironment !== liveCaseScope || !await this.casesLive(client, lease.businessId, input.tickets, true)) throw new InsightError(409, unavailableSample);
       if (!await this.refsCurrent(client, lease.businessId, input.sourceRefs, true)) throw new InsightError(409, 'Published knowledge changed during analysis');
       await client.query("UPDATE support_insight_runs SET status='completed',data=$2,lease_owner=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1", [lease.id, JSON.stringify({ ...row.data, sample: input.sample, findings, error: null, completedAt: new Date().toISOString() })]);
     });
@@ -115,6 +127,13 @@ export class InsightsRepository {
   async requeue(lease: InsightLease): Promise<void> {
     await this.pool.query("UPDATE support_insight_runs SET status='queued',lease_owner=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1 AND business_id=$2 AND status='running' AND lease_owner=$3 AND fence=$4", [lease.id, lease.businessId, lease.owner, lease.fence]);
   }
+  private async casesLive(query: pg.Pool | pg.PoolClient, businessId: string, tickets: InsightInput['tickets'], lock = false): Promise<boolean> {
+    if (!Array.isArray(tickets) || tickets.length > 25) return false;
+    const ids = [...new Set(tickets.map(ticket => ticket.id))];
+    if (!ids.length) return true;
+    const rows = (await query.query<{ id: string }>(`SELECT c.id ${liveCases} AND c.id=ANY($2::uuid[])${lock ? ' FOR SHARE OF c' : ''}`, [businessId, ids])).rows;
+    return rows.length === ids.length;
+  }
   async refsCurrent(query: pg.Pool | pg.PoolClient, businessId: string, refs: { id: string; version: number }[], lock = false): Promise<boolean> {
     if (!refs.length) return true;
     const rows = (await query.query<{ id: string; version: number }>("SELECT id,version FROM support_knowledge WHERE business_id=$1 AND status='published' AND id=ANY($2::uuid[])" + (lock ? ' FOR SHARE' : ''), [businessId, refs.map(ref => ref.id)])).rows;
@@ -124,7 +143,9 @@ export class InsightsRepository {
     return this.transaction(async client => {
       const row = (await client.query<Row>('SELECT * FROM support_insight_runs WHERE id=$1 AND business_id=$2 FOR UPDATE', [runId, businessId])).rows[0];
       if (!row) throw new InsightError(404, 'Analysis not found');
-      if (row.status !== 'completed' || !row.input_snapshot || !await this.refsCurrent(client, businessId, row.input_snapshot.sourceRefs, true)) throw new InsightError(409, 'Analysis sources are no longer current');
+      if (row.status !== 'completed' || !row.input_snapshot) throw new InsightError(409, 'Analysis sources are no longer current');
+      if (row.input_snapshot.caseEnvironment !== liveCaseScope || !await this.casesLive(client, businessId, row.input_snapshot.tickets, true)) throw new InsightError(409, unavailableSample);
+      if (!await this.refsCurrent(client, businessId, row.input_snapshot.sourceRefs, true)) throw new InsightError(409, 'Analysis sources are no longer current');
       const finding = row.data.findings.find(item => item.id === findingId);
       if (!finding) throw new InsightError(404, 'Finding not found');
       if (!finding.proposedArticle) throw new InsightError(409, 'This finding has no proposed article');

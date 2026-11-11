@@ -7,6 +7,7 @@ import { loadSupportConfig } from '../../integrations/config.js';
 import { bootstrapSupportConfig } from '../../integrations/bootstrap.js';
 import { createSupportIntegrations } from '../../integrations/catalog.js';
 import { DshSupportModel } from '../../runtime/dsh-model.js';
+import { DshGuardDraftModel, DshSkillDraftModel } from '../../runtime/skill-draft-model.js';
 import { SupportHarness } from '../agent/harness.js';
 import { RulesModel } from '../agent/model.js';
 import { OpenRouterTicketClassifier } from '../agent/openrouter-classifier.js';
@@ -62,13 +63,21 @@ export async function createSupport(settings: Settings, pool: pg.Pool): Promise<
   const classifier = settings.classificationProvider === 'openrouter' ? new OpenRouterTicketClassifier({
     model: settings.classificationModel, apiKey: settings.classificationApiKey, timeoutMs: settings.classificationTimeoutMs,
   }) : undefined;
+  const draftOptions = settings.agentRuntime === 'dsh' && settings.llmProvider !== 'rules' && (settings.llmProvider === 'local' || settings.llmApiKey)
+    ? {
+      provider: settings.llmProvider, model: model.model, apiKey: settings.llmApiKey,
+      baseURL: settings.llmBaseUrl || undefined, homeRoot: settings.runtimeHome, timeoutMs: settings.llmTimeoutMs,
+    }
+    : undefined;
+  const skillDraftModel = draftOptions && new DshSkillDraftModel(draftOptions);
+  const guardDraftModel = draftOptions && new DshGuardDraftModel(draftOptions);
   // Knowledge retrieval: embedder from KB_EMBEDDINGS_*, pgvector when the Postgres store has the extension.
   const vectors = settings.supportStore === 'postgres' ? await PgVectorStore.connect(pool) : null;
   const knowledge = new KnowledgeRetriever(createEmbedder(settings.knowledgeEmbeddingsProvider, settings.knowledgeEmbeddingsModel, settings.knowledgeEmbeddingsApiKey), vectors, message => console.warn(message));
   const externalKnowledge = createExternalKnowledge(config.externalKnowledge, loadEnvironment());
   configureKnowledge({ retriever: knowledge, external: externalKnowledge, urlAllowlist: settings.knowledgeUrlAllowlist });
   const harness = new SupportHarness({ workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,store, model, fallback, classifier, provider: new SimulatedPaymentProvider(), timeoutMs: settings.llmTimeoutMs, integrations, knowledge, externalKnowledge });
-  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, databaseInvestigations, integrationImports, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
+  return { workspaceBusinessId:settings.supportWorkspaceBusinessId||undefined,harness, store, integrations, databaseInvestigations, integrationImports, skillDraftModel, guardDraftModel, execution: settings.supportExecution, capabilities: { execution: settings.supportExecution, runtime: settings.agentRuntime, provider: model.provider, model: model.model,
     persistence: settings.supportStore, paymentProvider: 'simulated', credentialsConfigured: settings.agentRuntime === 'rules' || settings.llmProvider === 'local' || Boolean(settings.llmApiKey),
     knowledgeSearch: 'hybrid', approvals: 'separate-execution', maxToolCalls: settings.maxRuntimeToolCalls,
     classification: { provider: classifier?.provider ?? 'agent', model: classifier?.model ?? model.model,

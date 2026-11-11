@@ -7,6 +7,7 @@ import { actionAllowed, aggregateRequestStatus, applyCheckpoint, emptyCatalog, l
 import { createHash, randomUUID } from 'node:crypto';
 import type { AcceptedTurn, AgentRun, AuditEvent, Business, CaseStatus, Customer, KnowledgeSource, Message, MessageRole, Metrics, Payment, Priority, Proposal, ProposalStatus, Refund, SupportCase, SupportSettings, SupportSkill, SupportTurnJob, TurnLease } from './contracts.js';
 import type { SeedData } from './seed.js';
+import { testChatStarted, type CaseEnvironment } from './test-sessions.js';
 import { sameClassificationConfig } from '../agent/classification.js';
 import { canReplaceClassification, classificationState, storedClassification, visibleClassification, type ClassificationState, type StoredClassification } from './classification-storage.js';
 import { MemoryIntegrationStore, externalAdmissionReason, type IntegrationStore } from '../../integrations/state.js';
@@ -40,9 +41,9 @@ export interface SupportStore {
   business(id: string): Promise<Business | null>;
   payments(customerId: string, limit?: number): Promise<Payment[]>;
   payment(id: string): Promise<Payment | null>;
-  createCase(businessId: string, customerId: string): Promise<SupportCase>;
+  createCase(businessId: string, customerId: string, environment?: CaseEnvironment): Promise<SupportCase>;
   getCase(id: string): Promise<SupportCase | null>;
-  listCases(status?: CaseStatus): Promise<SupportCase[]>;
+  listCases(status?: CaseStatus, environment?: CaseEnvironment): Promise<SupportCase[]>;
   updateCase(id: string, patch: CasePatch): Promise<SupportCase>;
   resolveCase(id: string, actor: string, expectedVersion?: number): Promise<SupportCase>;
   setOwnership(id: string, ownership: 'bot' | 'staff', actor: string, expectedVersion?: number): Promise<SupportCase>;
@@ -189,12 +190,19 @@ export class MemorySupportStore implements SupportStore {
     return copy([...this.paymentRows.values()].filter(p => p.customerId === customerId).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,limit));
   }
   async payment(id: string) { return copy(this.paymentRows.get(id) ?? null); }
-  async createCase(businessId: string, customerId: string) {
-    const row: SupportCase = { id: randomUUID(), businessId, customerId, customerName: this.customers.get(customerId)?.name ?? '', status:'open', priority:'P3', intent:null, analysis:null, ownership:'bot', ownershipVersion:0, assignedTo:null, createdAt:now(), updatedAt:now() };
-    this.cases.set(row.id,row); return copy(row);
+  async createCase(businessId: string, customerId: string, environment: CaseEnvironment = 'live') {
+    const customer = this.customers.get(customerId);
+    const row: SupportCase = { id: randomUUID(), businessId, customerId, customerName: customer?.name ?? '', isTest: environment === 'test', status:'open', priority:'P3', intent:null, analysis:null, ownership:'bot', ownershipVersion:0, assignedTo:null, createdAt:now(), updatedAt:now() };
+    this.cases.set(row.id,row);
+    if (row.isTest) this.auditRows.push({ id: randomUUID(), caseId: row.id, type: testChatStarted, actor: 'system', data: {}, createdAt: row.createdAt });
+    return copy(row);
   }
   async getCase(id: string) { return copy(this.cases.get(id) ?? null); }
-  async listCases(status?: CaseStatus) { return copy([...this.cases.values()].filter(c => !status || c.status === status).sort((a,b) => a.priority.localeCompare(b.priority) || b.updatedAt.localeCompare(a.updatedAt))); }
+  async listCases(status?: CaseStatus, environment?: CaseEnvironment) {
+    return copy([...this.cases.values()]
+      .filter(c => (!status || c.status === status) && (!environment || !!c.isTest === (environment === 'test')))
+      .sort((a,b) => a.priority.localeCompare(b.priority) || b.updatedAt.localeCompare(a.updatedAt)));
+  }
   async updateCase(id: string, patch: CasePatch) {
     const row = this.cases.get(id); if (!row) throw new Error('Case not found');
     Object.assign(row,copy(patch),{updatedAt:now()}); row.status=this.caseStatus(id,row.status,row.ownership); return copy(row);
@@ -454,7 +462,7 @@ export class MemorySupportStore implements SupportStore {
   async recordRun(run:Omit<AgentRun,'id'|'createdAt'>,id?:string) { const row={...copy(run),id:id??randomUUID(),createdAt:now()}; this.runRows.push(row); return copy(row); }
   async runs(caseId?:string) { return copy(this.runRows.filter(r=>!caseId || r.caseId===caseId)); }
   async metrics(businessId?:string):Promise<Metrics> {
-    const cases=[...this.cases.values()].filter(row=>!businessId||row.businessId===businessId);const ids=new Set(cases.map(row=>row.id));
+    const cases=[...this.cases.values()].filter(row=>!row.isTest&&(!businessId||row.businessId===businessId));const ids=new Set(cases.map(row=>row.id));
     const proposals=[...this.proposalRows.values()].filter(row=>ids.has(row.caseId));const refunds=this.refundRows.filter(row=>proposals.some(proposal=>proposal.id===row.proposalId));const runs=this.runRows.filter(row=>ids.has(row.caseId));
     const count=<K extends string>(keys:K[],values:K[])=>Object.fromEntries(keys.map(k=>[k,values.filter(v=>v===k).length])) as Record<K,number>;
     const timed=runs.filter(r=>r.status!=='failed');
@@ -477,6 +485,9 @@ export class MemorySupportStore implements SupportStore {
   async saveSkill(skill:SupportSkill,expectedRevision?:number) {
     if(!this.businesses.has(skill.businessId))throw new VersionConflict('Business not found');
     const old=this.skillRows.get(skill.id);
+    if (!old && skill.name.startsWith('custom/') && [...this.skillRows.values()].some(row => row.businessId === skill.businessId && row.name === skill.name)) {
+      throw new VersionConflict('A skill with this name already exists');
+    }
     if(old&&(old.businessId!==skill.businessId||old.revision!==(expectedRevision??skill.revision-1)||skill.revision<=old.revision)||!old&&expectedRevision!==undefined)throw new VersionConflict('Skill revision changed');
     this.skillRows.set(skill.id,copy(skill));return copy(skill);
   }

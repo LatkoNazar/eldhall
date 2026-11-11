@@ -30,17 +30,44 @@ async function fixture(model=new RulesModel() as RulesModel|ScriptedModel){
 
 test('fixed workspace filters all support resources and refuses global reset without changing foreign records',async()=>{
   const f=await fixture();try{
-    const bank=await f.store.createCase(A,seedData().customers[0]!.id);const foreign=await f.store.createCase(B,seedData().customers[3]!.id);await f.store.addMessage(foreign.id,'customer','Historical foreign business data');
+    const demo=seedData();
+    const live=await f.store.createCustomer({...demo.customers[0]!,id:randomUUID(),sessionToken:randomUUID()});
+    const bank=await f.store.createCase(A,live.id);
+    const bankTest=await f.store.createCase(A,demo.customers[0]!.id,'test');
+    const foreign=await f.store.createCase(B,demo.customers[3]!.id);await f.store.addMessage(foreign.id,'customer','Historical foreign business data');
     const p=await f.store.createProposal({caseId:foreign.id,tool:'external_action',args:{},argsHash:'a'.repeat(64),risk:'high',status:'pending',policy:{allowed:true,requiresApproval:true,checks:[]}});
     const before=await f.store.messages(foreign.id);assert.equal((await f.app.inject({url:'/api/v1/workspace'})).statusCode,401);
     assert.equal((await f.app.inject({url:'/api/v1/workspace',headers})).json().business.id,A);
     assert.deepEqual((await f.app.inject({url:'/api/v1/businesses',headers})).json().businesses.map((row:{id:string})=>row.id),[A]);
     assert.deepEqual((await f.app.inject({url:'/api/v1/cases',headers})).json().map((row:{id:string})=>row.id),[bank.id]);assert.equal((await f.app.inject({url:'/api/v1/metrics',headers})).json().cases,1);
+    assert.deepEqual((await f.app.inject({url:'/api/v1/cases?environment=test',headers})).json().map((row:{id:string})=>row.id),[bankTest.id]);
     for(const url of ['/cases/'+foreign.id,'/skills?businessId='+B,'/settings?businessId='+B,'/knowledge?businessId='+B,'/integrations?businessId='+B])assert.equal((await f.app.inject({url:'/api/v1'+url,headers})).statusCode,404,url);
     for(const action of ['approve','execute','reject','reconcile'])assert.equal((await f.app.inject({method:'POST',url:'/api/v1/proposals/'+p.id+'/'+action,headers,payload:action==='approve'||action==='execute'?{argsHash:p.argsHash}:action==='reject'?{reason:'Operator action'}:{reason:'Operator action',status:'failed'}})).statusCode===404,true,action);
     assert.equal((await f.app.inject({method:'POST',url:'/api/v1/demo/reset',headers})).statusCode,409);assert.deepEqual(await f.store.messages(foreign.id),before);assert.equal((await f.store.businessesList()).length,2);assert.equal((await f.store.proposal(p.id))!.status,'pending');
     assert.equal((await f.app.inject({method:'POST',url:'/api/v1/chat/cases',headers:{'x-customer-session':'demo-marta'}})).statusCode,401);
   }finally{await f.app.close();}
+});
+
+test('isolated test turns do not access connected business systems or execute an older external proposal',async()=>{
+  const store=new MemorySupportStore(seedData());
+  const demo=seedData().customers[0]!;
+  const live=await store.createCustomer({...demo,id:randomUUID(),sessionToken:randomUUID()});
+  let contexts=0;
+  const model=new ScriptedModel(()=>answer);
+  const harness=new SupportHarness({
+    store, model, fallback:model, provider:new SimulatedPaymentProvider(), timeoutMs:1000,
+    integrations:{forContext:()=>{ contexts++; return {tools:[],callTool:async()=>({})}; }},
+  });
+  const testCase=await harness.openCase(demo.sessionToken,'test');
+  await harness.runTurn(demo.sessionToken,testCase.id,'Please clarify');
+  assert.equal(contexts,0);
+  const old=await store.createProposal({caseId:testCase.id,tool:'external_action',args:{},argsHash:'b'.repeat(64),risk:'high',status:'approved',policy:{allowed:true,requiresApproval:true,checks:[]}});
+  await assert.rejects(harness.executeApproved(old.id,'staff',old.argsHash),{status:403});
+  assert.equal((await store.proposal(old.id))?.status,'approved');
+  assert.equal(contexts,0);
+  const liveCase=await harness.openCase(live.sessionToken);
+  await harness.runTurn(live.sessionToken,liveCase.id,'Please clarify');
+  assert.equal(contexts,1);
 });
 
 test('workspace ambiguity is explicit and internal harness/worker paths never send foreign context to a model',async()=>{

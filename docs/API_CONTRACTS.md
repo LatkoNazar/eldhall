@@ -1,7 +1,38 @@
 # API contracts
 
-Source of truth for types: `apps/api/src/modules/support/contracts.ts`. Frontend mirror: `apps/frontend/src/lib/api.ts`.
-Errors are `{ "detail": string | ValidationIssue[] }` (validation → 422), except execute 502 which returns `{proposal, case}`. The bundled UI uses the same-origin Vite/Caddy proxy. Independent clients need an explicit `CORS_ORIGINS` entry; preflights permit GET/POST/PATCH and `Authorization`, `Content-Type`, `X-Customer-Session`, without credential cookies.
+This reference covers the support agent's HTTP API. Start with the [integration guide](AGENT_INTEGRATION.md) for a walkthrough and a runnable Python example. The [support contracts](../apps/api/src/modules/support/contracts.ts) define the data types.
+
+## HTTP conventions and errors
+
+Send JSON bodies with `Content-Type: application/json`. Paths are relative to the API origin. Replace path parameters with IDs returned by Eldhall.
+
+| Caller | Credential |
+| --- | --- |
+| Customer chat | `X-Customer-Session: <sessionToken>` |
+| Operator and administration | `Authorization: Bearer <OPERATOR_TOKEN>` |
+| Service health probes | No application credential |
+
+Browser clients on another origin need a matching `CORS_ORIGINS` entry. The API permits GET, POST, PATCH and PUT on preflight, along with the `Accept`, `Accept-Language`, `Authorization`, `Content-Language`, `Content-Type` and `X-Customer-Session` headers. Eldhall uses header credentials for these routes.
+
+Most errors return `{"detail": string}` or `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`. Some routes add a machine-readable `code`. Invalid host headers and rejected CORS preflights return plain text. An execution failure or unknown outcome from `POST /api/v1/proposals/:id/execute` returns `502` with `{proposal,case}`.
+
+| Status | Meaning for an integration |
+| --- | --- |
+| `401 Unauthorized` | The endpoint's session or bearer credential is missing or invalid. |
+| `403 Forbidden` | The authenticated request is disallowed by a route rule, such as a test case executing a refund. |
+| `404 Not Found` | The resource is missing, outside the caller's scope, or the route is disabled. |
+| `409 Conflict` | The request conflicts with an active turn, version, message ID or approval. Reread the affected resource. |
+| `422 Unprocessable Content` | Check the request schema and error details. |
+| `429 Too Many Requests` | Back off for the number of seconds in `Retry-After`. |
+| `502 Bad Gateway` | An upstream-dependent operation did not complete. For action execution, use the proposal status to distinguish a failure from an unknown outcome. |
+| `503 Service Unavailable` | Readiness failed or the requested capability is unavailable in this deployment. |
+
+| Method | Path | Successful result |
+| --- | --- | --- |
+| GET | `/health/live` | `200 {status:"ok"}` |
+| GET | `/health/ready` | `200 {status:"ok",dependencies}`. An unhealthy dependency yields `503`. |
+| GET | `/api/v1/operator/session` | `200 {authenticated:true}` for a valid operator bearer. |
+| GET | `/docs`, `/openapi.json` | Interactive API view and generated OpenAPI in development mode. |
 
 ## Customer channel — header `X-Customer-Session: <token>`
 Identity comes only from this header (demo personas `demo-olena`, `demo-taras`, `demo-ivan`, `demo-marta`). Never from message text.
@@ -9,11 +40,26 @@ Identity comes only from this header (demo personas `demo-olena`, `demo-taras`, 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/v1/chat/personas` (demo only) | – | `[{name, plan, sessionToken, businessName}]` |
-| POST | `/api/v1/chat/cases` | – | 201 `{id, status}`; 401 unknown session |
+| POST | `/api/v1/chat/cases` | – | 201 `{id, status, isTest:false}`; 401 unknown session |
+| POST | `/api/v1/chat/test-cases` (demo only) | – | 201 `{id, status, isTest:true}`; 401 unknown session, 403 ineligible identity, 404 when disabled |
 | GET | `/api/v1/chat/cases/:id` | – | `{id, status, ownership, businessName, messages: Message[],activeRun:{id,status}|null}`; 404 if not this customer's case |
-| POST | `/api/v1/chat/cases/:id/messages` | `{body: string(1..2000),clientMessageId?:uuid}` | Worker: 202 `{caseId,status,ownership,reply:null,runId}`. Explicit inline: 200 with `reply:Message|null`. 409 for a different message while a run is active |
+| POST | `/api/v1/chat/cases/:id/messages` | `{body: string(1..2000),clientMessageId?:uuid}` | Worker: 202 `{caseId,status,ownership,reply:null,runId:string|null}`. Inline: 200 with `reply:Message|null` and no `runId`. 409 for a different message while a run is active |
 
-The customer never receives analysis, proposals or policy internals. Bot-owned conversations allow one bounded run at a time. Worker mode commits the customer message and durable outbox row atomically; it never runs DSH in the API process. Poll the case history for completion. A repeated `clientMessageId` with identical content returns the original run; changed content is rejected. Staff-owned messages are recorded and routed to staff without a model call (`reply:null`). Whitespace-only messages are rejected before storing. Ownership changes fence tools and final delivery from the old run.
+A message has `id`, `caseId`, `role`, `body` and `createdAt`. Roles are `customer`, `assistant`, `operator` and `system`. Use `id` as the render key. Optional `sourceRefs` and `externalSourceRefs` identify knowledge sources. A case has status `open`, `awaiting_approval`, `escalated` or `resolved`, with ownership `bot` or `staff`. The history endpoint returns `activeRun` only for a queued or running turn.
+
+Example worker response to a successful message POST.
+
+```json
+{
+  "caseId": "9aac673f-f23d-4d7e-8ab4-62fd6de49e12",
+  "status": "open",
+  "ownership": "bot",
+  "reply": null,
+  "runId": "4df45f31-d82d-4485-a642-f7372648ef21"
+}
+```
+
+The chat API exposes conversation history and active run status. Analysis, proposals and policy checks are available through the operator API. Bot-owned conversations allow one bounded run at a time. Worker mode commits the customer message and durable outbox row atomically. Poll case history for completion. Replaying a stored `clientMessageId` with the same trimmed body returns its original run, if it has one. Changed content returns `409`. Identical text under a second ID can reuse an already active run without storing that second ID, so serialize logical sends within a case. Staff-owned messages are recorded for staff without a model call (`reply:null`). Whitespace-only messages are rejected before storing. Ownership changes fence tools and final delivery from the old run.
 
 An external operation in `ask` mode saves its pending proposal and ends the bounded model turn, for reads as well as writes. The application supplies the pending reply and blocks subsequent business tools, knowledge searches and builtin actions from that turn. Human approval happens later through the separate operator endpoints; no model or worker lease waits for a person. Native DSH termination uses a trusted application control field outside the business result. An upstream payload containing `status:"awaiting_approval"` cannot create approval state or end a turn.
 
@@ -23,8 +69,8 @@ The worker republishes pending PostgreSQL rows to BullMQ, so a broker outage or 
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| GET | `/api/v1/cases?status=open\|awaiting_approval\|escalated\|resolved` | – | `SupportCase[]` sorted by priority, then recency |
-| GET | `/api/v1/cases/:id` | – | `CaseDetail` = `{case, customer, payments, messages, proposals, audit, runs, refunds, activeRun, requestCatalog}` |
+| GET | `/api/v1/cases?status=open\|awaiting_approval\|escalated\|resolved&environment=live\|test` | – | `SupportCase[]` sorted by priority, then recency; defaults to `live` |
+| GET | `/api/v1/cases/:id` | – | `CaseDetail` = `{case, customer, payments, messages, proposals, audit, runs, refunds, activeRun, requestCatalog, agentActivity}` |
 | POST | `/api/v1/proposals/:id/approve` | `{argsHash}` | 200 `{proposal, case}`, proposal `approved`; no business action |
 | POST | `/api/v1/proposals/:id/execute` | `{argsHash}` | 200 executed; 502 `{proposal,case}` failed/unknown; 409 absent/expired approval, different args, or reserved payment |
 | POST | `/api/v1/proposals/:id/reject` | `{reason}` | 200 `{proposal, case}`; 409 already decided |
@@ -33,9 +79,16 @@ The worker republishes pending PostgreSQL rows to BullMQ, so a broker outage or 
 | POST | `/api/v1/cases/:id/resolve` | `{ownershipVersion?}` | `{case}` resolved, staff ownership; 409 without partial ownership changes if tracked requests or effects still require attention |
 | POST | `/api/v1/cases/:id/messages` | `{body,ownershipVersion?}` | `{message,case}`; requires current staff ownership |
 | POST | `/api/v1/cases/:id/requests/:requestId/transition` | `{version,revision,transition:fulfill\|cancel\|reopen,reason,proof:{proposalIds,messageIds}}` | `{requestCatalog}`; operator-only, same-case evidence and optimistic versions required; this endpoint never executes a business action |
-| GET | `/api/v1/metrics` | – | `Metrics` (all values measured from stored state) |
+| GET | `/api/v1/metrics` | – | `Metrics` measured from stored ordinary cases |
 | GET | `/api/v1/capabilities` | – | Actual configured runtime/provider/model/execution/persistence, credential-presence boolean, simulated payment provider |
 | POST | `/api/v1/demo/reset` (demo only) | – | `{status:"reset"}` — re-seeds synthetic data |
+
+Deployments with Insights enabled expose run creation, history and finding-to-draft endpoints under `/api/v1/insights`. See the [Insights reference](insights.md) for those contracts.
+
+The case origin is set when it is created. A demo identity can create an ordinary
+case through `/chat/cases`; that case is included in reports. Cases opened through
+the dedicated test route are excluded from ordinary queues and analytics. The
+customer history and message routes are shared and remain session-scoped.
 
 `requestCatalog` tracks customer goals separately from proposals. It has a catalog
 `version`, `syncState`, `lastSourceMessageId`, stable request records and bounded
@@ -55,6 +108,7 @@ These endpoints use the same operator bearer. `?businessId=<uuid>` selects a con
 
 | Method | Path | Body / result |
 |---|---|---|
+| GET | `/api/v1/workspace` | `{business:{id,slug,name,currency}}`. Returns `409` when the deployment does not resolve to a single business. |
 | GET | `/api/v1/businesses` | `{businesses:[{id,slug,name,currency}]}` |
 | POST | `/api/v1/businesses` | `{name,slug,currency,policy?}` → new business |
 | POST | `/api/v1/customers` | `{businessId,name,email,plan}` → `{customer,sessionToken}`; opaque token generated by server |
@@ -68,15 +122,18 @@ These endpoints use the same operator bearer. `?businessId=<uuid>` selects a con
 | GET | `/api/v1/knowledge/:id/versions` | `{versions:KnowledgeSource[]}` newest first |
 | POST | `/api/v1/knowledge/import-url` | `{url,category,title?,audience?,plans?}` → 201 draft; 403 host not allow-listed, 422 invalid/private URL, 502 fetch failed |
 | POST | `/api/v1/knowledge/upload` | `{filename,contentBase64,category,title?,audience?,plans?}` (.md/.txt/.html ≤ 512 KB) → 201 draft; 413/415 |
-| GET | `/api/v1/skills` | `{skills:SupportSkill[],preset:"support-v1"}` |
-| POST | `/api/v1/skills` | `{name:"custom/name",content,enabled?}` → versioned Markdown skill |
+| GET | `/api/v1/skills` | `{skills:SupportSkill[],preset:"support-v1",canGenerate:boolean}` |
+| POST | `/api/v1/skills/draft` | `{description}` → editable `{slug,content,related,reviewedSkills,totalSkills}` |
+| POST | `/api/v1/skills` | `{name:"custom/name",content,enabled?,relatedSkillIds?}` → versioned Markdown skill |
 | GET | `/api/v1/settings` | `SupportSettings` |
 | PATCH | `/api/v1/settings` | `{version,language,tone,requireApproval:true,refundLimitCents,duplicateWindowMinutes,enabledTools,classification?}` → new version; 409 stale; omitted classification is preserved |
 | GET | `/api/v1/team` | Real bootstrap bearer principal and assigned-case count; invite/role changes disabled |
 
+Skill drafting requires operator access and a configured model. The model receives the workflow description, a bounded catalog of skills in the selected workspace and the available built-in tool and guard types. The draft response does not create or activate a skill. Save the reviewed Markdown with `enabled:false` and, optionally, up to four `relatedSkillIds` from enabled skills in the same workspace. These IDs are written into the skill instructions as references the agent can load when applicable. Enable the reviewed skill separately with the versioned PATCH. Requests to generate a draft can return 429 when throttled or 503 when generation is unavailable.
+
 Knowledge retrieval is hybrid (BM25 over UA/EN terms + local hashing embeddings, fused with RRF) over heading-aware passages of published sources in the trusted business scope. A reply's `sourceRefs` conservatively cover the eligible published source snapshot because native sessions and product history can reuse earlier facts without a fresh search. Retrieval audit events separately identify the passages actually searched; precise transitive citation tracking is not implemented (see [the knowledge-base contract](KNOWLEDGE_BASE.md)). Draft/revoked documents never enter new model context. Mid-run revocation or policy/skill changes fence final output. Skills cannot enable tools or turn off refund approval. Postgres persists messages, cases, proposals, runs, audit, documents, skills and settings; DSH owns its native session store separately.
 Demo records are seeded only with `DEMO_RESET_ENABLED=true` (development default; production default false). Clean production setup creates a business and customers through the authenticated administration API; public demo session tokens are not provisioned automatically.
-`SUPPORT_EXECUTION=worker` requires PostgreSQL and the worker process; it is the PostgreSQL default. `SUPPORT_EXECUTION=inline` is an explicit local demo option and the default for the memory store. Run the complete release migration chain through `0008_integrations` before starting API or worker: support state, durable turns, classification, insights, knowledge, external knowledge and integration state. PostgreSQL startup checks reject missing required schema.
+`SUPPORT_EXECUTION=worker` requires PostgreSQL and a support worker. A standard worker deployment uses Redis for the queue. `SUPPORT_EXECUTION=inline` is an explicit local demo option and the default for the memory store. Run the complete [release migration chain](../apps/api/migrations) before starting the API or worker. The current chain includes request tracking in `0009_customer_requests.sql` and OpenAPI imports in `0010_integration_imports.sql`. PostgreSQL startup checks reject missing required schema.
 
 ### Configurable ticket classes
 
@@ -114,6 +171,10 @@ These routes require the operator bearer and an explicit `?businessId=<uuid>` on
 
 | Method | Path | Body / result |
 |---|---|---|
+| GET | `/integration-imports/capabilities?businessId=…` | URL onboarding availability, credential profiles, guard definitions and spec size limit |
+| POST | `/integration-imports/prepare?businessId=…` | Prepare and validate a spec URL without activating an integration |
+| GET | `/integration-imports/:id?businessId=…` | Read the saved, sanitized import draft |
+| POST | `/integration-imports/:id/confirm?businessId=…` | Submit exact spec identity and reviewed operations. Returns `{integration,policy,runtime,activation}`. |
 | GET | `/integrations?businessId=…` | `{integrations:IntegrationSummary[]}` |
 | GET | `/integrations/:id/operations?businessId=…` | `{integration,groups,operations}`; each operation contains its sanitized manifest definition plus `enabled`, `reviewedOperationHash`, configured `mode` and server `effective` decision |
 | GET | `/integrations/:id/policy?businessId=…` | `{integration:IntegrationSummary,policy:IntegrationPolicy}` |
@@ -122,6 +183,8 @@ These routes require the operator bearer and an explicit `?businessId=<uuid>` on
 | POST | `/integrations/:id/activate?businessId=…` | `{version,manifestHash,connectionRevision}` → `{integration,policy}` after live connector manifest/tool-schema verification |
 | POST | `/integrations/:id/disable?businessId=…` | `{version,draining?:boolean}` → `{integration,policy}`; draining defaults to true |
 | GET | `/integrations/:id/audit?businessId=…` | `{events}` for the selected integration |
+
+See [Connect a business API through OpenAPI](OPENAPI_QUICKSTART.md) for the import request bodies, operation review and activation flow.
 
 `IntegrationPolicy` contains `integrationId,businessId,enabled,manifestHash,policyRevision,defaultMode,groups,operations`. A group is `{id,selector:{tag:string}|{operationKeys:string[]},mode}`. A stored operation rule is `{operationKey,enabled,reviewedOperationHash:string|null,mode}`. The default accepts `auto|ask|deny`; group/operation rules also accept `inherit`. PATCH `groups` replaces the group array without enabling or reviewing operations and preserves endpoint overrides. Explicit operation Ask/Auto with matching `manifestHash` and `operationHash` atomically sets the mode, enables and reviews that exact known-effect definition; invalid, partial or stale proof rejects the whole edit. Deny disables the operation and clears its reviewed hash. Legacy edits without proof retain the existing review gate; `inherit` never grants access.
 
@@ -160,8 +223,15 @@ Legacy unbound administration APIs retain their existing scope rules.
 | Method | Operator path | Contract |
 | --- | --- | --- |
 | PATCH | `/api/v1/skills/:id` | `{revision,content,enabled}` → stored skill with revision+1; stable id/name,409 on stale revision |
-| GET | `/api/v1/guards` | `{version,revision,rules,definitions}`; settings CAS version and separate guard-policy revision |
+| GET | `/api/v1/guards` | `{version,revision,rules,definitions,canGenerate}` with settings CAS version and separate guard-policy revision |
+| POST | `/api/v1/guards/draft` | `{description,guardId?}` → `{guard}` for operator review. The server assigns the ID and leaves new rules disabled. An edit retains the saved ID and enabled state. |
 | PUT | `/api/v1/guards` | `{version,rules}` → newer settings/guard revisions; validation and409 conflicts do not execute business effects |
+| GET | `/api/v1/guards/database` | `{version,enabled,limits,bounds,constraints,sources}` for configured database investigation |
+| PUT | `/api/v1/guards/database` | `{version,enabled,limits}` → updated policy. Enabling requires a configured source. See [database investigation](customer-database-investigation.md#enable-and-limit-access). |
+
+Drafts use the selected workspace's guards, currency, registered refund action and reviewed external writes. An external draft requires both the integration ID and operation key of one reviewed write. Automatic reads bypass the action ledger, so read restrictions and broad external scopes are outside this authoring contract. Draft generation leaves settings and guard revisions untouched. Save a reviewed draft through `PUT /api/v1/guards` with the current settings version. Unsupported or ambiguous requests return `422`. Changes to the draft's settings or target during generation return `409`.
+
+Guard draft rejections return `422` with `{code, detail}`. The codes distinguish unsupported requests (`guard_draft_unsupported`), equivalent existing rules (`guard_draft_duplicate`), currency mismatches (`guard_draft_currency`), incomplete external targets (`guard_draft_target`), oversized context (`guard_draft_context`), and the workspace's 30-rule limit (`guard_draft_limit`).
 
 These scoped resource routes can use the configured workspace without a query
 parameter. Supplying a foreign business ID cannot override the binding. Skills

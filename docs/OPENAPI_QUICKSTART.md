@@ -6,7 +6,7 @@ The TypeScript API and worker enforce permissions and execute the durable suppor
 
 ### Connect from the operator interface
 
-An optional managed adapter lets staff connect an API from **Integrations → Connect backend** without editing the support configuration or restarting API/worker processes. Deploy it once with the private overlay:
+An optional managed adapter lets staff connect an API from **Integrations → Connect API** without editing the support configuration or restarting API/worker processes. Deploy it once with the private overlay.
 
 ```sh
 docker compose --env-file /etc/eldhall/support.env \
@@ -32,7 +32,51 @@ Pass that environment file only to `mcp-managed` using an additional private Com
 
 Private HTTP endpoints require an exact deployment-owned literal-IP exception: add the same origin to `origins` and `privateOrigins`, for example `http://127.0.0.1:8101` for a native local lab. Container loopback refers to the container itself. Ordinary URL input cannot enable private-network access. Requests reject redirects, compressed responses, remote/cyclic references and oversized documents; DNS resolution is validated and socket addresses are pinned for every upstream call. Metadata/link-local and multicast destinations remain blocked even with a private exception.
 
-The lower-level static artifact workflow follows. Its CLI accepts local files only; the managed service is the explicit URL workflow above.
+#### Connect through HTTP
+
+Use the operator bearer and include `?businessId={businessId}` on every import request. Check `GET /api/v1/integration-imports/capabilities?businessId={businessId}` for the available credential profiles before preparing an import.
+
+```http
+POST /api/v1/integration-imports/prepare?businessId={businessId}
+Authorization: Bearer <operator-token>
+Content-Type: application/json
+
+{
+  "integrationId": "orders",
+  "specUrl": "https://api.example.com/openapi.json",
+  "credentialProfileId": "orders"
+}
+```
+
+You can add `upstreamBaseUrl` when the credential profile permits an explicit target. Prepare returns a draft with `id`, `version`, `specHash`, `expiresAt` and candidate operations. It leaves the integration inactive. Read the draft again with `GET /api/v1/integration-imports/{id}?businessId={businessId}`.
+
+Review each enabled operation against your API's actual authorization and response schema. The example below uses the shape of the repository's [Orders fixture](../examples/orders/openapi.json). Substitute the draft's actual `version` and `specHash`, and use the exact operation key and verified fields for your backend.
+
+```http
+POST /api/v1/integration-imports/{id}/confirm?businessId={businessId}
+Authorization: Bearer <operator-token>
+Content-Type: application/json
+
+{
+  "version": 1,
+  "specHash": "<specHash from prepare>",
+  "operations": [
+    {
+      "operationKey": "GET /orders/{order_id}",
+      "mode": "auto",
+      "review": {
+        "effect": "read",
+        "scope": {"customerId": {"in": "header", "name": "X-Customer-Id"}},
+        "outputFields": ["order_id", "status"]
+      }
+    }
+  ]
+}
+```
+
+Omitted operations stay denied. The response contains `integration`, `policy`, `runtime` and `activation`. Confirm success by checking `runtime:"ready"` and `activation:"active"` before offering the tool to staff. If the response shows a saved disabled connection because the runtime is unavailable, restore the adapter and replay the same reviewed confirmation. Read back the effective permission at `GET /api/v1/integrations/{integrationId}/operations?businessId={businessId}`.
+
+The lower-level static artifact workflow follows. Its CLI accepts local files. The managed service handles the URL workflow above.
 
 Use Python 3.12+, `uv` and the committed lockfile. Keep private business specifications and review overlays outside the public example directory.
 

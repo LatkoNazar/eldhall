@@ -146,7 +146,6 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
         await client.query('COMMIT');assert.equal(await completed,null);
       }finally{client.release();}
       assert.equal((await store.messages(c.id)).length,0);
-      assert.equal((await store.metrics()).cases>0,true);
     });
     await t.test('queued turns survive store restart, expired worker claims and repeated delivery without duplicate input or proposals',async()=>{
       await store.reset(seedData());
@@ -362,6 +361,27 @@ test('real PostgreSQL support persistence, claims, recovery and source revocatio
       const result=await pool!.query('SELECT status,attempts FROM support_turn_jobs WHERE id=$1',[accepted.job!.id]);
       assert.equal(result.rows[0].status,'failed');assert.equal(result.rows[0].attempts,3);
       assert.equal((await store.messages(c.id)).filter(message=>message.role==='system').length,1);
+    });
+    await t.test('test cases and their agent runs, actions and refunds stay out of ordinary metrics',async()=>{
+      const data=seedData();
+      await store.reset(data);
+      const demo=data.customers[0]!;
+      const testCase=await store.createCase(demo.businessId,demo.id,'test');
+      const liveCase=await store.createCase(demo.businessId,demo.id);
+      const payment=data.payments[1]!;
+      const proposal=await store.createProposal({caseId:testCase.id,tool:'refund_payment',args:{},argsHash:'a'.repeat(64),risk:'high',status:'executed',policy:{allowed:true,requiresApproval:true,checks:[]}});
+      await store.recordRefund({paymentId:payment.id,proposalId:proposal.id,amountCents:payment.amountCents,providerRef:'SIM-TEST'});
+      await store.recordRun({caseId:testCase.id,provider:'fixture',model:'fixture',status:'fallback',steps:1,toolCalls:[],latencyMs:100,error:null});
+      await store.recordRun({caseId:liveCase.id,provider:'fixture',model:'fixture',status:'ok',steps:1,toolCalls:[],latencyMs:20,error:null});
+      assert.deepEqual((await store.listCases(undefined,'test')).map(({id,isTest})=>[id,isTest]),[[testCase.id,true]]);
+      assert.deepEqual((await store.listCases(undefined,'live')).map(({id,isTest})=>[id,isTest]),[[liveCase.id,false]]);
+      const metrics=await store.metrics(demo.businessId);
+      assert.equal(metrics.cases,1);
+      assert.equal(metrics.agentRuns,1);
+      assert.equal(metrics.fallbackRuns,0);
+      assert.equal(metrics.avgAgentLatencyMs,20);
+      assert.equal(metrics.proposals.executed,0);
+      assert.equal(metrics.refundsIssuedCents,0);
     });
   }finally{
     await pool?.end();

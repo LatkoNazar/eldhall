@@ -87,13 +87,14 @@ export function apply(ctx) {
         reason: { type: 'string', required: true, description: 'Brief factual category justification, 1–400 characters; no private chain-of-thought.' },
       } } } : {}),
       intent: { type: 'string', required: true, enum: ['duplicate_charge', 'refund_request', 'billing_question', 'cancel_subscription', 'complaint', 'other'] },
-      summary: { type: 'string', required: true },
-      reasoning: { type: 'string', required: true },
+      summary: { type: 'string', required: true, description: 'Customer request summarized in operatorLanguage.' },
+      reasoning: { type: 'string', required: true, description: 'Brief factual handoff context in operatorLanguage. Distinguish reported from verified facts.' },
       sentiment: { type: 'object', additionalProperties: false, required: true, properties: {
         label: { type: 'string', required: true, enum: ['calm', 'frustrated', 'angry', 'abusive'] },
         urgency: { type: 'string', required: true, enum: ['low', 'medium', 'high'] },
       } },
-      reply: { type: 'string', required: true },
+      reply: { type: 'string', required: true, description: 'Customer-facing reply in the language of the conversation.' },
+      replyLanguage: { type: 'string', description: 'BCP 47 code of the customer reply language, for example es or uk. Include it even when the server will compose the final action notice.' },
       action: { required: true, description: 'For answer-only replies use literal null, not an object. Only supported action objects are refund_payment and escalate_to_human. Never invent tool other or none.', oneOf: [
         { type: 'null' },
         { type: 'object', additionalProperties: false, properties: {

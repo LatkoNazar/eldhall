@@ -146,7 +146,7 @@ export class DshSupportModel implements AgentModel {
           const results = await ctx.callBusinessTools(batch.data.calls, controller.signal);
           await assertActive();
           const pending = ctx.pendingApproval?.();
-          if (pending) decision = approvalPendingDecision(pending.summary);
+          if (pending) decision = approvalPendingDecision(pending.summary, ctx.operatorLanguage);
           await send(200, { ...results, ...(pending ? { control: { endTurn: 'awaiting_approval', proposalId: pending.proposalId } } : {}) });
         } else if (input.tool === 'update_customer_requests') {
           if (!ctx.checkpointRequests) { await send(403, { error: 'Request catalog unavailable' }); return; }
@@ -202,7 +202,7 @@ export class DshSupportModel implements AgentModel {
           const result = await ctx.callBusinessTool(integrationId, name, arguments_, controller.signal, requests === undefined ? undefined : requestTargetsSchema.parse(requests));
           await assertActive();
           const pending = ctx.pendingApproval?.();
-          if (pending) decision = approvalPendingDecision(pending.summary);
+          if (pending) decision = approvalPendingDecision(pending.summary, ctx.operatorLanguage);
           await send(200, { result, ...(pending ? { control: { endTurn: 'awaiting_approval', proposalId: pending.proposalId } } : {}) });
         } else await send(403, { error: 'Tool outside support allowlist' });
       } catch (error) {
@@ -213,7 +213,7 @@ export class DshSupportModel implements AgentModel {
     try {
       await assertActive();
       // A changed policy/skill/document snapshot gets a fresh native session so revoked context is never replayed.
-      const contextRevision = createHash('sha256').update(JSON.stringify({ tools: ctx.allowedTools, policy: ctx.business.policy, responseStyle: ctx.business.responseStyle,
+      const contextRevision = createHash('sha256').update(JSON.stringify({ tools: ctx.allowedTools, policy: ctx.business.policy, operatorLanguage: ctx.operatorLanguage,
         classification: ctx.classification ?? null, requestCatalogProtocol:Boolean(ctx.checkpointRequests),
         knowledge: ctx.knowledge.map(source => [source.id, source.version]), skills: ctx.skills.map(skill => [skill.id, skill.revision]),
         ...(ctx.knowledgeSessionKey ? { knowledgeSessionKey: ctx.knowledgeSessionKey } : {}),
@@ -245,7 +245,8 @@ export class DshSupportModel implements AgentModel {
       }
       const input = JSON.stringify({ currentCustomerMessageId:ctx.currentCustomerMessageId,
         ...(ctx.contextMemory ? { contextMemory: ctx.contextMemory } : { requestCatalog:requestModelContext(ctx.requestCatalog?.()), requestSourceMessages:ctx.requestSourceMessages, productHistorySnapshot:ctx.history.slice(-10), message:ctx.message }),
-        business: { name: ctx.business.name, currency: ctx.business.currency, policy: ctx.business.policy, responseStyle: ctx.business.responseStyle },
+        business: { name: ctx.business.name, currency: ctx.business.currency, policy: ctx.business.policy },
+        operatorLanguage: ctx.operatorLanguage ?? 'uk',
         classification: ctx.classification ?? null,
         customer: { name: ctx.customer.name, plan: ctx.customer.plan },
         allowedActions: ctx.allowedTools.filter(name => name !== 'lookup_payments'),

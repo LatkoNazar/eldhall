@@ -5,6 +5,7 @@ import type { Business, Payment } from '../support/contracts.js';
 import { duplicateCandidate } from './policy.js';
 import type { ClassificationConfig } from './classification.js';
 import type { SupportContextCatalog, SupportContextDetails, SupportContextMemory, SupportContextRequest } from './context.js';
+import { conversationLanguage, customerMessages } from './communication.js';
 
 // Controlled context: built by the harness from backend state, never from customer-supplied ids.
 export interface AgentContext {
@@ -37,7 +38,8 @@ export interface AgentContext {
   /** Application-owned control state; never infer a pending proposal from business JSON. */
   readonly pendingApproval?: () => { proposalId: string; summary: string } | undefined;
   customer: { name: string; plan: string };
-  business: Pick<Business, 'name' | 'currency' | 'policy'> & { responseStyle?: { language: string; tone: string } };
+  business: Pick<Business, 'name' | 'currency' | 'policy'>;
+  operatorLanguage?: 'uk' | 'en';
   payments: Payment[];
   history: { role: string; body: string }[];
   message: string;
@@ -56,6 +58,7 @@ export const decisionSchema = z.object({
     urgency: z.enum(['low', 'medium', 'high']),
   }),
   reply: z.string().max(1200).describe('Reply to the customer in their language. Never claim an action was completed.'),
+  replyLanguage: z.string().max(35).regex(/^[a-z]{2,3}(?:-[a-z\d]{2,8})*$/i).optional().describe('BCP 47 language code of the customer reply, independent of operatorLanguage'),
   action: z.object({
     requests: requestTargetsSchema.optional(),
     tool: z.string().describe('refund_payment or escalate_to_human'),
@@ -86,7 +89,6 @@ export class ScriptedModel implements AgentModel {
 }
 
 const has = (text: string, pattern: RegExp) => pattern.test(text.toLowerCase());
-const ukrainian = (text: string) => /[а-яіїєґ]/i.test(text);
 
 /** Keyword fallback used when no LLM is configured or the LLM fails. Labelled "fallback" in the UI. */
 export class RulesModel implements AgentModel {
@@ -94,21 +96,33 @@ export class RulesModel implements AgentModel {
   readonly model = 'keyword-rules-v1';
   async decide(ctx: AgentContext, signal?: AbortSignal): Promise<ModelOutput> {
     const text = ctx.message;
-    const uk = ukrainian(text);
-    const base = { sentiment: { label: 'calm' as const, urgency: 'low' as const } };
+    const replyLanguage = conversationLanguage(text, ctx.history) ?? 'en';
+    const messages = customerMessages(replyLanguage);
+    const staffUk = ctx.operatorLanguage === 'uk';
+    const base = { replyLanguage, sentiment: { label: 'calm' as const, urgency: 'low' as const } };
     const sources = await ctx.searchKnowledge(text, signal);
     if (sources.length && !has(text, /twice|double|duplicate|двічі|подвійн|refund|поверн|cancel|скасу/)) {
       const source = sources[0]!;
-      return out({ ...base, intent: 'other', summary: source.title, reasoning: 'Answer grounded in a published business document.', reply: source.content.slice(0, 1000) + '\n\n[' + source.title + '] (джерело ' + source.id + ', версія ' + source.version + ')', action: null });
+      const sourceLanguage = conversationLanguage(source.content);
+      return out({ ...base, intent: 'other', summary: source.title,
+        reasoning: staffUk ? 'Знайдено опублікований документ компанії.' : 'Found a published business document.',
+        reply: !sourceLanguage || sourceLanguage === replyLanguage ? source.content.slice(0, 1000) + '\n\n[' + source.title + '] (' + source.id + ', v' + source.version + ')' : messages.fallback,
+        action: null });
     }
     if (has(text, /twice|double|duplicate|two times|двічі|подвійн|дубл|два рази|двічі/)) {
       const twin = duplicateCandidate(ctx.payments, ctx.business.policy.duplicateWindowMinutes);
-      if (!twin) return out({ ...base, intent: 'duplicate_charge', summary: 'Customer reports a duplicate charge; no duplicate found.', reasoning: 'No two identical captured payments within the duplicate window.', reply: uk ? 'Я не бачу двох однакових списань у вашій історії. Підкажіть, будь ласка, дату та суму списання?' : "I can't find two identical charges on your account. Could you tell me the date and amount of the charge?", action: null });
-      return out({ ...base, intent: 'duplicate_charge', summary: `Duplicate charge ${twin.merchantRef}.`, reasoning: `Two identical captured payments for ${twin.merchantRef}; proposing to refund the later one.`, reply: '', action: { tool: 'refund_payment', args: { payment_id: twin.id, amount_cents: twin.amountCents } } });
+      if (!twin) return out({ ...base, intent: 'duplicate_charge', summary: staffUk ? 'Клієнт повідомив про подвійне списання.' : 'Customer reports a duplicate charge.', reasoning: staffUk ? 'Два однакові списання у визначеному інтервалі не знайдено.' : 'No two identical captured payments within the duplicate window.', reply: messages.billing, action: null });
+      return out({ ...base, intent: 'duplicate_charge', summary: staffUk ? `Подвійне списання ${twin.merchantRef}.` : `Duplicate charge ${twin.merchantRef}.`, reasoning: staffUk ? 'Знайдено два однакові списання. Пропоную повернути друге.' : 'Two identical captured payments found. Proposing to refund the later one.', reply: '', action: { tool: 'refund_payment', args: { payment_id: twin.id, amount_cents: twin.amountCents } } });
     }
-    if (has(text, /cancel|скасу|відпис/)) return out({ ...base, intent: 'cancel_subscription', summary: 'Customer wants to cancel the subscription.', reasoning: 'Cancellation is not an automated action; route to a human.', reply: '', action: { tool: 'escalate_to_human', args: { reason: 'Subscription cancellation request' } } });
-    if (has(text, /refund|money back|поверн/)) return out({ ...base, intent: 'refund_request', summary: 'Customer asks for a refund.', reasoning: 'Non-duplicate refunds need a human decision.', reply: '', action: { tool: 'escalate_to_human', args: { reason: 'Refund request outside the duplicate-charge policy' } } });
-    return out({ ...base, intent: 'other', summary: 'General question.', reasoning: 'No supported action matches.', reply: uk ? 'Дякую за звернення! Уточніть, будь ласка, з чим саме допомогти?' : 'Thanks for reaching out! Could you tell me a bit more about what you need?', action: null });
+    if (has(text, /cancel|скасу|відпис/)) {
+      const summary = staffUk ? 'Клієнт просить скасувати підписку.' : 'Customer wants to cancel the subscription.';
+      return out({ ...base, intent: 'cancel_subscription', summary, reasoning: staffUk ? 'Запит має розглянути спеціаліст.' : 'A specialist must review the request.', reply: '', action: { tool: 'escalate_to_human', args: { reason: summary } } });
+    }
+    if (has(text, /refund|money back|поверн/)) {
+      const summary = staffUk ? 'Клієнт просить повернення.' : 'Customer asks for a refund.';
+      return out({ ...base, intent: 'refund_request', summary, reasoning: staffUk ? 'Повернення без підтвердженого дубля потребує рішення спеціаліста.' : 'Refunds without a confirmed duplicate need a specialist’s decision.', reply: '', action: { tool: 'escalate_to_human', args: { reason: summary } } });
+    }
+    return out({ ...base, intent: 'other', summary: staffUk ? 'Загальне запитання.' : 'General question.', reasoning: staffUk ? 'Потрібно уточнити запит.' : 'The request needs clarification.', reply: messages.clarify, action: null });
   }
 }
 

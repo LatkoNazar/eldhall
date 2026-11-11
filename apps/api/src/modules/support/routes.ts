@@ -1,7 +1,9 @@
 import { guardDefinitions, guardRulesSchema } from './guards.js';
+import { guardDraftContext, guardDraftRequest, reviewGuardDraft, GuardDraftRejection, type GuardDraftModel } from './guard-drafts.js';
 import { databaseGuardConfiguration } from './database-guards.js';
 import { databaseInvestigationPolicySchema, type DatabaseSourceDescriptor } from '../database/contracts.js';
 import { businessVisible, publicBusiness, scopedMetrics } from './workspace.js';
+import { isDemoCustomer, type CaseEnvironment } from './test-sessions.js';
 import { requestTransitionSchema } from './requests/contracts.js';
 import { RequestValidationError } from './requests/engine.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -10,7 +12,7 @@ import { z } from 'zod';
 import { requireStaffToken } from '../../core/staff-auth.js';
 import { fixedWindowLimiter } from './rate-limit.js';
 import { HarnessError, type SupportHarness } from '../agent/harness.js';
-import type { CaseStatus } from './contracts.js';
+import type { CaseStatus, SupportSettings } from './contracts.js';
 import { seedData } from './seed.js';
 import { VersionConflict, type SupportStore } from './store.js';
 import { classificationConfigSchema } from '../agent/classification.js';
@@ -18,6 +20,7 @@ import { importFromFile, importFromUrl, KnowledgeImportError, knowledgeRuntime }
 import type { IntegrationImportsService } from '../../integrations/imports-service.js';
 import type { BusinessIntegrations } from '../../integrations/mcp.js';
 import { integrationRoutes } from '../../integrations/routes.js';
+import { customSkillName, relatedSkillIds, reviewSkillDraft, skillDraftInput, skillDraftRequest, withRelatedSkills, type SkillDraftModel } from './skill-drafts.js';
 
 export interface SupportDependencies {
   databaseInvestigations?: { getSources(businessId: string): DatabaseSourceDescriptor[]; close(): Promise<void> };
@@ -25,6 +28,9 @@ export interface SupportDependencies {
   integrations?: BusinessIntegrations;
   integrationImports?: IntegrationImportsService;
   execution?: 'inline' | 'worker';
+  testChatEnabled?: boolean;
+  skillDraftModel?: SkillDraftModel;
+  guardDraftModel?: GuardDraftModel;
   capabilities?: { execution: string; runtime: string; provider: string; model: string; persistence: string; paymentProvider: 'simulated'; credentialsConfigured: boolean; knowledgeSearch: 'lexical' | 'hybrid'; approvals: 'separate-execution'; maxToolCalls: number;
     classification?: { provider: string; model: string; credentialsConfigured: boolean } };
 }
@@ -62,10 +68,15 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       const retry = hit(`ip:${request.ip}`, 60, now) || (sid ? hit(`s:${sid}`, 20, now) : 0);
       if (retry) return reply.code(429).header('Retry-After', String(retry)).send({ detail: 'Too many requests' });
     });
-    chat.post('/cases', (request, reply) => guard(reply, async () => {
-      const created = await harness.openCase(session(request.headers));
-      return reply.code(201).send({ id: created.id, status: created.status });
-    }));
+    const openChatCase = (headers: Record<string, unknown>, reply: FastifyReply, environment: CaseEnvironment) =>
+      guard(reply, async () => {
+        const created = await harness.openCase(session(headers), environment);
+        return reply.code(201).send({ id: created.id, status: created.status, isTest: created.isTest === true });
+      });
+    chat.post('/cases', (request, reply) => openChatCase(request.headers, reply, 'live'));
+    if (demoResetEnabled || support.testChatEnabled) {
+      chat.post('/test-cases', (request, reply) => openChatCase(request.headers, reply, 'test'));
+    }
     chat.get<{ Params: { id: string } }>('/cases/:id', { schema: { params: uuidParams } }, (request, reply) => guard(reply, async () => {
       const { supportCase, messages, activeRun } = await harness.customerCase(session(request.headers), request.params.id);
       const business = await store.business(supportCase.businessId);
@@ -83,7 +94,11 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
     }));
     if (demoResetEnabled) {
       chat.get('/personas', async () => {
-        const customers = (await Promise.all(seedData().customers.map(c => store.customer(c.id)))).filter(c => c !== null).filter(c=>businessVisible(support.workspaceBusinessId,c.businessId));
+        const customers = (await Promise.all(seedData().customers.map(async fixture => {
+          const customer = await store.customer(fixture.id);
+          return customer && isDemoCustomer(customer) && customer.sessionToken === fixture.sessionToken
+            && businessVisible(support.workspaceBusinessId, customer.businessId) ? customer : null;
+        }))).filter(customer => customer !== null);
         return Promise.all(customers.map(async c => ({ name: c.name, plan: c.plan, sessionToken: c.sessionToken, businessName: (await store.business(c.businessId))?.name ?? '' })));
       });
     }
@@ -91,6 +106,8 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
 
   // Operator console: bearer OPERATOR_TOKEN.
   await app.register(async operator => {
+    const draftLimit = fixedWindowLimiter();
+    const drafting = new Set<string>();
     operator.addHook('onRequest', async (request, reply) => requireStaffToken(request, reply, operatorToken));
     operator.addHook('preHandler',async(request,reply)=>{
       const binding=support.workspaceBusinessId;if(!binding)return;
@@ -105,9 +122,11 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       if(businesses.length!==1)return reply.code(409).send({detail:'Configure an explicit workspace business',code:'workspace_ambiguous'});
       return {business:publicBusiness(businesses[0]!)};
     }));
-    operator.get<{ Querystring: { status?: CaseStatus } }>('/cases', {
-      schema: { querystring: { type: 'object', additionalProperties: false, properties: { status: { type: 'string', enum: STATUSES } } } },
-    }, async request => (await store.listCases(request.query.status)).filter(row=>businessVisible(support.workspaceBusinessId,row.businessId)));
+    operator.get<{ Querystring: { status?: CaseStatus; environment?: CaseEnvironment } }>('/cases', {
+      schema: { querystring: { type: 'object', additionalProperties: false, properties: {
+        status: { type: 'string', enum: STATUSES }, environment: { type: 'string', enum: ['live', 'test'] },
+      } } },
+    }, async request => (await store.listCases(request.query.status, request.query.environment ?? 'live')).filter(row=>businessVisible(support.workspaceBusinessId,row.businessId)));
     operator.get<{ Params: { id: string } }>('/cases/:id', { schema: { params: uuidParams } }, (request, reply) => guard(reply, () => harness.detail(request.params.id)));
     operator.post<{ Params: { id: string; requestId: string } }>('/cases/:id/requests/:requestId/transition', (request, reply) => guard(reply, async () => {
       const params=z.strictObject({id:z.uuid(),requestId:z.uuid()}).parse(request.params);
@@ -242,18 +261,95 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
         return store.saveKnowledge({ ...source, version: version + 1, status: command === 'publish' ? 'published' : 'revoked', updatedAt: new Date().toISOString() }, version);
       }));
     }
-    operator.get('/skills', (request, reply) => guard(reply, async () => ({ skills: await store.skills(await scope(request.query)), preset: 'support-v1' })));
+    operator.get('/skills', (request, reply) => guard(reply, async () => ({
+      skills: await store.skills(await scope(request.query)), preset: 'support-v1', canGenerate: Boolean(support.skillDraftModel),
+    })));
+    operator.post('/skills/draft', (request, reply) => guard(reply, async () => {
+      const businessId = await scope(request.query);
+      const { description } = skillDraftRequest.parse(request.body);
+      const model = support.skillDraftModel;
+      if (!model) throw new HarnessError(503, 'Skill drafting requires a configured model');
+      if (drafting.has(businessId) || drafting.size >= 2) {
+        return reply.code(429).header('Retry-After', '5').send({ detail: 'A skill draft is already being generated' });
+      }
+      const retry = draftLimit(businessId, 5, Date.now());
+      if (retry) return reply.code(429).header('Retry-After', String(retry)).send({ detail: 'Too many skill draft requests' });
+      drafting.add(businessId);
+      try {
+        const [skills, settings] = await Promise.all([store.skills(businessId), store.settings(businessId)]);
+        const input = skillDraftInput(description, skills, settings);
+        const result = await model.generate(input, businessId, request.signal);
+        return reviewSkillDraft(input, result, await store.skills(businessId));
+      } catch {
+        throw new HarnessError(502, 'Could not generate a valid skill draft. Try again or write it manually.');
+      } finally {
+        drafting.delete(businessId);
+      }
+    }));
     operator.post('/skills', (request, reply) => guard(reply, async () => {
-      const body = z.strictObject({ name: z.string().regex(/^custom\/[a-z0-9][a-z0-9-]{0,63}$/), content: z.string().trim().min(1).max(30000), enabled: z.boolean().default(true) }).parse(request.body);
-      return reply.code(201).send(await store.saveSkill({ ...body, id: randomUUID(), businessId: await scope(request.query), revision: 1, updatedAt: new Date().toISOString() }));
+      const businessId = await scope(request.query);
+      const body = z.strictObject({
+        name: z.string().regex(customSkillName), content: z.string().trim().min(1).max(30_000),
+        enabled: z.boolean().default(true), relatedSkillIds: relatedSkillIds.optional(),
+      }).parse(request.body);
+      const skills = body.relatedSkillIds?.length ? await store.skills(businessId) : [];
+      const related = (body.relatedSkillIds ?? []).map(id => skills.find(skill => skill.id === id && skill.enabled));
+      if (related.some(skill => !skill)) throw new HarnessError(422, 'Related skills must be enabled in this workspace');
+      const content = withRelatedSkills(body.name, body.content, related.filter(skill => skill !== undefined));
+      if (content.length > 30_000) throw new HarnessError(422, 'Skill content is too long with related skills');
+      return reply.code(201).send(await store.saveSkill({
+        name: body.name, content, enabled: body.enabled, id: randomUUID(), businessId, revision: 1, updatedAt: new Date().toISOString(),
+      }));
     }));
     operator.patch<{Params:{id:string}}>('/skills/:id',(request,reply)=>guard(reply,async()=>{
       const businessId=await scope(request.query);const id=z.uuid().parse(request.params.id);const body=z.strictObject({revision:z.number().int().positive(),content:z.string().trim().min(1).max(30000),enabled:z.boolean()}).parse(request.body);
       const old=(await store.skills(businessId)).find(row=>row.id===id);if(!old)throw new HarnessError(404,'Skill not found');
       return store.saveSkill({...old,...body,revision:body.revision+1,updatedAt:new Date().toISOString()},body.revision);
     }));
-    operator.get('/guards',(request,reply)=>guard(reply,async()=>{const settings=await store.settings(await scope(request.query));return {version:settings.version,revision:settings.guardRevision??0,rules:settings.guards??[],definitions:guardDefinitions};}));
-    operator.put('/guards',(request,reply)=>guard(reply,async()=>{const businessId=await scope(request.query);const body=z.strictObject({version:z.number().int().positive(),rules:guardRulesSchema}).parse(request.body);const old=await store.settings(businessId);const saved=await store.saveSettings({...old,version:body.version+1,guards:body.rules,guardRevision:(old.guardRevision??0)+1},body.version);return {version:saved.version,revision:saved.guardRevision??0,rules:saved.guards??[],definitions:guardDefinitions};}));
+    const guardConfiguration = (settings: SupportSettings) => ({ version: settings.version, revision: settings.guardRevision ?? 0, rules: settings.guards ?? [], definitions: guardDefinitions, canGenerate: Boolean(support.guardDraftModel) });
+    operator.get('/guards', (request, reply) => guard(reply, async () => guardConfiguration(await store.settings(await scope(request.query)))));
+    operator.put('/guards', (request, reply) => guard(reply, async () => {
+      const businessId = await scope(request.query);
+      const body = z.strictObject({ version: z.number().int().positive(), rules: guardRulesSchema }).parse(request.body);
+      const old = await store.settings(businessId);
+      return guardConfiguration(await store.saveSettings({ ...old, version: body.version + 1, guards: body.rules, guardRevision: (old.guardRevision ?? 0) + 1 }, body.version));
+    }));
+    operator.post('/guards/draft', (request, reply) => guard(reply, async () => {
+      const businessId = await scope(request.query);
+      const { description, guardId } = guardDraftRequest.parse(request.body);
+      const model = support.guardDraftModel;
+      if (!model) throw new HarnessError(503, 'Guard drafting requires a configured model');
+      if (drafting.has(businessId) || drafting.size >= 2) {
+        return reply.code(429).header('Retry-After', '5').send({ detail: 'A draft is already being generated' });
+      }
+      const retry = draftLimit(businessId, 5, Date.now());
+      if (retry) return reply.code(429).header('Retry-After', String(retry)).send({ detail: 'Too many draft requests' });
+      drafting.add(businessId);
+      try {
+        const [settings, business] = await Promise.all([store.settings(businessId), store.business(businessId)]);
+        if (!business) throw new HarnessError(404, 'Business not found');
+        const existing = guardRulesSchema.parse(settings.guards ?? []);
+        const editing = existing.find(rule => rule.id === guardId);
+        if (guardId && !editing) throw new HarnessError(404, 'Guard not found');
+        if (!editing && existing.length >= 30) throw new GuardDraftRejection('guard_draft_limit', 'The workspace has 30 guards. Edit an existing rule.');
+        const { input, states } = await guardDraftContext(store.integrationStore, businessId, description, business.currency, existing, editing);
+        const proposed = await model.generate(input, businessId, request.signal);
+        const draft = reviewGuardDraft(input, proposed, editing);
+        if (draft.target.integrationId) {
+          const prior = states.find(state => state.integrationId === draft.target.integrationId);
+          const latest = await store.integrationStore.get(businessId, draft.target.integrationId);
+          if (!prior || !latest || latest.version !== prior.version || latest.loadedManifestHash !== prior.loadedManifestHash) throw new HarnessError(409, 'The target integration changed. Generate a new draft.');
+        }
+        if ((await store.settings(businessId)).version !== settings.version) throw new HarnessError(409, 'Guard settings changed. Generate a new draft.');
+        return { guard: draft };
+      } catch (error) {
+        if (error instanceof HarnessError) throw error;
+        if (error instanceof GuardDraftRejection) return reply.code(422).send({ code: error.code, detail: error.message });
+        throw new HarnessError(502, 'Could not generate a valid guard draft. Try a more specific description.');
+      } finally {
+        drafting.delete(businessId);
+      }
+    }));
     operator.get('/guards/database', (request, reply) => guard(reply, async () => {
       const businessId = await scope(request.query);
       return databaseGuardConfiguration(await store.settings(businessId), support.databaseInvestigations?.getSources(businessId) ?? []);
@@ -272,7 +368,7 @@ export async function supportRoutes(app: FastifyInstance, { support, operatorTok
       const body = z.strictObject({ version: z.number().int().positive(), language: z.enum(['uk', 'en']), tone: z.enum(['neutral', 'empathetic', 'de-escalating']), requireApproval: z.literal(true), refundLimitCents: z.number().int().positive().max(100000000), duplicateWindowMinutes: z.number().int().positive().max(1440), enabledTools: z.array(z.enum(['lookup_payments', 'refund_payment', 'escalate_to_human'])).max(3), classification: classificationConfigSchema.nullable().optional() }).parse(request.body);
       return store.saveSettings({ ...body, businessId: await scope(request.query), version: body.version + 1 }, body.version);
     }));
-    operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases()).filter(c=>businessVisible(support.workspaceBusinessId,c.businessId)).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
+    operator.get('/team', async () => ({ members: [{ id: 'staff', name: 'Оператор', role: 'admin', assignedCases: (await store.listCases(undefined, 'live')).filter(c=>businessVisible(support.workspaceBusinessId,c.businessId)).filter(c => c.assignedTo === 'operator:staff').length }], capabilities: { invite: false, updateRole: false } }));
     operator.get('/metrics', () => support.workspaceBusinessId?scopedMetrics(store,support.workspaceBusinessId):store.metrics());
     operator.get('/capabilities', () => support.capabilities ?? { runtime: 'injected', provider: 'test', model: 'test', persistence: 'injected', paymentProvider: 'simulated', credentialsConfigured: false, knowledgeSearch: 'hybrid', approvals: 'separate-execution' });
     if (demoResetEnabled) {

@@ -64,6 +64,35 @@ test('2. unsupported request (cancellation) creates no money action and escalate
   assert.equal((await h.store.refunds()).length, 0);
 });
 
+test('customer reply and action receipt use the conversation language independently of the operator handoff', async () => {
+  const summary = 'Клієнт повідомляє про подвійне списання.';
+  const model = new ScriptedModel(async ctx => {
+    assert.equal(ctx.operatorLanguage, 'uk');
+    assert.ok(!('responseStyle' in ctx.business));
+    const catalog = await ctx.checkpointRequests!({
+      version: ctx.requestCatalog!().version, syncState: 'current',
+      changes: [{
+        localKey: 'refund', title: 'Перевірити подвійне списання', goal: summary, waitingOn: null, nextStep: null,
+        sourceMessageIds: [ctx.currentCustomerMessageId!], dependencyIds: [], dependencyKeys: [],
+      }],
+    });
+    const request = catalog.requests[0]!;
+    return decision({
+      summary, reasoning: 'Повернення другого платежу потребує погодження.',
+      replyLanguage: 'es-MX', sentiment: { label: 'frustrated', urgency: 'medium' },
+      action: { tool: 'refund_payment', args: { payment_id: DUP_LATER, amount_cents: 49900 }, requests: [{ id: request.id, revision: request.revision }] },
+    });
+  });
+  const h = setup(Object.assign(model, { requestCatalogProtocol: 'checkpoint-v1' as const }));
+  const { caseId, turn } = await duplicateTurn(h, 'Me cobraron dos veces. Necesito ayuda.');
+  assert.equal(turn.case.analysis?.summary, summary);
+  assert.equal(turn.case.analysis?.tone, 'empathetic');
+  assert.match(turn.reply?.body ?? '', /Un especialista debe aprobarlo/);
+  assert.ok(turn.proposal);
+  await approveAndExecute(h, turn.proposal);
+  assert.match((await h.store.messages(caseId)).at(-1)?.body ?? '', /No se movió dinero real/);
+});
+
 test('3. missing information: no duplicate found -> clarifying question, no proposal', async () => {
   const h = setup();
   const opened = await h.harness.openCase('demo-taras');
@@ -168,10 +197,17 @@ test('10. abusive message: P1 + escalation; frustration alone never authorises m
   assert.equal(dup.proposal?.status, 'pending');  // still waits for a human
 });
 
-test('model reply claiming a refund without execution is replaced', async () => {
-  const h = setup(new ScriptedModel(() => decision({ intent: 'other', reply: 'Good news, we have refunded you!' })));
-  const { turn } = await duplicateTurn(h, 'hello');
-  assert.doesNotMatch(turn.reply!.body, /refunded/);
+test('model replies claiming a refund without execution are replaced in the conversation language', async () => {
+  for (const [language, input, reply, fallback] of [
+    ['en', 'Hello', 'Good news, we have refunded you!', /looking into/],
+    ['es', 'Hola', 'Ya te devolví el dinero a tu tarjeta.', /revisando tu consulta/],
+    ['de', 'Hallo', 'Ich habe den Betrag bereits erstattet.', /prüfe Ihre Anfrage/],
+    ['pt', 'Olá', 'Já lhe devolvi o dinheiro.', /verificar o pedido/],
+  ] as const) {
+    const h = setup(new ScriptedModel(() => decision({ intent: 'other', reply, replyLanguage: language })));
+    const { turn } = await duplicateTurn(h, input);
+    assert.match(turn.reply!.body, fallback);
+  }
 });
 
 test('HTTP: customer session scoping, operator auth and approval flow', async () => {
@@ -183,6 +219,7 @@ test('HTTP: customer session scoping, operator auth and approval flow', async ()
     assert.equal((await app.inject({ method: 'POST', url: '/api/v1/chat/cases', headers: host })).statusCode, 401);
     const opened = await app.inject({ method: 'POST', url: '/api/v1/chat/cases', headers: { ...host, 'x-customer-session': OLENA } });
     assert.equal(opened.statusCode, 201);
+    assert.equal(opened.json().isTest, false);
     const id = opened.json().id;
     const own = await app.inject({ url: `/api/v1/chat/cases/${id}`, headers: { ...host, 'x-customer-session': OLENA } });
     assert.equal(own.json().businessName, 'NovaPay Fitness');
@@ -195,18 +232,52 @@ test('HTTP: customer session scoping, operator auth and approval flow', async ()
     assert.equal(turn.json().status, 'awaiting_approval');
     assert.equal(turn.json().proposal, undefined);   // internals stay on the operator side
     assert.equal((await app.inject({ url: '/api/v1/cases', headers: host })).statusCode, 401);
+    assert.equal((await app.inject({ url: '/api/v1/cases?environment=test', headers: host })).statusCode, 401);
     const detail = (await app.inject({ url: `/api/v1/cases/${id}`, headers: op })).json();
     const proposal = detail.proposals[0];
+    assert.equal(detail.case.isTest, false);
     assert.equal(detail.customer.sessionToken, undefined);
     const approve = (hash: string) => app.inject({ method: 'POST', url: `/api/v1/proposals/${proposal.id}/approve`, headers: op, payload: { operator: 'anna', argsHash: hash } });
     assert.equal((await approve(proposal.argsHash)).statusCode, 200);
     assert.equal((await h.store.refunds()).length, 0);
     assert.equal((await app.inject({ method: 'POST', url: `/api/v1/proposals/${proposal.id}/execute`, headers: op, payload: { argsHash: proposal.argsHash } })).statusCode, 200);
     assert.equal((await approve(proposal.argsHash)).statusCode, 409);
+    assert.equal((await h.store.refunds())[0]?.amountCents, 49900);
     const metrics = (await app.inject({ url: '/api/v1/metrics', headers: op })).json();
+    assert.equal(metrics.cases, 1);
+    assert.equal(metrics.agentRuns, 1);
+    assert.equal(metrics.proposals.executed, 1);
     assert.equal(metrics.refundsIssuedCents, 49900);
+
+    const created = await app.inject({ method: 'POST', url: '/api/v1/customers', headers: op, payload: {
+      businessId: detail.case.businessId, name: 'Ordinary customer', email: 'ordinary@example.test', plan: 'Standard',
+    } });
+    assert.equal(created.statusCode, 201, created.body);
+    assert.equal((await app.inject({ method: 'POST', url: '/api/v1/chat/test-cases', headers: { ...host, 'x-customer-session': created.json().sessionToken } })).statusCode, 403);
+    const testCase = await app.inject({ method: 'POST', url: '/api/v1/chat/test-cases', headers: { ...host, 'x-customer-session': OLENA } });
+    assert.equal(testCase.statusCode, 201, testCase.body);
+    assert.equal(testCase.json().isTest, true);
+    const testId = testCase.json().id;
+    for (const caseId of [id, testId]) {
+      assert.equal((await app.inject({ method: 'POST', url: `/api/v1/cases/${caseId}/takeover`, headers: op })).statusCode, 200);
+    }
+    const listed = async (query = '') => (await app.inject({ url: `/api/v1/cases${query}`, headers: op })).json<{ id: string; isTest: boolean }[]>();
+    assert.deepEqual((await listed()).map(row => [row.id, row.isTest]), [[id, false]]);
+    assert.deepEqual((await listed('?environment=test&status=escalated')).map(row => [row.id, row.isTest]), [[testId, true]]);
+    assert.deepEqual(await listed('?environment=test&status=open'), []);
+    assert.equal((await app.inject({ url: '/api/v1/cases?environment=all', headers: op })).statusCode, 422);
+    assert.equal((await app.inject({ url: '/api/v1/metrics', headers: op })).json().cases, 1);
+    assert.equal((await app.inject({ url: '/api/v1/team', headers: op })).json().members[0].assignedCases, 1);
     assert.equal((await app.inject({ method: 'POST', url: '/api/v1/demo/reset', headers: op })).statusCode, 200);
-    assert.equal((await app.inject({ url: '/api/v1/cases', headers: op })).json().length, 0);
+    assert.deepEqual(await listed(), []);
+    assert.deepEqual(await listed('?environment=test'), []);
+
+    const [alteredIdentity, rotatedToken, knownPersona] = seedData().customers;
+    await h.store.createCustomer({ ...alteredIdentity!, email: 'ordinary-with-reused-id@example.test' });
+    await h.store.createCustomer({ ...rotatedToken!, sessionToken: 'synthetic-rotated-private-token' });
+    const personas = (await app.inject({ url: '/api/v1/chat/personas', headers: host })).json<{ sessionToken: string }[]>();
+    assert.ok(personas.some(persona => persona.sessionToken === knownPersona!.sessionToken));
+    assert.ok(personas.every(persona => ![alteredIdentity!.sessionToken, rotatedToken!.sessionToken, 'synthetic-rotated-private-token'].includes(persona.sessionToken)));
   } finally { await app.close(); }
 });
 

@@ -106,6 +106,12 @@ test('auto: same ledger, executed inside the turn, recorded as policy_auto; unkn
   assert.match(result.reply!.body, /Дію «Cancel order» виконано \(статус: cancelled\)\.$/);
   assert.equal((await h.store.auditEvents(caseId)).find(row => row.type === 'action.executed')!.data.origin, 'policy_auto');
 
+  const switched = setup('auto', [done]);
+  const spanishCase = await switched.harness.openCase(OLENA);
+  await switched.store.updateCase(spanishCase.id, { analysis: { ...result.case.analysis!, replyLanguage: 'en' } });
+  const spanish = await switched.harness.runTurn(OLENA, spanishCase.id, 'Hola, cancela mi pedido ORD-1001 (cancel order).');
+  assert.match(spanish.reply!.body, /Se completó «Cancel order»/);
+
   const unsure = setup('auto', [async () => ({ status: 'unknown', reasonCode: 'outcome_unknown' })]);
   const second=await unsure.harness.openCase(OLENA);
   await assert.rejects(unsure.harness.runTurn(OLENA,second.id,'Скасуйте замовлення'),(error:unknown)=>error instanceof HarnessError&&error.status===409);
