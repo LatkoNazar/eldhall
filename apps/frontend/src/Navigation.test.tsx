@@ -19,11 +19,13 @@ function mockApi() {
     const path = String(input)
     if (path === '/api/v1/workspace') return response({ business: { id: 'business-1', name: 'First business', slug: 'first-bank', currency: 'UAH' } })
     if (path === '/api/v1/operator/session') return response({ authenticated: true })
-    if (path === '/api/v1/cases') return response([ticket('case-a'), ticket('case-b')])
+    if (path === '/api/v1/chat/personas') return response([{ name: 'Test persona', plan: 'QA', sessionToken: 'fixture-key', businessName: 'First business' }])
+    if (path === '/api/v1/cases') return response([ticket('case-a'), ticket('case-b'), { ...ticket('test-a'), isTest: true }])
+    if (path === '/api/v1/cases?environment=test') return response([{ ...ticket('test-a'), isTest: true }, { ...ticket('test-b'), isTest: true }, ticket('case-a')])
     if (path === '/api/v1/metrics') return response({ cases: 2, byStatus: { open: 2, awaiting_approval: 0, escalated: 0, resolved: 0 }, byPriority: { P1: 0, P2: 0, P3: 2 }, proposals: {}, refundsIssuedCents: 0, agentRuns: 0, fallbackRuns: 0, avgAgentLatencyMs: null })
     if (path.startsWith('/api/v1/cases/')) {
       const id = path.split('/').at(-1)!
-      return response({ case: ticket(id), customer: { name: id, email: 'qa@example.test', plan: 'QA' }, messages: [{ id: `message-${id}`, caseId: id, role: 'customer', body: `Message ${id}`, createdAt: time }], proposals: [], payments: [], refunds: [], audit: [], runs: [] })
+      return response({ case: { ...ticket(id), isTest: id.startsWith('test-') }, customer: { name: id, email: 'qa@example.test', plan: 'QA' }, messages: [{ id: `message-${id}`, caseId: id, role: 'customer', body: `Message ${id}`, createdAt: time }], proposals: [], payments: [], refunds: [], audit: [], runs: [] })
     }
     if (path === '/api/v1/businesses') return response({ businesses: [{ id: 'business-1', name: 'First business', currency: 'UAH' }, { id: 'business-2', name: 'Second business', currency: 'UAH' }] })
     if (path.startsWith('/api/v1/knowledge?')) {
@@ -78,6 +80,46 @@ it('clears stale route search and reacts immediately to a same-path case deep li
   expect(screen.getByRole('textbox', { name: /Пошук звернень/ })).toHaveValue('')
 })
 
+it('opens the test chat and isolated test history in the same tab and returns with the operator session', async () => {
+  const fetch = mockApi()
+  const user = userEvent.setup()
+  render(<App />)
+  await screen.findByText('Message case-a')
+  expect(screen.queryByRole('button', { name: /test-a/ })).not.toBeInTheDocument()
+
+  const entry = screen.getByRole('link', { name: 'Тестовий чат' })
+  expect(entry).not.toHaveAttribute('target')
+  await user.click(entry)
+  expect(window.location.pathname).toBe('/chat')
+  const history = await screen.findByRole('link', { name: 'Історія тестових чатів' })
+  const firstTestRead = fetch.mock.calls.length
+  await user.click(history)
+  expect(await screen.findByRole('heading', { name: 'Історія тестових чатів' })).toBeInTheDocument()
+  await screen.findByText('Message test-a')
+  expect(screen.queryByRole('link', { name: /case-a/ })).not.toBeInTheDocument()
+  const testRequests = fetch.mock.calls.slice(firstTestRead).map(([url]) => String(url))
+  expect(testRequests).toContain('/api/v1/cases?environment=test')
+  expect(testRequests).not.toContain('/api/v1/cases')
+  expect(testRequests).not.toContain('/api/v1/metrics')
+
+  await user.click(screen.getByRole('link', { name: /test-b/ }))
+  expect(new URLSearchParams(window.location.search).get('caseId')).toBe('test-b')
+  expect(await screen.findByText('Message test-b')).toBeInTheDocument()
+  expect(screen.getByText('Дії агента')).toBeInTheDocument()
+
+  const beforeForeignLink = fetch.mock.calls.length
+  act(() => { navigate('/operator?environment=test&caseId=case-a') })
+  await screen.findByText('Message test-a')
+  expect(fetch.mock.calls.slice(beforeForeignLink).map(([url]) => String(url))).not.toContain('/api/v1/cases/case-a')
+
+  await user.click(screen.getByRole('link', { name: 'До тестового чату' }))
+  expect(window.location.pathname).toBe('/chat')
+  await user.click(screen.getByRole('link', { name: 'До вхідних' }))
+  expect(await screen.findByRole('heading', { name: 'Вхідні звернення' })).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/operator')
+  expect(new URLSearchParams(window.location.search).has('environment')).toBe(false)
+})
+
 it('updates same-path document selection while foreign URL business ids cannot retarget the workspace', async () => {
   mockApi()
   render(<App />)
@@ -89,6 +131,34 @@ it('updates same-path document selection while foreign URL business ids cannot r
   expect(await screen.findByLabelText('Вміст')).toHaveValue('Content doc-a')
   expect(screen.queryByLabelText('Бізнес')).not.toBeInTheDocument()
   expect(screen.getByText(/Посилання вказує інший бізнес/)).toBeInTheDocument()
+})
+
+it('keeps an unsaved document open while testing knowledge search on another tab', async () => {
+  const fetch = mockApi()
+  window.history.replaceState({}, '', '/operator/knowledge?documentId=doc-b')
+  const user = userEvent.setup()
+  render(<App />)
+
+  const editor = await screen.findByRole('textbox', { name: 'Вміст' })
+  await user.type(editor, ' draft')
+  expect(screen.getByRole('button', { name: 'Імпортувати' })).toBeEnabled()
+  expect(fetch.mock.calls.some(([path]) => String(path).includes('/knowledge/index'))).toBe(false)
+
+  const documents = screen.getByRole('tab', { name: 'Документи' })
+  documents.focus()
+  await user.keyboard('{ArrowRight}')
+  const search = screen.getByRole('tab', { name: 'Перевірка пошуку' })
+  expect(search).toHaveFocus()
+  expect(search).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByRole('textbox', { name: 'Вміст' })).not.toBeInTheDocument()
+  await waitFor(() => expect(fetch.mock.calls.some(([path]) => String(path).includes('/knowledge/index'))).toBe(true))
+
+  await user.type(screen.getByRole('textbox', { name: 'Питання клієнта' }), 'test question')
+  await user.click(documents)
+  expect(screen.getByRole('textbox', { name: 'Вміст' })).toBe(editor)
+  expect(editor).toHaveValue('Content doc-b draft')
+  await user.click(search)
+  expect(screen.getByRole('textbox', { name: 'Питання клієнта' })).toHaveValue('test question')
 })
 
 it('handles browser Back/Forward and normalized trailing-slash routes without replacing the shell', async () => {

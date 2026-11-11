@@ -14,12 +14,12 @@ import type { CaseDetail, CaseStatus, SupportCase } from '../lib/api'
 import { useResource } from '../lib/useResource'
 import { registerNavigationGuard } from '../lib/navigation'
 
-export function CaseWorkspace({ token, cases, search, actionOnly, onChanged, onRefresh, businessNames = {} }: { token: string; cases: SupportCase[]; search: string; actionOnly: boolean; onChanged: () => void; onRefresh?: () => void; businessNames?: Readonly<Record<string, string>> }) {
+export function CaseWorkspace({ token, cases, search, actionOnly, testSessions = false, onChanged, onRefresh, businessNames = {} }: { token: string; cases: SupportCase[]; search: string; actionOnly: boolean; testSessions?: boolean; onChanged: () => void; onRefresh?: () => void; businessNames?: Readonly<Record<string, string>> }) {
   const { t, locale } = useI18n()
   const [linkedCase] = useState(() => new URLSearchParams(window.location.search).get('caseId') ?? '')
   const [selected, setSelected] = useState(linkedCase)
   const [status, setStatus] = useState<CaseStatus | ''>('')
-  const [mobileDetail, setMobileDetail] = useState(Boolean(linkedCase))
+  const [mobileDetail, setMobileDetail] = useState(Boolean(linkedCase && (!testSessions || cases.some(item => item.id === linkedCase))))
   const [panel, setPanel] = useState<'conversation' | 'inspector'>('conversation')
   const workspace = useRef<HTMLDivElement>(null)
   const wasDetail = useRef(false)
@@ -27,7 +27,7 @@ export function CaseWorkspace({ token, cases, search, actionOnly, onChanged, onR
     if (window.matchMedia?.('(max-width: 767px)').matches) {
       if (mobileDetail) workspace.current?.querySelector<HTMLButtonElement>('.workspace-panels button[aria-pressed="true"]')?.focus()
       else if (wasDetail.current) {
-        const target = workspace.current?.querySelector<HTMLElement>('.case-item[aria-pressed="true"]') ?? workspace.current?.querySelector<HTMLElement>('.case-list')
+        const target = workspace.current?.querySelector<HTMLElement>('.case-item.selected') ?? workspace.current?.querySelector<HTMLElement>('.case-list')
         target?.focus()
       }
     }
@@ -35,18 +35,49 @@ export function CaseWorkspace({ token, cases, search, actionOnly, onChanged, onR
   }, [mobileDetail])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const filtered = cases.filter(item => (!status || item.status === status) && `${item.customerName} ${item.intent ? intentLabel(item.intent, t) : ''} ${item.analysis?.classification?.label ?? ''}`.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)))
-  const activeId = filtered.some(item => item.id === selected) || (!!linkedCase && selected === linkedCase && !status && !search) ? selected : filtered[0]?.id
+  const directLink = !testSessions && !!linkedCase && selected === linkedCase && !status && !search
+  const activeId = filtered.some(item => item.id === selected) || directLink ? selected : filtered[0]?.id
+  const openCase = (id: string) => { setSelected(id); setPanel('conversation'); setMobileDetail(true) }
   return <div className={`case-workspace ${mobileDetail ? 'case-workspace-detail' : ''}`} ref={workspace}>
     <div className="case-toolbar"><div className="tabs" aria-label={t("core.inbox.filter")}><button className={!status ? 'active' : ''} onClick={() => setStatus('')}>{t("core.common.all")} <span>{formatNumber(cases.length, locale)}</span></button>{(['open', 'awaiting_approval', 'escalated', 'resolved'] as const).map(value => <button className={status === value ? 'active' : ''} key={value} onClick={() => setStatus(value)}>{({ open: t("core.inbox.open"), awaiting_approval: t("core.inbox.awaiting"), escalated: t("core.inbox.escalated"), resolved: t("core.inbox.resolved") })[value]} <span>{formatNumber(cases.filter(item => item.status === value).length, locale)}</span></button>)}</div>{onRefresh && <button className="workspace-refresh" onClick={onRefresh}><Icon name="refresh" />{t("core.common.refresh")}</button>}</div>
     <div className="workspace-panels"><button className="workspace-queue-back" aria-label={t("core.inbox.back")} onClick={() => setMobileDetail(false)}><span aria-hidden="true">←</span>{t("core.inbox.queuePanel")}</button><button aria-pressed={panel === 'conversation'} onClick={() => setPanel('conversation')}>{t("core.inbox.conversationPanel")}</button><button aria-pressed={panel === 'inspector'} onClick={() => setPanel('inspector')}>{t("core.inbox.copilot")}</button></div>
     <div data-panel={panel} className={`inbox-layout ${actionOnly ? 'action-layout' : ''} ${mobileDetail ? 'mobile-detail-open' : ''}`}>
-      <section className="case-list card" tabIndex={0} aria-label={t("core.inbox.queue")}><div className="list-caption"><span>{actionOnly ? t("core.inbox.casesActions") : t("core.inbox.channels")}</span><small>{t("core.inbox.queueCount", { count: filtered.length })}</small></div>{filtered.length ? filtered.map(item => <button className={`case-item ${item.id === activeId ? 'selected' : ''}`} key={item.id} onClick={() => { setSelected(item.id); setPanel('conversation'); setMobileDetail(true) }} aria-pressed={item.id === activeId}><Avatar name={item.customerName} seed={`${item.businessId}:${item.customerId}`} /><span className="case-item-body"><span className="case-item-heading"><strong>{item.customerName}</strong><small>{item.priority}</small></span><span className="case-subject">{item.intent ? intentLabel(item.intent, t) : t("core.inbox.new")}</span>{item.analysis?.classification && <span className="case-preview">{t("core.inbox.classPrefix")} {item.analysis.classification.label}</span>}<span className="case-preview">{item.analysis?.summary ?? t("core.inbox.firstPending")}</span><span className="case-item-bottom"><Badge value={item.status} /><time dateTime={item.updatedAt} title={`${dateTime(item.updatedAt, locale)} ${t('core.common.kyiv')}`}>{formatTime(item.updatedAt, locale)}</time></span></span></button>) : <Empty title={cases.length ? t("core.inbox.noMatches") : t("core.inbox.empty")}>{cases.length ? t("core.inbox.searchHint") : <><AppLink href="/chat" target="_blank" rel="noreferrer">{t("core.inbox.testLink")}</AppLink>{t("core.inbox.testSuffix")}</>}</Empty>}</section>
-      {activeId ? <CaseView key={activeId} id={activeId} token={token} businessName={businessNames[cases.find(item => item.id === activeId)?.businessId ?? '']} actionOnly={actionOnly} draft={drafts[activeId] ?? ''} onDraft={value => setDrafts(previous => ({ ...previous, [activeId]: value }))} onBack={() => setMobileDetail(false)} onInspectRequest={() => setPanel('inspector')} onShowConversation={() => setPanel('conversation')} onChanged={onChanged} /> : <section className="card case-placeholder"><Empty icon="spark" title={t("core.inbox.placeholderTitle")}>{t("core.inbox.placeholderHint")}</Empty></section>}
+      <section className="case-list card" tabIndex={0} aria-label={t(testSessions ? 'core.chat.testSessions' : 'core.inbox.queue')}>
+        <div className="list-caption">
+          {testSessions ? <span>{t('core.chat.testSessions')}</span> : actionOnly && <span>{t('core.inbox.casesActions')}</span>}
+          <small>{t('core.inbox.queueCount', { count: filtered.length })}</small>
+        </div>
+        {filtered.length ? filtered.map(item => {
+          const active = item.id === activeId
+          const className = active ? 'case-item selected' : 'case-item'
+          const content = <>
+            <Avatar name={item.customerName} seed={`${item.businessId}:${item.customerId}`} />
+            <span className="case-item-body">
+              <span className="case-item-heading"><strong>{item.customerName}</strong><small>{item.priority}</small></span>
+              <span className="case-subject">{item.intent ? intentLabel(item.intent, t) : t('core.inbox.new')}</span>
+              {item.analysis?.classification && <span className="case-preview">{t('core.inbox.classPrefix')} {item.analysis.classification.label}</span>}
+              {item.analysis?.summary && <span className="case-preview">{item.analysis.summary}</span>}
+              <span className="case-item-bottom">
+                <Badge value={item.status} />
+                <time dateTime={item.updatedAt} title={`${dateTime(item.updatedAt, locale)} ${t('core.common.kyiv')}`}>{formatTime(item.updatedAt, locale)}</time>
+              </span>
+            </span>
+          </>
+          return testSessions
+            ? <AppLink key={item.id} className={className} href={`/operator?environment=test&caseId=${encodeURIComponent(item.id)}`} aria-current={active || undefined} onClick={event => {
+              if (item.id === linkedCase && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) openCase(item.id)
+            }}>{content}</AppLink>
+            : <button key={item.id} className={className} type="button" aria-pressed={active} onClick={() => openCase(item.id)}>{content}</button>
+        }) : <Empty title={t(cases.length ? 'core.inbox.noMatches' : testSessions ? 'core.chat.noTestSessions' : 'core.inbox.empty')}>
+          {cases.length ? t('core.inbox.searchHint') : testSessions ? <AppLink href="/chat">{t('core.nav.testAgent')}</AppLink> : t('core.inbox.emptyHint')}
+        </Empty>}
+      </section>
+      {activeId ? <CaseView key={activeId} id={activeId} token={token} businessName={businessNames[cases.find(item => item.id === activeId)?.businessId ?? '']} actionOnly={actionOnly} testSessions={testSessions} draft={drafts[activeId] ?? ''} onDraft={value => setDrafts(previous => ({ ...previous, [activeId]: value }))} onBack={() => setMobileDetail(false)} onInspectRequest={() => setPanel('inspector')} onShowConversation={() => setPanel('conversation')} onChanged={onChanged} /> : <section className="card case-placeholder"><Empty icon="spark" title={t("core.inbox.placeholderTitle")} /></section>}
     </div>
   </div>
 }
 
-function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged, businessName, onInspectRequest, onShowConversation }: { onInspectRequest: () => void; onShowConversation: () => void; id: string; token: string; businessName?: string; actionOnly: boolean; draft: string; onDraft: (draft: string) => void; onBack: () => void; onChanged: () => void }) {
+function CaseView({ id, token, actionOnly, testSessions, draft, onDraft, onBack, onChanged, businessName, onInspectRequest, onShowConversation }: { onInspectRequest: () => void; onShowConversation: () => void; id: string; token: string; businessName?: string; actionOnly: boolean; testSessions: boolean; draft: string; onDraft: (draft: string) => void; onBack: () => void; onChanged: () => void }) {
   const { t, translateMessage } = useI18n()
   const resource = useResource<CaseDetail>(`/cases/${encodeURIComponent(id)}`, token, 3000)
   const setDraft = onDraft
@@ -76,6 +107,9 @@ function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged, bu
     finally { setBusy('') }
   }
   if (!detail) return <section className="card"><Empty title={resource.loading ? t("core.thread.loading") : t("core.inbox.unavailable")} />{resource.error && <Notice error>{resource.error}<button onClick={resource.refresh}>{t("core.common.refresh")}</button></Notice>}</section>
+  if ((detail.case.isTest === true) !== testSessions) return <section className="card conversation"><Empty title={t('core.inbox.unavailable')}>
+    {detail.case.isTest && <AppLink href={`/operator?environment=test&caseId=${encodeURIComponent(id)}`}>{t('core.chat.testSessions')}</AppLink>}
+  </Empty></section>
   const selectedRequestItem = detail.requestCatalog?.requests.find(item => item.id === selectedRequest)
   const messageRequestLinks: Record<string, MessageRequestLink[]> = {}
   for (const item of detail.requestCatalog?.requests ?? []) for (const messageId of item.sourceMessageIds) {
@@ -89,7 +123,17 @@ function CaseView({ id, token, actionOnly, draft, onDraft, onBack, onChanged, bu
       {resource.error && <Notice error>{t("core.common.stale")} {resource.error}</Notice>}
       {error !== null && <ErrorNotice error={error} />}{notice && <Notice>{translateMessage(notice)}</Notice>}
       {actionOnly ? <div className="actions-detail-scroll"><h3>{t("core.inbox.proposals")}</h3>{detail.proposals.length ? detail.proposals.map(proposal => <ActionCard compact key={proposal.id} proposal={proposal} detail={detail} token={token} stale={!!resource.error} onChanged={() => { resource.refresh(); onChanged() }} />) : <Empty icon="spark" title={t("core.inbox.noProposals")} />}</div> : <MessageThread messages={detail.messages} customerName={detail.customer.name} requestLinks={messageRequestLinks} selectedSourceIds={selectedRequestItem?.sourceMessageIds} onSelectRequest={selectRequest} sourceJump={sourceJump} />}
-      {!actionOnly && <form className="composer" onSubmit={event => { event.preventDefault(); if (draft.trim()) void caseAction('messages', { body: draft.trim() }) }}><label htmlFor={`reply-${id}`}>{t("core.inbox.replyLabel")} <span className="muted">{t("core.inbox.visibleToCustomer")}</span></label><textarea id={`reply-${id}`} rows={2} maxLength={2000} placeholder={detail.case.ownership === 'staff' ? t("core.inbox.replyPlaceholder") : t("core.inbox.takeoverHint")} disabled={isReadOnlyDemo() || detail.case.ownership !== 'staff' || !!busy || !!resource.error} value={draft} onChange={event => setDraft(event.target.value)} /><div className="composer-footer"><small className="muted">{draft ? t("core.inbox.draft") : t("core.inbox.composerHint")}</small><button className="primary" type="submit" disabled={isReadOnlyDemo() || !draft.trim() || !!busy || detail.case.ownership !== 'staff' || !!resource.error}><Icon name="send" size={17} />{busy === 'messages' ? t("core.common.sending") : t("core.common.send")}</button></div></form>}
+      {!actionOnly && <form className="composer" onSubmit={event => { event.preventDefault(); if (draft.trim()) void caseAction('messages', { body: draft.trim() }) }}>
+        <label className="sr-only" htmlFor={`reply-${id}`}>{t('core.inbox.replyLabel')}</label>
+        <textarea id={`reply-${id}`} rows={1} maxLength={2000}
+          placeholder={t(detail.case.ownership === 'staff' ? 'core.inbox.replyLabel' : 'core.inbox.takeoverHint')}
+          title={detail.case.ownership !== 'staff' ? t('core.inbox.takeoverHint') : undefined}
+          disabled={isReadOnlyDemo() || detail.case.ownership !== 'staff' || !!busy || !!resource.error}
+          value={draft} onChange={event => setDraft(event.target.value)} />
+        <button className="primary" type="submit" disabled={isReadOnlyDemo() || !draft.trim() || !!busy || detail.case.ownership !== 'staff' || !!resource.error}>
+          <Icon name="send" size={17} /><span>{busy === 'messages' ? t('core.common.sending') : t('core.common.send')}</span>
+        </button>
+      </form>}
     </section>
     <RequestInspector detail={detail} businessName={businessName} token={token} stale={!!resource.error} selectedId={selectedRequest} onSelect={selectRequest} onShowSource={showSource} renderActions={!actionOnly} onChanged={() => { resource.refresh(); onChanged() }} />
   </>

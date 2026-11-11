@@ -104,7 +104,7 @@ it('waits for operator login before requesting integration data on a direct rout
   render(<App />)
   expect(fetch).not.toHaveBeenCalled()
   await user.type(screen.getByLabelText('Ключ доступу оператора'), 'operator-key')
-  await user.click(screen.getByRole('button', { name: /Відкрити робочий простір/ }))
+  await user.click(screen.getByRole('button', { name: /Увійти/ }))
   expect(await screen.findByRole('heading', { name: 'Інтеграції' })).toBeInTheDocument()
   await openGroup(user)
   expect(fetch.mock.calls.some(([path]) => String(path) === `/api/v1/integrations?businessId=${businessId}`)).toBe(true)

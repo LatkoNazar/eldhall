@@ -1,8 +1,9 @@
 import { useI18n, type UiMessage } from '../i18n'
 import { ErrorNotice } from './ErrorNotice'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { request, UiError } from '../lib/api'
 import { parsePlans } from '../lib/knowledge'
+import { Icon } from './ui'
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -14,17 +15,25 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 /** Import from an allow-listed https page or a .md/.txt/.html file. Both create drafts; publishing stays a separate, explicit step. */
-export function KnowledgeImport({ token, businessId, onImported }: { token: string; businessId: string; onImported: (message: UiMessage) => void }) {
+export function KnowledgeImport({ token, businessId, onImported, onClose }: {
+  token: string; businessId: string; onImported: (message: UiMessage, sourceId: string) => void; onClose?: () => void
+}) {
   const { t } = useI18n()
   const [mode, setMode] = useState<'url' | 'file'>('url')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const dialog = useRef<HTMLDialogElement>(null)
   const [category, setCategory] = useState('')
   const [audience, setAudience] = useState<'customer' | 'internal'>('customer')
   const [plans, setPlans] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown | null>(null)
+  useEffect(() => {
+    const element = dialog.current
+    element?.showModal()
+    return () => element?.close()
+  }, [])
 
   async function submit() {
     setBusy(true)
@@ -32,12 +41,12 @@ export function KnowledgeImport({ token, businessId, onImported }: { token: stri
     try {
       const common = { category: category.trim(), audience, plans: parsePlans(plans) }
       const created = mode === 'url'
-        ? await request<{ title: string }>(`/knowledge/import-url?businessId=${encodeURIComponent(businessId)}`, token, { method: 'POST', body: { ...common, url: url.trim() } })
-        : await request<{ title: string }>(`/knowledge/upload?businessId=${encodeURIComponent(businessId)}`, token, { method: 'POST', body: { ...common, filename: file!.name, contentBase64: await fileToBase64(file!) } })
+        ? await request<{ id: string; title: string }>(`/knowledge/import-url?businessId=${encodeURIComponent(businessId)}`, token, { method: 'POST', body: { ...common, url: url.trim() } })
+        : await request<{ id: string; title: string }>(`/knowledge/upload?businessId=${encodeURIComponent(businessId)}`, token, { method: 'POST', body: { ...common, filename: file!.name, contentBase64: await fileToBase64(file!) } })
       setUrl('')
       setFile(null)
       if (fileInput.current) fileInput.current.value = ''
-      onImported({ key: 'operations.knowledge.importCreated', values: { title: created.title } })
+      onImported({ key: 'operations.knowledge.importCreated', values: { title: created.title } }, created.id)
     } catch (cause) {
       setError(cause)
     } finally {
@@ -46,12 +55,15 @@ export function KnowledgeImport({ token, businessId, onImported }: { token: stri
   }
 
   const ready = category.trim() && (mode === 'url' ? url.trim() : file)
-  return <section className="card padded" aria-labelledby="kb-import-title">
-    <h2 id="kb-import-title">{t("operations.knowledge.importTitle")}</h2>
+  const contents = <>
+    <div className="modal-header">
+      <h2 id="kb-import-title">{t('operations.knowledge.importTitle')}</h2>
+      {onClose && <button type="button" className="icon-button" disabled={busy} onClick={onClose} aria-label={t('operations.common.close')}><Icon name="close" /></button>}
+    </div>
     <p className="muted">{t("operations.knowledge.importDescription")}</p>
-    <div className="form-actions" style={{ justifyContent: 'flex-start', marginTop: 0 }} role="group" aria-label={t("operations.knowledge.importSource")}>
-      <button type="button" className={mode === 'url' ? 'primary' : ''} aria-pressed={mode === 'url'} onClick={() => setMode('url')}>{t("operations.knowledge.fromWebsite")}</button>
-      <button type="button" className={mode === 'file' ? 'primary' : ''} aria-pressed={mode === 'file'} onClick={() => setMode('file')}>{t("operations.knowledge.fromFile")}</button>
+    <div className="knowledge-import-modes" role="group" aria-label={t("operations.knowledge.importSource")}>
+      <button type="button" className={mode === 'url' ? 'primary' : ''} disabled={busy} aria-pressed={mode === 'url'} onClick={() => setMode('url')}>{t("operations.knowledge.fromWebsite")}</button>
+      <button type="button" className={mode === 'file' ? 'primary' : ''} disabled={busy} aria-pressed={mode === 'file'} onClick={() => setMode('file')}>{t("operations.knowledge.fromFile")}</button>
     </div>
     <form onSubmit={event => { event.preventDefault(); if (ready && !busy) void submit() }}>
       {mode === 'url'
@@ -63,7 +75,13 @@ export function KnowledgeImport({ token, businessId, onImported }: { token: stri
       {Boolean(error) && <ErrorNotice error={error}></ErrorNotice>}
       <div className="form-actions"><button type="submit" className="primary" disabled={busy || !ready}>{busy ? t("operations.knowledge.importing") : t("operations.knowledge.importDraft")}</button></div>
     </form>
-  </section>
+  </>
+  return onClose
+    ? <dialog ref={dialog} className="modal knowledge-import-modal" aria-labelledby="kb-import-title" onCancel={event => {
+      event.preventDefault()
+      if (!busy) onClose()
+    }}>{contents}</dialog>
+    : <section className="card padded" aria-labelledby="kb-import-title">{contents}</section>
 }
 
 /** Audience and plan scope of a source: shared by import, create and edit. */

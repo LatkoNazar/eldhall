@@ -72,9 +72,7 @@ export function OperatorGate({ location, initialLink, onLinkConsumed }: { locati
     <ReadOnlyDemoBanner />
     <div className="login-brand"><Brand /><LanguagePicker /></div>
     <section className="login-card card" aria-labelledby="login-title">
-      <span className="eyebrow">{t("core.auth.eyebrow")}</span>
-      <h1 id="login-title">{t("core.auth.headlineFirst")}<br />{t("core.auth.headlineSecond")}</h1>
-      <p className="muted">{t("core.auth.description")}</p>
+      <h1 id="login-title">{t("core.auth.title")}</h1>
       {session.message && <Notice error>{translateMessage(session.message)}</Notice>}
       {session.phase === 'checking' ? <div className="login-verification"><Notice><Icon name="loading" />  {t("core.auth.checking")}</Notice><button type="button" onClick={() => reset()}>{t("core.auth.otherKey")}</button></div>
         : session.phase === 'unavailable' ? <div className="login-verification"><button className="primary full" type="button" onClick={() => begin(session.key)}><Icon name="refresh" />{t("core.auth.retry")}</button><button className="full" type="button" onClick={() => reset()}>{t("core.auth.otherKey")}</button></div>
@@ -87,6 +85,5 @@ export function OperatorGate({ location, initialLink, onLinkConsumed }: { locati
           </form>}
       <AppLink className="subtle-link" href="/chat">{t("core.auth.testAgent")} <Icon name="arrow" size={16} /></AppLink>
     </section>
-    <p className="login-footnote">{t("core.auth.footer")}</p>
   </main>
 }

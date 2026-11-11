@@ -37,18 +37,20 @@ export function ActionCard({ proposal, detail, token, stale, onChanged, compact 
   async function decide(action: 'approve' | 'execute' | 'reject') {
     if (locked || (requestBlocked && action !== 'reject') || (uncertain && !terminal)) return
     setBusy(true); setError(null); setNotice(null)
+    let isTest = detail.case.isTest === true
     try {
       const latest = await request<CaseDetail>(`/cases/${encodeURIComponent(detail.case.id)}`, token)
+      isTest ||= latest.case.isTest === true
       const current = latest.proposals.find(item => item.id === proposal.id)
       if (!current || current.argsHash !== proposal.argsHash || current.status !== proposal.status) throw new UiError('core.action.changed')
       if (action !== 'reject' && blockedRequestProposals(latest.requestCatalog, latest).has(proposal.id)) throw new UiError('core.action.changed')
       const result = await request(`/proposals/${encodeURIComponent(proposal.id)}/${action}`, token, { method: 'POST', body: action === 'reject' ? { reason: reason.trim() } : { argsHash: proposal.argsHash } })
-      trackDecision(action, proposal.tool, result)
+      if (!isTest) trackDecision(action, proposal.tool, result)
       setLockedStatus(proposal.status)
       setNotice({ key: action === 'approve' ? 'core.action.approvedNotice' : action === 'execute' ? 'core.action.executedNotice' : 'core.action.rejectedNotice' })
       setRejecting(false)
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 502) trackDecision(action, proposal.tool, cause.payload)
+      if (!isTest && cause instanceof ApiError && cause.status === 502) trackDecision(action, proposal.tool, cause.payload)
       setError(cause)
       if (action === 'execute' && !(cause instanceof UiError && cause.key === 'core.action.changed')) setUncertain(true)
     } finally { setBusy(false); onChanged() }

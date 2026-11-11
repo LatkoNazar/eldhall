@@ -1,9 +1,51 @@
 /*
  * Active Eldhall Support UI tokens, imported by styles.css.
- * The light navigation, crimson actions and pink selected surfaces retain the
- * original reference direction; typography uses a readable semantic scale.
+ * Brand roles follow the selected accent. Operational statuses use fixed colors.
  * Breakpoints change layout density without reducing the minimum text sizes.
  */
+:where(:root, [data-accent='red']) {
+  --accent-base: #d91836;
+  --accent-hover: #c91531;
+  --accent-active: #b5122b;
+  --accent-link: #c41230;
+  --accent-soft: #fff0f3;
+}
+[data-accent='blue'] {
+  --accent-base: #2458ca;
+  --accent-hover: #204db4;
+  --accent-active: #1b4095;
+  --accent-link: #224ca8;
+  --accent-soft: #edf3ff;
+}
+[data-accent='violet'] {
+  --accent-base: #6e43c1;
+  --accent-hover: #6037ac;
+  --accent-active: #502e90;
+  --accent-link: #5b35a4;
+  --accent-soft: #f4eeff;
+}
+[data-accent='teal'] {
+  --accent-base: #067364;
+  --accent-hover: #056457;
+  --accent-active: #065247;
+  --accent-link: #065d52;
+  --accent-soft: #eaf7f4;
+}
+[data-accent='amber'] {
+  --accent-base: #ab4b06;
+  --accent-hover: #963f05;
+  --accent-active: #7c3407;
+  --accent-link: #8a3b08;
+  --accent-soft: #fff4e7;
+}
+[data-accent='slate'] {
+  --accent-base: #455571;
+  --accent-hover: #3b4a63;
+  --accent-active: #303d52;
+  --accent-link: #394b67;
+  --accent-soft: #eef2f7;
+}
+
 :root {
   --ds-version: "0.3.0";
 
@@ -23,19 +65,19 @@
 
   /* Navigation and brand roles */
   --ds-color-sidebar: #fafbfc;
-  --ds-color-sidebar-active: #fff0f3;
+  --ds-color-sidebar-active: var(--accent-soft);
   --ds-color-sidebar-text: #465268;
-  --ds-color-sidebar-text-active: #c41230;
+  --ds-color-sidebar-text-active: var(--accent-link);
   --ds-color-sidebar-divider: #dde2e8;
-  --ds-color-primary: #d91836;
-  --ds-color-primary-hover: #c91531;
-  --ds-color-primary-active: #b5122b;
+  --ds-color-primary: var(--accent-base);
+  --ds-color-primary-hover: var(--accent-hover);
+  --ds-color-primary-active: var(--accent-active);
   --ds-color-on-primary: #ffffff;
-  --ds-color-link: #c41230;
-  --ds-color-link-hover: #b5122b;
-  --ds-color-selection-bg: #fff0f3;
+  --ds-color-link: var(--accent-link);
+  --ds-color-link-hover: var(--accent-active);
+  --ds-color-selection-bg: var(--accent-soft);
   --ds-color-selection-text: #0b0d14;
-  --ds-color-focus: #b5122b;
+  --ds-color-focus: var(--accent-active);
 
   /* Semantic statuses; never infer permission or financial success from color */
   --ds-color-success: #087f45;
@@ -50,12 +92,12 @@
   --ds-color-danger-bg: #ffe6e8;
   --ds-color-neutral-status: #465268;
   --ds-color-neutral-status-bg: #f3f5f7;
-  --ds-color-chart-primary: #d91836;
-  --ds-color-chart-secondary: #e96886;
-  --ds-color-chart-tertiary: #f6a3b4;
-  --ds-color-chart-quaternary: #facbd4;
-  --ds-color-chart-area: #ffe8ed;
-  --ds-color-chart-boundary: #b5122b;
+  --ds-color-chart-primary: var(--accent-base);
+  --ds-color-chart-secondary: color-mix(in srgb, var(--accent-base) 65%, white);
+  --ds-color-chart-tertiary: color-mix(in srgb, var(--accent-base) 40%, white);
+  --ds-color-chart-quaternary: color-mix(in srgb, var(--accent-base) 22%, white);
+  --ds-color-chart-area: color-mix(in srgb, var(--accent-base) 10%, white);
+  --ds-color-chart-boundary: var(--accent-active);
   --ds-color-chart-grid: #dde2e8;
   --ds-color-overlay: rgb(11 13 20 / 44%);
 

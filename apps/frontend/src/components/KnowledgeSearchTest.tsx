@@ -8,7 +8,7 @@ import type { KnowledgeIndex, KnowledgeSearchResult } from '../lib/knowledge-sea
 export type { KnowledgePassage, KnowledgeHit, KnowledgeIndex, KnowledgeSearchResult } from '../lib/knowledge-search'
 
 /** Lets an operator ask a customer question and see exactly which published passages the AI would receive. */
-export function KnowledgeSearchTest({ token, businessId }: { token: string; businessId: string }) {
+export function KnowledgeSearchTest({ token, businessId, active = true }: { token: string; businessId: string; active?: boolean }) {
   const { t, locale, translateMessage } = useI18n()
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
@@ -21,12 +21,13 @@ export function KnowledgeSearchTest({ token, businessId }: { token: string; busi
   const [notice, setNotice] = useState<UiMessage | null>(null)
 
   useEffect(() => {
+    if (!active) return
     const controller = new AbortController()
     request<unknown>(`/knowledge/index?businessId=${encodeURIComponent(businessId)}`, token, { signal: controller.signal })
-      .then(value => setIndex(isKnowledgeIndex(value) ? value : null))
-      .catch(() => setIndex(null))
+      .then(value => { if (!controller.signal.aborted) setIndex(isKnowledgeIndex(value) ? value : null) })
+      .catch(() => { if (!controller.signal.aborted) setIndex(null) })
     return () => controller.abort()
-  }, [token, businessId, revision])
+  }, [active, token, businessId, revision])
 
   async function reindex() {
     setBusy(true)
@@ -55,17 +56,20 @@ export function KnowledgeSearchTest({ token, businessId }: { token: string; busi
   }
 
   return <section className="card padded" aria-labelledby="kb-search-test-title">
-    <h2 id="kb-search-test-title">{t("operations.knowledge.searchTest")}</h2>
+    <h2 id="kb-search-test-title" className="sr-only">{t('operations.knowledge.searchTest')}</h2>
     <p className="muted">{index?.readOnly ? t("operations.knowledge.externalSearchHint") : t("operations.knowledge.localSearchHint")}</p>
     {index?.readOnly && <Notice>{t("operations.knowledge.qdrantConfigured")} {index.collection}{t("operations.knowledge.externalReadOnly")}</Notice>}
-    {index && <p className="inline-meta"><span>{t("operations.knowledge.index")} {index.vectorStore === 'qdrant' ? t("operations.knowledge.externalQdrant") : index.vectorStore === 'pgvector' ? 'PostgreSQL + pgvector' : t("operations.runtime.memory")}</span><span>{index.embedder.id}</span>{!index.readOnly && <><span>{t("operations.knowledge.chunks")} {index.chunks === null ? '—' : formatNumber(index.chunks, locale)}{index.staleChunks ? t('operations.knowledge.staleChunks', { count: index.staleChunks }) : ''}</span><button type="button" disabled={busy} onClick={() => void reindex()}>{t("operations.knowledge.reindex")}</button></>}</p>}
-    {notice && <Notice>{translateMessage(notice)}</Notice>}
-    <form className="resource-toolbar" style={{ padding: 0 }} onSubmit={event => { event.preventDefault(); void run() }}>
+    <form className="knowledge-search-form" onSubmit={event => { event.preventDefault(); void run() }}>
       <label className="search-field"><Icon name="search" /><input aria-label={t("operations.knowledge.customerQuestion")} placeholder={t("operations.knowledge.questionPlaceholder")} maxLength={500} value={query} onChange={event => setQuery(event.target.value)} /></label>
       <select aria-label={t("operations.knowledge.searchAudience")} disabled={index?.readOnly} value={index?.readOnly ? 'customer' : audience} onChange={event => setAudience(event.target.value === 'any' ? 'any' : 'customer')}><option value="customer">{t("operations.knowledge.asCustomer")}</option><option value="any">{t("operations.knowledge.asTeam")}</option></select>
-      <input aria-label={t("operations.knowledge.customerPlan")} placeholder={t("operations.knowledge.planPlaceholder")} maxLength={80} value={plan} onChange={event => setPlan(event.target.value)} style={{ maxWidth: 200 }} />
+      <input aria-label={t("operations.knowledge.customerPlan")} placeholder={t("operations.knowledge.planPlaceholder")} maxLength={80} value={plan} onChange={event => setPlan(event.target.value)} />
       <button type="submit" className="primary" disabled={busy || !query.trim()}>{busy ? t("operations.knowledge.searching") : t("operations.knowledge.check")}</button>
     </form>
+    {index && <details className="knowledge-index">
+      <summary>{t('operations.knowledge.indexSettings')}</summary>
+      <p className="inline-meta"><span>{t("operations.knowledge.index")} {index.vectorStore === 'qdrant' ? t("operations.knowledge.externalQdrant") : index.vectorStore === 'pgvector' ? 'PostgreSQL + pgvector' : t("operations.runtime.memory")}</span><span>{index.embedder.id}</span>{!index.readOnly && <><span>{t("operations.knowledge.chunks")} {index.chunks === null ? '—' : formatNumber(index.chunks, locale)}{index.staleChunks ? t('operations.knowledge.staleChunks', { count: index.staleChunks }) : ''}</span><button type="button" disabled={busy} onClick={() => void reindex()}>{t("operations.knowledge.reindex")}</button></>}</p>
+    </details>}
+    {notice && <Notice>{translateMessage(notice)}</Notice>}
     {Boolean(error) && <ErrorNotice error={error}></ErrorNotice>}
     {result && <div aria-live="polite">
       <p className="inline-meta" style={{ marginTop: 12 }}>{result.hits.length ? t('operations.knowledge.foundSources', { count: result.hits.length }) : t("operations.knowledge.noSearchResults")} · {result.mode === 'hybrid' ? t('operations.runtime.hybrid') : result.mode === 'lexical' ? t('operations.runtime.lexical') : result.mode === 'external' ? t('operations.knowledge.externalMode') : result.mode} · {result.embedder} · {formatNumber(result.tookMs, locale)} {t("operations.common.milliseconds")}</p>

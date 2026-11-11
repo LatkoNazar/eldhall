@@ -20,7 +20,7 @@ export interface Analysis {
   sentiment: { label: string; frustration: number; escalationRisk: number; signals: string[]; urgency: string }
   classification?: TicketClassification | null
 }
-export interface SupportCase { id: string; businessId: string; customerId: string; customerName: string; status: CaseStatus; priority: string; intent: string | null; analysis: Analysis | null; ownership?: 'bot' | 'staff'; ownershipVersion?: number; assignedTo?: string | null; createdAt: string; updatedAt: string }
+export interface SupportCase { id: string; businessId: string; customerId: string; customerName: string; status: CaseStatus; priority: string; intent: string | null; analysis: Analysis | null; ownership?: 'bot' | 'staff'; ownershipVersion?: number; assignedTo?: string | null; isTest?: boolean; createdAt: string; updatedAt: string }
 export interface Message { id: string; caseId: string; role: 'customer' | 'assistant' | 'operator' | 'system'; body: string; createdAt: string }
 export interface Proposal { id: string; caseId: string; tool: string; args: Record<string, unknown>; argsHash: string; risk: string; status: ProposalStatus; policy: { allowed: boolean; requiresApproval: boolean; checks: { name: string; passed: boolean; detail: string }[] }; authorizationOrigin?: 'policy_auto' | 'operator_approval' | null; decidedBy: string | null; decidedAt: string | null; result: Record<string, unknown> | null; error: string | null; createdAt: string }
 export interface CaseDetail {
@@ -85,6 +85,7 @@ function classificationConfigShape(value: unknown): boolean {
 const customerMessageShape = (value: unknown) => record(value) && strings(value, ['caseId', 'status']) && ownershipShape(value.ownership) && (value.reply === null || messageShape(value.reply)) && (value.runId === undefined || value.runId === null || typeof value.runId === 'string')
 function caseShape(value: unknown): boolean {
   if (!record(value) || !strings(value, ['id', 'customerName', 'status', 'priority', 'updatedAt'])) return false
+  if (value.isTest !== undefined && typeof value.isTest !== 'boolean') return false
   if (!['open', 'awaiting_approval', 'escalated', 'resolved'].includes(String(value.status)) || Number.isNaN(Date.parse(String(value.updatedAt)))) return false
   const analysis = value.analysis
   return analysis === null || (record(analysis) && strings(analysis, ['summary', 'reasoning', 'source', 'model']) && record(analysis.sentiment) && list(analysis.sentiment.signals, item => typeof item === 'string') && classificationShape(analysis.classification))
@@ -98,12 +99,13 @@ function validPayload(path: string, value: unknown): boolean {
   if (/^\/cases\/[^/]+$/.test(route)) return record(value) && caseShape(value.case) && record(value.customer) && strings(value.customer, ['name', 'email', 'plan']) && list(value.messages, messageShape) && list(value.proposals, proposalShape) && list(value.payments, item => record(item) && strings(item, ['id', 'currency', 'createdAt', 'description', 'status']) && finite(item.amountCents)) && list(value.refunds, item => record(item) && strings(item, ['id', 'providerRef'])) && list(value.audit, item => record(item) && strings(item, ['id', 'type', 'actor', 'createdAt'])) && list(value.runs, item => record(item) && strings(item, ['id', 'status', 'provider', 'model']) && finite(item.latencyMs) && list(item.toolCalls, tool => typeof tool === 'string')) && customerRunShape(value.activeRun) && validRequestCatalog(value.requestCatalog, value as unknown as CaseDetail) && validAgentActivity(value.agentActivity, value as unknown as CaseDetail)
   if (route === '/metrics') return record(value) && finite(value.cases) && record(value.byStatus) && ['open', 'awaiting_approval', 'escalated', 'resolved'].every(key => finite((value.byStatus as Record<string, unknown>)[key])) && record(value.byPriority) && record(value.proposals) && Object.values(value.proposals).every(finite) && finite(value.agentRuns) && finite(value.fallbackRuns) && (value.avgAgentLatencyMs === null || finite(value.avgAgentLatencyMs))
   if (route === '/chat/personas') return list(value, item => record(item) && strings(item, ['name', 'sessionToken', 'businessName', 'plan']))
+  if (route === '/chat/cases' || route === '/chat/test-cases') return record(value) && typeof value.id === 'string' && value.id.trim().length > 0 && (route === '/chat/test-cases' ? value.isTest === true : value.isTest === undefined || typeof value.isTest === 'boolean')
   if (/^\/chat\/cases\/[^/]+$/.test(route)) return record(value) && strings(value, ['id', 'status', 'businessName']) && ownershipShape(value.ownership) && customerRunShape(value.activeRun) && list(value.messages, messageShape)
   if (route === '/businesses') return record(value) && list(value.businesses, item => record(item) && strings(item, ['id', 'name', 'currency']))
   if (route === '/knowledge') return record(value) && record(value.capabilities) && list(value.sources, item => record(item) && strings(item, ['id', 'businessId', 'title', 'category', 'content', 'status', 'updatedAt']) && finite(item.version))
   if (route === '/team') return record(value) && record(value.capabilities) && list(value.members, item => record(item) && strings(item, ['id', 'name', 'role']) && finite(item.assignedCases))
   if (route === '/settings') return record(value) && strings(value, ['businessId', 'language', 'tone']) && finite(value.version) && finite(value.refundLimitCents) && finite(value.duplicateWindowMinutes) && list(value.enabledTools, item => typeof item === 'string') && classificationConfigShape(value.classification)
-  if (route === '/skills') return record(value) && typeof value.preset === 'string' && list(value.skills, item => record(item) && strings(item, ['id', 'name', 'content', 'updatedAt']) && finite(item.revision) && typeof item.enabled === 'boolean')
+  if (route === '/skills') return record(value) && typeof value.preset === 'string' && (value.canGenerate === undefined || typeof value.canGenerate === 'boolean') && list(value.skills, item => record(item) && strings(item, ['id', 'name', 'content', 'updatedAt']) && finite(item.revision) && typeof item.enabled === 'boolean')
   if (route === '/capabilities') return record(value) && strings(value, ['runtime', 'provider', 'model', 'persistence', 'paymentProvider', 'knowledgeSearch']) && typeof value.credentialsConfigured === 'boolean' && finite(value.maxToolCalls)
   return record(value) || Array.isArray(value)
 }
@@ -130,7 +132,7 @@ export async function request<T>(path: string, token = '', options: { method?: s
     }
     const valid = options.method === 'POST' && /^\/chat\/cases\/[^/]+\/messages$/.test(path)
       ? customerMessageShape(payload)
-      : options.method ? record(payload) || Array.isArray(payload) : validPayload(path, payload)
+      : options.method && path !== '/chat/cases' && path !== '/chat/test-cases' ? record(payload) || Array.isArray(payload) : validPayload(path, payload)
     if (!valid) throw new ApiError(response.status, '', undefined, { key: 'core.error.invalidResponse' })
     return payload as T
   } catch (error) {

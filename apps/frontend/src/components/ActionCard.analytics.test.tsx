@@ -1,4 +1,4 @@
-import { render, screen } from '../test/render'
+import { render, screen, waitFor } from '../test/render'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import * as analytics from '@eldhall/analytics'
@@ -76,6 +76,17 @@ it('does not send external operation identities through the builtin event contra
   expect(track).not.toHaveBeenCalled()
 })
 
+it('does not send product events for an action on a test case', async () => {
+  const current = proposal()
+  const { fetch, onChanged } = mount(current, { proposal: { status: 'executed' } })
+  const latest = detail(current)
+  latest.case.isTest = true
+  fetch.mockImplementation(async (_input, init) => response(init?.method === 'POST' ? { proposal: { status: 'executed' } } : latest))
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Виконати погоджену дію' }))
+  expect(onChanged).toHaveBeenCalledOnce()
+  expect(track).not.toHaveBeenCalled()
+})
+
 it.each([200, 502])('a throwing tracker cannot change the confirmed success or error flow (%s)', async status => {
   track.mockImplementation(() => { throw new Error('collector unavailable') })
   const { onChanged } = mount(proposal(), { proposal: { status: status === 200 ? 'executed' : 'unknown', error: 'Provider result requires review' } }, status)
@@ -94,13 +105,43 @@ it.each([200, 502])('a throwing tracker cannot change the confirmed success or e
 
 it('a throwing tracker cannot turn a created customer case into an error or expose its session', async () => {
   track.mockImplementation(() => { throw new Error('collector unavailable') })
-  const fetch = vi.fn(async (input: RequestInfo | URL) => response(String(input).endsWith('/personas') ? [{ name: 'Synthetic customer', sessionToken: 'customer-private', businessName: 'Demo', plan: 'Test' }] : String(input).endsWith('/chat/cases') ? { id: 'case-private' } : { id: 'case-private', status: 'open', businessName: 'Demo', messages: [] }))
+  sessionStorage.setItem('support.customer', 'customer-private')
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path.endsWith('/personas')) return response([])
+    if (path.endsWith('/chat/cases')) return response({ id: 'case-private' })
+    if (path.endsWith('/messages')) return response({ caseId: 'case-private', status: 'open', reply: null })
+    return response({ id: 'case-private', status: 'open', businessName: 'Demo', messages: [] })
+  })
   vi.stubGlobal('fetch', fetch)
   render(<CustomerChat />)
-  await userEvent.setup().click(await screen.findByRole('button', { name: /Synthetic customer/ }))
-  expect(await screen.findByLabelText('Ваше повідомлення')).toBeInTheDocument()
+  const user = userEvent.setup()
+  const draft = await screen.findByLabelText('Ваше повідомлення')
+  await user.type(draft, 'Тестове повідомлення')
+  await user.click(screen.getByRole('button', { name: 'Надіслати' }))
+  await waitFor(() => expect(draft).toHaveValue(''))
   expect(screen.queryByText('collector unavailable')).not.toBeInTheDocument()
   expect(track.mock.calls).toEqual([['support_case_created', {}]])
   const create = fetch.mock.calls.find(([url]) => String(url).endsWith('/chat/cases'))
   expect(create).toBeDefined()
+})
+
+it('keeps sessions created via the demo chat out of analytics and links to their history', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path.endsWith('/personas')) return response([{ name: 'Demo customer', plan: 'Demo', sessionToken: 'demo-customer', businessName: 'Demo' }])
+    if (path.endsWith('/chat/test-cases')) return response({ id: 'case-private', isTest: true })
+    if (path.endsWith('/messages')) return response({ caseId: 'case-private', status: 'open', reply: null })
+    return response({ id: 'case-private', status: 'open', businessName: 'Demo', messages: [] })
+  }))
+  render(<CustomerChat />)
+  const user = userEvent.setup()
+  await user.type(await screen.findByLabelText('Ваше повідомлення'), 'Test')
+  await user.click(screen.getByRole('button', { name: 'Надіслати' }))
+  const history = await screen.findByRole('link', { name: 'Історія тестових чатів' })
+  const target = new URL(history.getAttribute('href')!, window.location.origin)
+  expect(target.pathname).toBe('/operator')
+  expect(target.searchParams.get('environment')).toBe('test')
+  expect(target.searchParams.get('caseId')).toBe('case-private')
+  expect(track).not.toHaveBeenCalled()
 })

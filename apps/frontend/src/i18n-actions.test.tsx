@@ -71,20 +71,23 @@ it('keeps a customer draft and stored business messages unchanged and sends only
   const originalBody = 'Original stored reply: Ваша оплата вже перевірена.'
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).endsWith('/personas')) return response([{ name: 'Original customer', sessionToken: 'synthetic-customer', businessName: 'Original business', plan: 'Original plan' }])
-    if (String(input).endsWith('/chat/cases') && init?.method === 'POST') return response({ id: 'case-synthetic' })
+    if (String(input).endsWith('/chat/test-cases') && init?.method === 'POST') return response({ id: 'case-synthetic', isTest: true })
     if (init?.method === 'POST') return response({ caseId: 'case-synthetic', status: 'open', ownership: 'staff', reply: null })
     return response({ id: 'case-synthetic', status: 'open', businessName: 'Original business', messages: [{ id: 'message-synthetic', caseId: 'case-synthetic', role: 'assistant', body: originalBody, createdAt: time }] })
   })
   vi.stubGlobal('fetch', fetch)
   render(<I18nProvider initialLocale="en"><CustomerChat /></I18nProvider>)
   const user = userEvent.setup()
-  await user.click(await screen.findByRole('button', { name: /Original customer/ }))
   const draft = await screen.findByLabelText(text('core.chat.message', 'en'))
-  await user.type(draft, 'Original customer text: Не перекладати 123')
+  await user.type(draft, 'First message')
+  await user.click(screen.getByRole('button', { name: text('core.common.send', 'en') }))
   expect(await screen.findByText(originalBody)).toBeInTheDocument()
+  await waitFor(() => expect(draft).toHaveValue(''))
+  await user.type(draft, 'Original customer text: Не перекладати 123')
   const isConversationRead = ([path, init]: [RequestInfo | URL, RequestInit?]) => String(path).endsWith('/chat/cases/case-synthetic') && init?.method !== 'POST'
   const isResourceRead = ([path]: Parameters<typeof api.request>) => path === '/chat/cases/case-synthetic'
-  const read = requests.mock.calls.find(isResourceRead)
+  const readsBeforeLocaleChange = requests.mock.calls.filter(isResourceRead)
+  const read = readsBeforeLocaleChange.at(-1)
   expect(read).toBeDefined()
   const resourceSignal = read?.[2]?.signal
   expect(resourceSignal).toBeInstanceOf(AbortSignal)
@@ -96,9 +99,9 @@ it('keeps a customer draft and stored business messages unchanged and sends only
   expect(resourceSignal?.aborted).toBe(false)
   // Scheduled polling may fire while the user types; a locale change must not
   // restart the resource or create a new request/cleanup controller.
-  expect(requests.mock.calls.filter(isResourceRead).every(([, , options]) => options?.signal === resourceSignal)).toBe(true)
+  expect(requests.mock.calls.filter(isResourceRead).slice(readsBeforeLocaleChange.length).every(([, , options]) => options?.signal === resourceSignal)).toBe(true)
   await user.click(screen.getByRole('button', { name: text('core.common.send', 'de') }))
-  const sent = fetch.mock.calls.find(([path]) => String(path).endsWith('/messages'))
+  const sent = fetch.mock.calls.filter(([path]) => String(path).endsWith('/messages')).at(-1)
   expect(JSON.parse(String(sent?.[1]?.body))).toEqual({ body: 'Original customer text: Не перекладати 123' })
   expect(new Headers(sent?.[1]?.headers).get('X-Customer-Session')).toBe('synthetic-customer')
   expect(new Headers(sent?.[1]?.headers).has('Authorization')).toBe(false)

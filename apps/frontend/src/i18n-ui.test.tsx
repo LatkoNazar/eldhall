@@ -114,7 +114,7 @@ it('switches languages during a pending key check without revalidating, changing
   await user.type(screen.getByLabelText('Operator access key'), 'synthetic-operator-key')
   await user.selectOptions(screen.getByRole('combobox'), 'es')
   expect(await screen.findByLabelText('Clave de acceso del operador')).toHaveValue('synthetic-operator-key')
-  await user.click(screen.getByRole('button', { name: 'Abrir espacio de trabajo' }))
+  await user.click(screen.getByRole('button', { name: 'Iniciar sesión' }))
   expect(fetch).toHaveBeenCalledOnce()
   await user.selectOptions(screen.getByRole('combobox'), 'de')
   expect(await screen.findByText('Zugriffsschlüssel wird geprüft…')).toBeInTheDocument()

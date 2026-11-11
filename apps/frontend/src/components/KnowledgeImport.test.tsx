@@ -19,7 +19,7 @@ it('imports an allow-listed page as an internal, plan-scoped draft', async () =>
   await user.selectOptions(screen.getByLabelText('Хто бачить'), 'internal')
   await user.type(screen.getByLabelText('Тарифи'), 'Annual, Annual , Premium monthly')
   await user.click(screen.getByRole('button', { name: 'Імпортувати як чернетку' }))
-  await waitFor(() => expect(onImported).toHaveBeenCalledWith({ key: 'operations.knowledge.importCreated', values: { title: 'Години роботи' } }))
+  await waitFor(() => expect(onImported).toHaveBeenCalledWith({ key: 'operations.knowledge.importCreated', values: { title: 'Години роботи' } }, 'd1'))
   const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
   expect(url).toBe(`/api/v1/knowledge/import-url?businessId=${businessId}`)
   expect(JSON.parse(String(init.body))).toEqual({ category: 'Support', audience: 'internal', plans: ['Annual', 'Premium monthly'], url: 'https://help.example.com/hours' })

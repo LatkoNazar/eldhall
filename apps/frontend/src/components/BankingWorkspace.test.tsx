@@ -84,31 +84,125 @@ it('edits a stable skill by exact revision, keeps its draft on409 and never retr
   expect(fetch.mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(1)
 })
 
-it('saves only supported structured guards with exact configurationCAS and preserves conflicts', async () => {
-  const config = guardFixture()
+it('reviews a generated draft, selects an existing skill link, then saves the edited draft disabled', async () => {
+  const existing = skillFixture()
   const fetch = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
-    if (String(input).includes('/guards/database?')) return response(databasePolicyFixture())
-    if (options?.method === 'PUT') { config.version = 2; return response({ detail: 'Settings version changed' }, 409) }
+    if (String(input).startsWith('/api/v1/skills/draft?')) {
+      return response({ slug: 'check-charge', content: 'Review captured payments.', reviewedSkills: 1, totalSkills: 1,
+        related: [{ id: existing.id, name: existing.name, enabled: true, revision: existing.revision, kind: 'reuse', reason: 'Already describes payment verification.' }] })
+    }
+    if (options?.method === 'POST') return response({ ...existing, id: uuid(999), name: 'custom/check-charge', content: 'Review both captured payments.', enabled: false }, 201)
+    return response({ skills: [existing], preset: 'support-v1', canGenerate: true })
+  })
+  vi.stubGlobal('fetch', fetch)
+  const user = userEvent.setup()
+  render(<SkillsPanel token="synthetic-operator" businessId={workspaceBusiness.id} />)
+  await screen.findByText(/custom\/customer-support/)
+  await user.click(screen.getByRole('button', { name: 'Додати навичку' }))
+  await user.type(screen.getByLabelText('Опишіть процес'), 'Перевірити повторне списання клієнта.')
+  await user.click(screen.getByRole('button', { name: 'Створити чернетку' }))
+  const editor = within(await screen.findByRole('form')).getByRole('textbox', { name: 'Інструкція' })
+  expect(editor).toHaveValue('Review captured payments.')
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+  await user.clear(editor)
+  await user.type(editor, 'Review both captured payments.')
+  await user.click(screen.getByRole('checkbox', { name: `Додати зв’язок із ${existing.name}` }))
+  await user.click(screen.getByRole('button', { name: 'Зберегти чернетку' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Зберегти чернетку' })).not.toBeInTheDocument())
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === 'POST')
+  expect(JSON.parse(String(writes[0]![1]?.body))).toEqual({ description: 'Перевірити повторне списання клієнта.' })
+  expect(JSON.parse(String(writes[1]![1]?.body))).toEqual({
+    name: 'custom/check-charge', content: 'Review both captured payments.', enabled: false, relatedSkillIds: [existing.id],
+  })
+})
+
+it('reviews a guard from text, preserves it on conflict, and saves a regenerated draft disabled', async () => {
+  let config = { ...guardFixture(), canGenerate: true }
+  const guard = { id: uuid(650), name: 'Refund ceiling', definitionVersion: 1, enabled: false,
+    kind: 'amount_limit', target: { tool: 'refund_payment' }, maxAmountCents: 25000, currency: 'UAH', reason: 'Limit refunds to 250 UAH.' }
+  const fetch = vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input).includes('/guards/draft?')) return response({ guard })
+    if (options?.method === 'PUT') {
+      const body = JSON.parse(String(options.body))
+      if (body.version === 1) { config.version = 2; return response({ detail: 'Settings version changed' }, 409) }
+      config = { ...config, version: config.version + 1, rules: body.rules }
+    }
     return response(config)
   })
   vi.stubGlobal('fetch', fetch)
   const user = userEvent.setup()
-  render(<GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} currency="UAH" />)
+  render(<GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} />)
   await user.click(await screen.findByRole('button', { name: 'Додати обмеження' }))
-  expect(screen.getByRole('button', { name: 'Зберегти обмеження' })).toBeDisabled()
-  await user.type(screen.getByLabelText('Назва правила'), 'High-value refund ceiling')
-  await user.selectOptions(screen.getByLabelText('Тип правила'), 'amount_limit')
-  await user.clear(screen.getByLabelText('Гранична сума в мінімальних одиницях (копійках)'))
-  await user.type(screen.getByLabelText('Гранична сума в мінімальних одиницях (копійках)'), '25000')
-  expect(Array.from(screen.getByLabelText('Цільова дія').querySelectorAll('option')).map(option => option.value)).toEqual(['refund_payment'])
-  await user.type(screen.getByLabelText('Підстава в перевірках дії'), 'Specialist review required for larger refunds.')
-  await user.click(screen.getByRole('button', { name: 'Зберегти обмеження' }))
-  expect(await screen.findByText(/Конфігурація змінилася/)).toBeInTheDocument()
-  expect(screen.getByLabelText('Назва правила')).toHaveValue('High-value refund ceiling')
+  const description = screen.getByLabelText('Опишіть правило')
+  await user.type(description, 'Block refunds above 250 UAH.')
+  await user.click(screen.getByRole('button', { name: 'Створити чернетку' }))
+  expect(await screen.findByText(/Обмежити суму повернення.*250,00/)).toBeInTheDocument()
+  expect(fetch.mock.calls.filter(([, options]) => options?.method === 'PUT')).toHaveLength(0)
+  await user.click(screen.getByRole('button', { name: 'Зберегти чернетку' }))
+  expect(await screen.findByText(/Створіть чернетку заново/)).toBeInTheDocument()
+  expect(description).toHaveValue('Block refunds above 250 UAH.')
+  expect(screen.queryByRole('button', { name: 'Зберегти чернетку' })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Створити чернетку' }))
+  await user.click(await screen.findByRole('button', { name: 'Зберегти чернетку' }))
+  await user.click(await screen.findByRole('button', { name: 'Увімкнути' }))
+  expect(await screen.findByText('Чинне')).toBeInTheDocument()
+  const writes = fetch.mock.calls.filter(([, options]) => options?.method === 'PUT').map(([, options]) => JSON.parse(String(options?.body)))
+  expect(writes).toEqual([
+    { version: 1, rules: [guard] }, { version: 2, rules: [guard] }, { version: 3, rules: [{ ...guard, enabled: true }] },
+  ])
+})
+
+it('keeps unsupported conversation guidance in the editor and offers a link to agent skills', async () => {
+  const fetch = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => options?.method === 'POST'
+    ? response({ code: 'guard_draft_unsupported', detail: 'Unsupported guard draft' }, 422)
+    : response({ ...guardFixture(), canGenerate: true }))
+  vi.stubGlobal('fetch', fetch)
+  const user = userEvent.setup()
+  render(<GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} />)
+  await user.click(await screen.findByRole('button', { name: 'Додати обмеження' }))
+  const description = screen.getByRole('textbox', { name: 'Опишіть правило' })
+  await user.type(description, 'Блокуй запити про внутрішню інформацію.')
+  await user.click(screen.getByRole('button', { name: 'Створити чернетку' }))
+  const editor = screen.getByRole('form', { name: 'Нове обмеження' })
+  expect(await within(editor).findByRole('alert')).toHaveTextContent(/дію, яку треба заблокувати/)
+  expect(within(editor).getByRole('link', { name: 'Відкрити навички агента' })).toHaveAttribute('href', '/operator/settings?section=skills&lang=uk')
+  expect(description).toHaveValue('Блокуй запити про внутрішню інформацію.')
+  await user.click(within(editor).getByRole('button', { name: 'Скасувати' }))
+  const discard = within(editor).getByRole('group', { name: 'Відкинути незбережену чернетку?' })
+  await user.click(within(discard).getByRole('button', { name: 'Скасувати' }))
+  expect(description).toHaveFocus()
+  expect(description).toHaveValue('Блокуй запити про внутрішню інформацію.')
+  expect(fetch.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+})
+
+it('cancels inline removal without writing and deletes only the confirmed rule', async () => {
+  const selected = { id: uuid(655), name: 'Refund guard', definitionVersion: 1 as const, enabled: false,
+    kind: 'deny_action' as const, target: { tool: 'refund_payment' as const }, reason: 'Refunds are blocked.' }
+  const remaining = { ...selected, id: uuid(656), name: 'Another guard' }
+  let config = { ...guardFixture(), rules: [selected, remaining], canGenerate: true }
+  const fetch = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
+    if (options?.method === 'PUT') config = { ...config, version: 2, rules: JSON.parse(String(options.body)).rules }
+    return response(config)
+  })
+  vi.stubGlobal('fetch', fetch)
+  const user = userEvent.setup()
+  render(<GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} />)
+  const row = (await screen.findByText(selected.name)).closest('li')!
+  const remove = within(row).getByRole('button', { name: 'Видалити правило' })
+  await user.click(remove)
+  const confirm = within(row).getByRole('group', { name: /Refund guard/ })
+  expect(within(confirm).getByRole('button', { name: 'Скасувати' })).toHaveFocus()
+  await user.keyboard('{Escape}')
+  expect(confirm).not.toBeInTheDocument()
+  expect(remove).toHaveFocus()
+  expect(fetch.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+  await user.click(remove)
+  const reopened = within(row).getByRole('group', { name: /Refund guard/ })
+  await user.click(within(reopened).getByRole('button', { name: 'Видалити правило' }))
+  await waitFor(() => expect(row).not.toBeInTheDocument())
   const writes = fetch.mock.calls.filter(([, options]) => options?.method === 'PUT')
   expect(writes).toHaveLength(1)
-  expect(JSON.parse(String(writes[0]![1]!.body))).toMatchObject({ version: 1, rules: [{ kind: 'amount_limit', target: { tool: 'refund_payment' }, maxAmountCents: 25000, currency: 'UAH', enabled: true, definitionVersion: 1 }] })
-  expect(screen.getByRole('button', { name: 'Зберегти обмеження' })).toBeDisabled()
+  expect(JSON.parse(String(writes[0]?.[1]?.body))).toEqual({ version: 1, rules: [remaining] })
 })
 
 it('shows only recorded public call/result/decision fields and filters requests by explicit links', async () => {
@@ -152,15 +246,15 @@ it('does not fabricate historical call inputs/results from old tool-name metadat
 it('keeps skill and guard drafts across all five interface languages without requests or writes on language changes', async () => {
   const locales = ['en', 'es', 'uk', 'de', 'pt'] as const
   await Promise.all(locales.map(loadAppCatalog))
-  const fetch = vi.fn(async (input: RequestInfo | URL) => response(String(input).includes('/guards/database?') ? databasePolicyFixture() : String(input).includes('/guards?') ? guardFixture() : { skills: [skillFixture()], preset: 'support-v1' }))
+  const fetch = vi.fn(async (input: RequestInfo | URL) => response(String(input).includes('/guards/database?') ? databasePolicyFixture() : String(input).includes('/guards?') ? { ...guardFixture(), canGenerate: true } : { skills: [skillFixture()], preset: 'support-v1' }))
   vi.stubGlobal('fetch', fetch)
   const user = userEvent.setup()
-  render(<><LanguagePicker /><SkillsPanel token="synthetic-operator" businessId={workspaceBusiness.id} /><GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} currency="UAH" /></>)
+  render(<><LanguagePicker /><SkillsPanel token="synthetic-operator" businessId={workspaceBusiness.id} /><GuardsPanel token="synthetic-operator" businessId={workspaceBusiness.id} /></>)
   await user.click(await screen.findByText(/custom\/customer-support/))
   const content = screen.getByLabelText('Інструкція')
   await user.type(content, ' Keep this draft.')
   await user.click(await screen.findByRole('button', { name: 'Додати обмеження' }))
-  const name = screen.getByLabelText('Назва правила')
+  const name = screen.getByLabelText('Опишіть правило')
   await user.type(name, 'Preserve this rule')
   const picker = screen.getByRole('combobox', { name: 'Мова інтерфейсу' })
   const calls = fetch.mock.calls.length
