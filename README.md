@@ -58,6 +58,8 @@ docker run --rm --network none --read-only LOCAL_SERVER_IMAGE eldhall version
 
 ## Connect your business
 
+To add the support agent to your application, start with the [integration guide](docs/AGENT_INTEGRATION.md). It includes HTTP requests, a [runnable Python example](examples/support_chat.py), operator handoff and business data setup. Use the [API reference](docs/API_CONTRACTS.md) for endpoints, request bodies and error handling.
+
 1. Provision business/customer identity through the trusted [headless administration API](docs/API_CONTRACTS.md#headless-administration). Give the customer only their opaque session, never an operator key.
 2. Add your published knowledge and approved [skills/configuration](docs/integrations-runtime.md). Existing centralized Qdrant can be configured for [read-only external retrieval](docs/EXTERNAL_DATA.md).
 3. For actions, import a supported OpenAPI subset, inspect the exact operation definitions, configure trusted scope/target mapping, then review and activate the catalog through the operator API/UI. Follow the [walkthrough](docs/OPENAPI_QUICKSTART.md) and [manifest/permission contract](docs/integrations-manifest.md).
