@@ -12,14 +12,20 @@ import { createViewNode } from '../../landing/src/scenario-view.ts'
 import { localeCodes, localeStorageKey, type Locale } from '../../../packages/i18n/src/core.ts'
 
 const master = readFileSync(resolve(process.cwd(), '../landing/index.html'), 'utf8')
+const site = 'https://landing.example.test/'
 
 beforeEach(() => {
   localStorage.clear()
   history.replaceState(null, '', '/en/?utm_campaign=demo#scenario')
 })
 const parsed = (source: string) => new DOMParser().parseFromString(source, 'text/html')
+const structuredData = (html: Document) => {
+  const scripts = html.querySelectorAll('head script[type="application/ld+json"]')
+  expect(scripts).toHaveLength(1)
+  return JSON.parse(scripts[0]!.textContent ?? '')
+}
 async function page(locale: Locale = 'en') {
-  const html = parsed(await renderLanding(master, locale, 'https://app.example/operator?utm_source=landing'))
+  const html = parsed(await renderLanding(master, locale, 'https://app.example/operator?utm_source=landing', site))
   document.documentElement.innerHTML = html.documentElement.innerHTML
   document.documentElement.lang = locale
   return document.querySelector<HTMLSelectElement>('[data-language-picker]')!
@@ -40,9 +46,24 @@ it('maintains complete independently editable catalogs and matching interpolatio
 
 it('renders static copy, a11y metadata and the initial demo for every locale without JavaScript', async () => {
   for (const locale of localeCodes) {
-    const html = parsed(await renderLanding(master, locale, 'https://app.example/operator?utm_source=landing'))
+    const html = parsed(await renderLanding(master, locale, 'https://app.example/operator?utm_source=landing', site))
     expect(html.documentElement.lang).toBe(locale)
     expect(html.title).toBe(translate(locale, 'meta.title'))
+    const canonical = html.querySelector<HTMLLinkElement>('head link[rel=canonical]')?.href
+    const expectedUrl = locale === 'en' ? site : `${site}${locale}/`
+    expect(canonical).toBe(expectedUrl)
+    expect(html.querySelector('.site-header .brand')?.textContent?.trim()).toMatch(/^eldhall$/i)
+    expect(structuredData(html)).toEqual({
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'WebSite', '@id': `${site}#website`, url: site, name: 'Eldhall' },
+        {
+          '@type': 'WebPage', '@id': `${expectedUrl}#webpage`, url: expectedUrl, name: html.title,
+          description: html.querySelector('.hero .lead')?.textContent, inLanguage: html.documentElement.lang,
+          isPartOf: { '@id': `${site}#website` },
+        },
+      ],
+    })
     expect(html.querySelector('meta[name=description]')?.getAttribute('content')).toBe(translate(locale, 'meta.description'))
     for (const element of html.querySelectorAll('[data-i18n]')) {
       if (element.hasAttribute('data-app-label')) continue
@@ -79,6 +100,10 @@ it('retains authored SVG and rich headings while creating view text without an H
   const heading = document.querySelector('#hero-title')!
   const icons = document.querySelectorAll('svg use').length
   applyLandingLocale(document, 'pt')
+  expect(structuredData(document)['@graph'][1]).toMatchObject({
+    url: `${site}de/`, name: document.title, inLanguage: 'pt',
+    description: document.querySelector('.hero .lead')?.textContent,
+  })
   expect(heading.querySelector('em')).toHaveTextContent(translate('pt', 'hero.emphasis'))
   expect(document.querySelectorAll('svg use')).toHaveLength(icons)
   const node = createViewNode({ tag: 'p', children: ['<img src=x onerror="alert(1)">&'] }, document)
@@ -164,9 +189,10 @@ it('honors query before route preference and keeps a failed initial static page 
 })
 
 it('emits five directories from the same transformed asset document', async () => {
-  const plugin = landingLocalization('https://app.example/operator')
+  const plugin = landingLocalization('https://app.example/operator', site)
   const emitFile = vi.fn()
-  const bundle = { 'index.html': { type: 'asset', source: master.replace('/src/main.ts', '/assets/main-example.js') } }
+  const source = await renderLanding(master.replace('/src/main.ts', '/assets/main-example.js'), 'en', undefined, site)
+  const bundle = { 'index.html': { type: 'asset', source } }
   const hook = plugin.generateBundle
   if (typeof hook !== 'function') throw new Error('Missing static locale build hook')
   await hook.call({ emitFile } as never, {} as never, bundle as never, false)
@@ -175,7 +201,15 @@ it('emits five directories from the same transformed asset document', async () =
     const asset = emitFile.mock.calls[index]![0]
     expect(asset.fileName).toBe(`${locale}/index.html`)
     expect(parsed(asset.source).documentElement.lang).toBe(locale)
+    expect(structuredData(parsed(asset.source))['@graph'][1].inLanguage).toBe(locale)
     expect(asset.source).toContain('/assets/main-example.js')
     expect(asset.source).not.toContain('/src/main.ts')
+  }
+})
+
+it('omits public schema and canonical URLs from builds without a valid landing origin', async () => {
+  for (const origin of [undefined, 'http://localhost:5174', 'https://example.test/app', 'https://user:secret@example.test/']) {
+    const html = parsed(await renderLanding(master, 'en', 'https://app.example/operator', origin))
+    expect(html.querySelector('script[type="application/ld+json"], link[rel=canonical]')).toBeNull()
   }
 })

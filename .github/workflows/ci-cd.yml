@@ -31,6 +31,7 @@ jobs:
     env:
       PROJECT_NAME: ${{ vars.PROJECT_NAME || 'starter' }}
       PUBLIC_APP_URL: http://localhost:18001
+      PUBLIC_LANDING_URL: https://landing.example.test
       PUBLIC_UMAMI_SCRIPT_URL: ""
       PUBLIC_UMAMI_WEBSITE_ID: ""
       PUBLIC_UMAMI_DOMAINS: ""
@@ -116,7 +117,7 @@ jobs:
         run: |
           docker build --tag "$APP_IMAGE" apps/api
           docker build -f apps/frontend/Dockerfile --target production --tag "$FRONTEND_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
-          docker build -f apps/landing/Dockerfile --target production --tag "$LANDING_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build -f apps/landing/Dockerfile --target production --tag "$LANDING_IMAGE" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_LANDING_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
       - name: Generate private CI configuration
         id: ci_environment
         run: python3 scripts/init-env.py --project-name "$PROJECT_NAME" --output .env.ci
@@ -315,6 +316,7 @@ jobs:
       PROJECT_NAME: ${{ vars.PROJECT_NAME }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
       PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      PUBLIC_LANDING_URL: ${{ vars.PUBLIC_LANDING_URL }}
       PUBLIC_UMAMI_SCRIPT_URL: ${{ vars.PUBLIC_UMAMI_SCRIPT_URL }}
       PUBLIC_UMAMI_WEBSITE_ID: ${{ vars.PUBLIC_UMAMI_WEBSITE_ID }}
       PUBLIC_UMAMI_DOMAINS: ${{ vars.PUBLIC_UMAMI_DOMAINS }}
@@ -386,7 +388,7 @@ jobs:
         run: |
           docker build --tag "$PROJECT_NAME:$GITHUB_SHA" apps/api
           docker build -f apps/frontend/Dockerfile --target production --tag "$PROJECT_NAME-frontend:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
-          docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
+          docker build -f apps/landing/Dockerfile --target production --tag "$PROJECT_NAME-landing:$GITHUB_SHA" --build-arg PUBLIC_APP_URL --build-arg PUBLIC_LANDING_URL --build-arg PUBLIC_UMAMI_SCRIPT_URL --build-arg PUBLIC_UMAMI_WEBSITE_ID --build-arg PUBLIC_UMAMI_DOMAINS .
           docker build --target production --tag "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" apps/mcp-openapi
           mkdir -p .deploy
           docker save "$PROJECT_NAME:$GITHUB_SHA" "$PROJECT_NAME-frontend:$GITHUB_SHA" "$PROJECT_NAME-landing:$GITHUB_SHA" "$PROJECT_NAME-mcp-openapi:$GITHUB_SHA" | gzip -1 > .deploy/image.tar.gz

@@ -2,6 +2,7 @@ import { createInstance } from 'i18next'
 import { localeCodes, type Locale } from '../../../../packages/i18n/src/core.ts'
 import english from './locales/en.ts'
 import type { Catalog, MessageKey } from './keys.ts'
+import { landingStructuredData } from '../structured-data.ts'
 export type { Catalog, MessageKey } from './keys.ts'
 
 const loaded = new Map<Locale, Catalog>([['en', english]])
@@ -64,4 +65,8 @@ export function applyLandingLocale(root: Document, locale: Locale): void {
     }
   }
   for (const picker of root.querySelectorAll<HTMLSelectElement>('[data-language-picker]')) picker.value = locale
+  const schema = root.querySelector<HTMLScriptElement>('script[data-landing-schema]')
+  if (schema?.dataset.siteUrl && schema.dataset.pageUrl) {
+    schema.textContent = landingStructuredData(schema.dataset.siteUrl, schema.dataset.pageUrl, locale, root.title, translate(locale, 'hero.lead'))
+  }
 }

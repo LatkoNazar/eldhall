@@ -3,6 +3,7 @@ import { appLink } from '../../../packages/analytics/src/index.ts'
 import { withLocale, type Locale } from '../../../packages/i18n/src/core.ts'
 import { isMessageKey, loadLocale, translate, translatedAttributes } from '../src/i18n/index.ts'
 import { scenarioView, type ViewNode } from '../src/scenario-view.ts'
+import { landingOrigin, landingPageUrl, landingStructuredData } from '../src/structured-data.ts'
 
 type Parent = Tree.Document | Tree.DocumentFragment | Tree.Element
 function elements(root: Parent): Tree.Element[] {
@@ -28,7 +29,7 @@ function viewNode(spec: ViewNode, svg = false): Tree.ChildNode {
 }
 
 /** Messages are text, not HTML; only authored bindings and allowlisted attributes are translated. */
-export async function renderLanding(source: string, locale: Locale, configuredAppUrl?: string): Promise<string> {
+export async function renderLanding(source: string, locale: Locale, configuredAppUrl?: string, configuredLandingUrl?: string): Promise<string> {
   await loadLocale(locale)
   const document = parse(source)
   const nodes = elements(document)
@@ -73,5 +74,24 @@ export async function renderLanding(source: string, locale: Locale, configuredAp
   }
   const previous = byData('data-scenario-prev')
   if (previous) setAttr(previous, 'disabled', '')
+  const origin = landingOrigin(configuredLandingUrl)
+  if (origin) {
+    const head = nodes.find(node => node.tagName === 'head')!
+    const siteUrl = landingPageUrl(origin, 'en')
+    const pageUrl = landingPageUrl(origin, locale)
+    const canonical = nodes.find(node => node.tagName === 'link' && attr(node, 'rel') === 'canonical')
+      ?? adapter.createElement('link', html.NS.HTML, [{ name: 'rel', value: 'canonical' }])
+    setAttr(canonical, 'href', pageUrl)
+    if (!canonical.parentNode) adapter.appendChild(head, canonical)
+
+    const schema = byData('data-landing-schema') ?? adapter.createElement('script', html.NS.HTML, [
+      { name: 'type', value: 'application/ld+json' },
+      { name: 'data-landing-schema', value: '' },
+    ])
+    setAttr(schema, 'data-site-url', siteUrl)
+    setAttr(schema, 'data-page-url', pageUrl)
+    text(schema, landingStructuredData(siteUrl, pageUrl, locale, translate(locale, 'meta.title'), translate(locale, 'hero.lead')))
+    if (!schema.parentNode) adapter.appendChild(head, schema)
+  }
   return serialize(document)
 }
